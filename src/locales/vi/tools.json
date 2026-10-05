@@ -1,0 +1,14 @@
+{
+  "merge": { "title": "Gộp PDF", "desc": "Nối nhiều file thành một, tự sắp thứ tự trước khi gộp." },
+  "split": { "title": "Tách PDF", "desc": "Cắt theo khoảng trang, xuất file mới hoặc nhiều file." },
+  "extract": { "title": "Trích trang", "desc": "Chọn đúng trang cần lấy, xuất thành file riêng." },
+  "remove": { "title": "Xóa trang", "desc": "Loại trang thừa, xem trước kết quả ngay." },
+  "reorder": { "title": "Sắp xếp trang", "desc": "Kéo thả ảnh thu nhỏ để đổi thứ tự trang." },
+  "rotate": { "title": "Xoay trang", "desc": "Xoay 90, 180, 270 độ cho trang đã chọn." },
+  "compress": { "title": "Nén PDF", "desc": "Giảm dung lượng, giữ nguyên chất lượng chữ." },
+  "pdf_to_images": { "title": "PDF sang ảnh", "desc": "Xuất từng trang thành JPG, PNG chất lượng cao." },
+  "images_to_pdf": { "title": "Ảnh sang PDF", "desc": "Gom nhiều ảnh thành một file PDF khổ A4." },
+  "protect": { "title": "Mã hóa PDF", "desc": "Đặt mật khẩu bảo vệ file bằng mã hóa AES." },
+  "metadata": { "title": "Thông tin file", "desc": "Xem và sửa tiêu đề, tác giả, từ khóa." },
+  "sign": { "title": "Ký tài liệu", "desc": "Vẽ, gõ hoặc tải ảnh chữ ký đặt lên trang." }
+}

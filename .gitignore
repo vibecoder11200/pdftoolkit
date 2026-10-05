@@ -1,0 +1,125 @@
+# ============================================================
+# pdftoolkit — .gitignore
+# Nguyên tắc: chỉ commit mã nguồn + tài liệu + config.
+# Mọi thứ tái tạo được (deps, build, report, fixture lớn) đều bỏ.
+# Lockfile (package-lock.json) CỐ Ý commit để build reproducible.
+# ============================================================
+
+# --- Scratch / reference clone (KHÔNG commit) ---
+# temp/ chứa clone tham khảo private-pdf (~216MB: node_modules,
+# dist, .git lồng nhau) + harness spike S1-S5. Tái tạo được.
+/temp/
+.scratch/
+.sandbox/
+
+# --- Render output tái tạo được ---
+# wireframes/refs/*.png là input nghiên cứu (GIỮ).
+# render-check*/ là ảnh chụp tự động, chạy lại là có.
+/render-check/
+**/render-check-*/
+/playwright-report/
+/blob-report/
+/test-results/
+tests/screenshots/
+tests/__screenshots__/
+
+# --- Deps ---
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+.yarn/
+.npm/
+.pnpm-store/
+
+# --- Build (Vite / PWA / workbox đều ra dist/) ---
+dist/
+dist-ssr/
+build/
+out/
+.output/
+.vite/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+vite.config.ts.timestamp-*.mjs
+
+# --- Test / coverage / lint cache ---
+coverage/
+.nyc_output/
+*.lcov
+test-results.xml
+junit.xml
+.eslintcache
+.stylelintcache
+
+# --- Fixture PDF sinh tự động (giữ gen.mjs, bỏ pdf) ---
+# Fixture 1/10/100MB commit vào là phình repo; CI tự sinh bằng script.
+tests/fixtures/*.pdf
+tests/fixtures/*.bin
+*.pdf.tmp
+
+# --- Env / secrets (CHỈ commit .env.example) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+.credentials/
+
+# --- OS ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Editor / IDE (giữ extensions.json để onboard đồng nhất) ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.code-workspace
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+*.swp
+*.swo
+*~
+.history/
+.project
+.classpath
+.settings/
+
+# --- Logs / merge leftovers ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.orig
+*.rej
+
+# --- Tauri (phase-6 prep: chỉ commit src-tauri/*.json + icons) ---
+src-tauri/target/
+src-tauri/WixTools/
+*.AppImage
+*.dmg
+*.msi
+*.msix
+
+# --- Index rebuildable của tooling (plans/ mới là canonical) ---
+plans.db*
+plans.db-journal

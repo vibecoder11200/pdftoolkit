@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  --hue: 243;
+
+  --color-accent: oklch(55% 0.16 var(--hue));
+  --color-accent-hover: oklch(50% 0.16 var(--hue));
+  --color-accent-soft: oklch(95% 0.03 var(--hue));
+  --color-on-accent: oklch(99% 0 0);
+
+  --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: oklch(97.5% 0.005 243);
+  color: oklch(19% 0.008 243);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid oklch(55% 0.16 243);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

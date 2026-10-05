@@ -1,0 +1,337 @@
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useDropFiles } from '../../hooks/use-drop-files';
+import { engine } from '../../engine/client';
+import { downloadBytes } from '../../lib/download';
+import { formatBytes } from '../../lib/format';
+import { parseRanges } from '../../lib/ranges';
+import { Dropzone } from '../ui/dropzone';
+import { Button } from '../ui/button';
+import { WorkspaceShell } from './workspace-shell';
+import { ThumbnailStrip } from './thumbnail-strip';
+
+type SplitMode = 'combined' | 'separate';
+
+function compactRanges(pages: number[]): string {
+  const sorted = Array.from(new Set(pages))
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .sort((a, b) => a - b);
+  const parts: string[] = [];
+  let start = 0;
+  let prev = 0;
+  for (const n of sorted) {
+    if (start === 0) {
+      start = n;
+      prev = n;
+      continue;
+    }
+    if (n === prev + 1) {
+      prev = n;
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+    start = n;
+    prev = n;
+  }
+  if (start !== 0) parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return parts.join(',');
+}
+
+function baseName(fileName: string): string {
+  const stripped = fileName.replace(/\.pdf$/i, '');
+  return stripped.trim() === '' ? 'split' : stripped;
+}
+
+function splitErrorKey(error: string): { key: string; part?: string; page?: string } {
+  if (error === 'empty') return { key: 'split.err_empty' };
+  const idx = error.indexOf(':');
+  const kind = idx === -1 ? error : error.slice(0, idx);
+  const detail = idx === -1 ? '' : error.slice(idx + 1);
+  if (kind === 'overlap') return { key: 'split.err_overlap', page: detail };
+  if (kind === 'range') return { key: 'split.err_range', part: detail };
+  return { key: 'split.err_bad', part: detail };
+}
+
+export function SplitTool() {
+  const { t, i18n } = useTranslation();
+  const { files, error: fileError, add, removeAt, clear } = useDropFiles();
+  const [numPages, setNumPages] = useState(0);
+  const [rangesText, setRangesText] = useState('');
+  const [mode, setMode] = useState<SplitMode>('separate');
+  const [lastValid, setLastValid] = useState<number[]>([]);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const genRef = useRef(0);
+  const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
+
+  const file = files[0] ?? null;
+
+  useEffect(() => {
+    const gen = (genRef.current += 1);
+    setNumPages(0);
+    setLastValid([]);
+    if (!file) return;
+    void engine
+      .loadPdf(file.bytes)
+      .then(({ info }) => {
+        if (genRef.current !== gen) return;
+        setNumPages(info.numPages);
+      })
+      .catch(() => {
+        if (genRef.current !== gen) return;
+        setNumPages(0);
+      });
+  }, [file]);
+
+  const parsed = numPages > 0 ? parseRanges(rangesText, numPages) : parseRanges('', 1);
+
+  useEffect(() => {
+    if (!parsed.error && parsed.ranges.length > 0) setLastValid(parsed.ranges.flat());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangesText, numPages]);
+
+  const covered = parsed.error ? lastValid : parsed.ranges.flat();
+  const coveredSet = new Set(covered);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    const bytes = file?.bytes;
+    if (!bytes || numPages === 0) {
+      setThumbs({});
+      return;
+    }
+    const renderAll = async () => {
+      const { renderPageToCanvas } = await import('../../engine/pdfjs');
+      const next: Record<number, string> = {};
+      const total = Math.min(numPages, 60);
+      for (let p = 1; p <= total; p += 1) {
+        if (abort.signal.aborted) return;
+        try {
+          const canvas = document.createElement('canvas');
+          await renderPageToCanvas(bytes, p, canvas, 0.4);
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+          if (!blob || abort.signal.aborted) return;
+          next[p] = URL.createObjectURL(blob);
+        } catch {
+          /* keep placeholder */
+        }
+      }
+      if (!abort.signal.aborted) {
+        setThumbs((prev) => {
+          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
+          return next;
+        });
+      }
+    };
+    void renderAll();
+    return () => abort.abort();
+  }, [file, numPages]);
+
+  const liveError = (() => {
+    if (!file || numPages === 0) return null;
+    if (rangesText.trim() === '') return null;
+    if (!parsed.error) return null;
+    const { key, part, page } = splitErrorKey(parsed.error);
+    return t(key, { part, page, max: numPages });
+  })();
+
+  const togglePage = (pageNumber: number) => {
+    const current = new Set(lastValid);
+    if (current.has(pageNumber)) current.delete(pageNumber);
+    else current.add(pageNumber);
+    setRangesText(compactRanges([...current]));
+    setRunError(null);
+  };
+
+  const run = async () => {
+    setRunError(null);
+    if (!file) {
+      setRunError(t('split.no_file'));
+      return;
+    }
+    if (numPages === 0) {
+      setRunError(t('split.err_unreadable'));
+      return;
+    }
+    const parsedNow = parseRanges(rangesText, numPages);
+    if (parsedNow.error || parsedNow.ranges.length === 0) {
+      const { key, part, page } = splitErrorKey(parsedNow.error ?? 'empty');
+      setRunError(t(key, { part, page, max: numPages }));
+      return;
+    }
+    setBusy(true);
+    try {
+      const stem = baseName(file.file.name);
+      if (mode === 'combined') {
+        const combined = parsedNow.ranges.flat();
+        setProgress({ value: 20, label: t('split.progress_working', { count: combined.length }) });
+        const outs = await engine.splitRanges(file.bytes, [combined]);
+        setProgress({ value: 100, label: t('split.progress_done') });
+        if (outs[0]) downloadBytes(outs[0], `${stem}-split.pdf`);
+      } else {
+        setProgress({
+          value: 20,
+          label: t('split.progress_working_many', { count: parsedNow.ranges.length }),
+        });
+        const outs = await engine.splitRanges(file.bytes, parsedNow.ranges);
+        setProgress({ value: 100, label: t('split.progress_done') });
+        outs.forEach((out, i) => downloadBytes(out, `${stem}-part${i + 1}.pdf`));
+      }
+    } catch (e) {
+      setRunError(e instanceof Error ? e.message : String(e));
+      setProgress(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <WorkspaceShell
+      title={t('split.title')}
+      meta={
+        file
+          ? lng === 'vi'
+            ? `${file.file.name} · ${numPages} trang · ${formatBytes(file.file.size, 'vi-VN')}`
+            : `${file.file.name} · ${numPages} pages · ${formatBytes(file.file.size, 'en-US')}`
+          : undefined
+      }
+      steps={[
+        { label: '1', state: file ? 'done' : 'now' },
+        { label: '2', state: covered.length > 0 ? 'done' : file ? 'now' : 'todo' },
+        { label: '3', state: progress?.value === 100 ? 'done' : 'todo' },
+      ]}
+      error={fileError ?? runError}
+      side={
+        <>
+          <label className="flex flex-col gap-1.5 text-[13.5px]">
+            <span className="font-semibold text-slate-900">{t('split.ranges_label')}</span>
+            <textarea
+              value={rangesText}
+              onChange={(e) => {
+                setRangesText(e.target.value);
+                setRunError(null);
+              }}
+              placeholder={t('split.ranges_placeholder')}
+              rows={3}
+              inputMode="numeric"
+              aria-label={t('split.ranges_label')}
+              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
+            />
+          </label>
+          {liveError ? (
+            <p role="alert" className="text-[13px] text-red-600">
+              {liveError}
+            </p>
+          ) : (
+            <p className="text-[13px] text-slate-500">{t('split.ranges_hint', { max: numPages })}</p>
+          )}
+          <p className="text-[13px] font-semibold text-slate-900 tabular-nums">
+            {t('split.covered_count', { count: covered.length })}
+          </p>
+          <div role="radiogroup" aria-label={t('split.mode_label')} className="flex flex-col gap-2">
+            <span className="text-[13.5px] font-semibold text-slate-900">{t('split.mode_label')}</span>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'separate'}
+              onClick={() => setMode('separate')}
+              className={`min-h-11 rounded-lg border px-4 py-2 text-left text-sm font-semibold ${
+                mode === 'separate'
+                  ? 'border-indigo-600 bg-indigo-50 text-slate-900'
+                  : 'border-slate-300 bg-white text-slate-600'
+              }`}
+            >
+              {t('split.mode_separate')}
+            </button>
+            <p className="-mt-1 text-xs text-slate-500">{t('split.mode_separate_hint')}</p>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'combined'}
+              onClick={() => setMode('combined')}
+              className={`min-h-11 rounded-lg border px-4 py-2 text-left text-sm font-semibold ${
+                mode === 'combined'
+                  ? 'border-indigo-600 bg-indigo-50 text-slate-900'
+                  : 'border-slate-300 bg-white text-slate-600'
+              }`}
+            >
+              {t('split.mode_combined')}
+            </button>
+            <p className="-mt-1 text-xs text-slate-500">{t('split.mode_combined_hint')}</p>
+          </div>
+          <Button onClick={() => void run()} disabled={!file || busy}>
+            {t('split.cta')}
+          </Button>
+          {progress ? null : (
+            <span className="text-[13px] text-slate-500">{t('split.progress_idle')}</span>
+          )}
+        </>
+      }
+      progress={progress}
+      onReset={() => {
+        clear();
+        setRangesText('');
+        setMode('separate');
+        setLastValid([]);
+        setProgress(null);
+        setRunError(null);
+      }}
+    >
+      <Dropzone
+        title={t('split.dropzone_title')}
+        hint={t('split.dropzone_hint')}
+        accept="application/pdf,.pdf"
+        multiple={false}
+        onFiles={(f) => {
+          clear();
+          void add(f.slice(0, 1));
+        }}
+      />
+      {file ? (
+        <div className="mt-3 flex flex-col gap-2">
+          <div
+            key={`${file.file.name}-0`}
+            className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]"
+          >
+            <span>📄</span>
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{file.file.name}</span>
+            <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+              {formatBytes(file.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} · {numPages} trang
+            </span>
+            <button
+              type="button"
+              aria-label={`Remove ${file.file.name}`}
+              className="min-h-10 min-w-10 text-slate-500 hover:text-red-600"
+              onClick={() => removeAt(0)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {numPages > 0 ? (
+        <>
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
+            <span className="font-bold text-slate-900">
+              {t('split.covered_count', { count: covered.length })}
+            </span>
+            <span>· {t('split.thumb_hint')}</span>
+          </div>
+          <ThumbnailStrip
+            pages={Array.from({ length: numPages }, (_, i) => ({
+              key: `split-p${i + 1}`,
+              pageNumber: i + 1,
+              url: thumbs[i + 1] ?? null,
+              selected: coveredSet.has(i + 1),
+            }))}
+            fullscreenTitle={(n) => t('split.fs_title', { n })}
+            closeLabel={t('split.fs_close')}
+            onToggle={(pageNumber: number) => togglePage(pageNumber)}
+          />
+        </>
+      ) : null}
+    </WorkspaceShell>
+  );
+}

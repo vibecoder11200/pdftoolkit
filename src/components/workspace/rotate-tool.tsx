@@ -1,0 +1,291 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useDropFiles } from '../../hooks/use-drop-files';
+import { engine } from '../../engine/client';
+import { downloadBytes } from '../../lib/download';
+import { formatBytes } from '../../lib/format';
+import { Dropzone } from '../ui/dropzone';
+import { Button } from '../ui/button';
+import { WorkspaceShell } from './workspace-shell';
+
+type Angle = 90 | 180 | 270;
+
+const ANGLES: Angle[] = [90, 180, 270];
+
+export function RotateTool() {
+  const { t, i18n } = useTranslation();
+  const { files, error: fileError, add, clear } = useDropFiles();
+  const source = files[0] ?? null;
+  const [numPages, setNumPages] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [angle, setAngle] = useState<Angle>(90);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const genRef = useRef(0);
+  const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
+
+  const reselectAll = useCallback(() => {
+    setNumPages((n) => {
+      if (n > 0) {
+        const all = new Set<number>();
+        for (let p = 1; p <= n; p += 1) all.add(p);
+        queueMicrotask(() => setSelected(all));
+      }
+      return n;
+    });
+  }, []);
+
+  useEffect(() => {
+    const gen = (genRef.current += 1);
+    if (!source) {
+      setNumPages(0);
+      setSelected(new Set());
+      setThumbs({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { info } = await engine.loadPdf(source.bytes);
+        if (cancelled || genRef.current !== gen) return;
+        setNumPages(info.numPages);
+        const all = new Set<number>();
+        for (let p = 1; p <= info.numPages; p += 1) all.add(p);
+        setSelected(all);
+        setRunError(null);
+      } catch (e) {
+        if (cancelled || genRef.current !== gen) return;
+        setNumPages(0);
+        setSelected(new Set());
+        setRunError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    const renderAll = async () => {
+      if (!source) return;
+      const { renderPageToCanvas } = await import('../../engine/pdfjs');
+      const next: Record<number, string> = {};
+      const total = Math.min(numPages, 100);
+      for (let p = 1; p <= total; p += 1) {
+        if (abort.signal.aborted) return;
+        try {
+          const canvas = document.createElement('canvas');
+          await renderPageToCanvas(source.bytes, p, canvas, 0.4);
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+          if (!blob || abort.signal.aborted) return;
+          next[p] = URL.createObjectURL(blob);
+        } catch {
+          /* keep placeholder */
+        }
+      }
+      if (!abort.signal.aborted) {
+        setThumbs((prev) => {
+          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
+          return next;
+        });
+      }
+    };
+    if (source && numPages > 0) void renderAll();
+    return () => abort.abort();
+  }, [source, numPages]);
+
+  const toggle = (page: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(page)) next.delete(page);
+      else next.add(page);
+      return next;
+    });
+  };
+
+  const run = async () => {
+    setRunError(null);
+    if (!source) {
+      setRunError(t('rotate.err_no_file'));
+      return;
+    }
+    const targets = [...selected].sort((a, b) => a - b);
+    if (targets.length === 0) {
+      setRunError(t('rotate.err_no_selection'));
+      return;
+    }
+    try {
+      setProgress({ value: 20, label: t('rotate.progress_working', { count: targets.length }) });
+      const out = await engine.rotatePages(source.bytes, targets, angle);
+      setProgress({ value: 100, label: t('rotate.progress_done') });
+      downloadBytes(out, 'rotated.pdf');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setRunError(t('rotate.err_failed', { message }));
+      setProgress(null);
+    }
+  };
+
+  const reset = () => {
+    clear();
+    setNumPages(0);
+    setSelected(new Set());
+    setThumbs({});
+    setProgress(null);
+    setRunError(null);
+  };
+
+  return (
+    <WorkspaceShell
+      title={t('rotate.title')}
+      meta={
+        source
+          ? lng === 'vi'
+            ? `${source.file.name} · ${numPages} trang · ${formatBytes(source.file.size, 'vi-VN')}`
+            : `${source.file.name} · ${numPages} pages · ${formatBytes(source.file.size, 'en-US')}`
+          : undefined
+      }
+      steps={[
+        { label: '1', state: source ? 'done' : 'now' },
+        { label: '2', state: source ? 'now' : 'todo' },
+        { label: '3', state: 'todo' },
+      ]}
+      error={fileError ?? runError}
+      side={
+        <>
+          <fieldset>
+            <legend className="text-sm font-bold">{t('rotate.angle_q')}</legend>
+            <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('rotate.angle_q')}>
+              {ANGLES.map((deg) => (
+                <label
+                  key={deg}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
+                    angle === deg ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="rotate-angle"
+                    value={deg}
+                    checked={angle === deg}
+                    onChange={() => setAngle(deg)}
+                    className="h-4 w-4 accent-indigo-600"
+                  />
+                  <span className="font-semibold tabular-nums">{deg}°</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Button onClick={() => void run()} disabled={!source || selected.size === 0}>
+            {t('rotate.cta')}
+          </Button>
+          {progress ? null : (
+            <span className="text-[13px] text-slate-500">{t('rotate.progress_idle')}</span>
+          )}
+          {numPages > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={reselectAll}
+                className="min-h-9 rounded-lg border border-slate-300 bg-white px-3.5 text-[13px] font-semibold"
+              >
+                {t('rotate.select_all')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="min-h-9 rounded-lg border border-slate-300 bg-white px-3.5 text-[13px]"
+              >
+                {t('rotate.clear_selection')}
+              </button>
+            </div>
+          ) : null}
+        </>
+      }
+      progress={progress}
+      onReset={reset}
+      onReselectAll={reselectAll}
+    >
+      <Dropzone
+        title={t('rotate.dropzone_title')}
+        hint={t('rotate.dropzone_hint')}
+        accept="application/pdf,.pdf"
+        multiple={false}
+        onFiles={(f) => {
+          clear();
+          void add(f.slice(0, 1));
+        }}
+      />
+      {numPages > 0 ? (
+        <>
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
+            <span className="font-bold text-slate-900">
+              {t('rotate.selected_count', { count: selected.size, total: numPages })}
+            </span>
+            <span>· {t('rotate.thumb_hint')}</span>
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+            {Array.from({ length: numPages }, (_, i) => i + 1).map((p) => {
+              const isSelected = selected.has(p);
+              return (
+                <div
+                  key={p}
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  aria-label={`Page ${p}`}
+                  tabIndex={0}
+                  onClick={() => toggle(p)}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      toggle(p);
+                    }
+                  }}
+                  className={`relative cursor-pointer rounded-lg border-2 bg-white p-1.5 ${
+                    isSelected ? 'border-indigo-600' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <span className="absolute top-2.5 left-2.5 z-10 rounded-md bg-slate-900/85 px-1.75 py-0.5 text-[11px] font-bold text-white tabular-nums">
+                    {p}
+                  </span>
+                  <span
+                    className={`absolute top-2 right-2 z-10 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-slate-300 bg-white text-transparent'
+                    }`}
+                    aria-hidden
+                  >
+                    ✓
+                  </span>
+                  {isSelected ? (
+                    <span className="absolute bottom-2.5 left-2.5 z-10 rounded-md bg-indigo-600 px-1.75 py-0.5 text-[11px] font-bold text-white tabular-nums">
+                      {angle}°
+                    </span>
+                  ) : null}
+                  {thumbs[p] ? (
+                    <img
+                      src={thumbs[p]}
+                      alt=""
+                      draggable={false}
+                      className="block aspect-[0.707] w-full rounded border border-slate-200 object-contain transition-transform duration-200"
+                      style={isSelected ? { transform: `rotate(${angle}deg)` } : undefined}
+                    />
+                  ) : (
+                    <span
+                      className="block aspect-[0.707] w-full rounded border border-slate-200 bg-gradient-to-b from-white to-slate-100 transition-transform duration-200"
+                      style={isSelected ? { transform: `rotate(${angle}deg)` } : undefined}
+                      aria-hidden
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </WorkspaceShell>
+  );
+}

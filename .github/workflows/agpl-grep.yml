@@ -1,0 +1,19 @@
+name: license-guard
+
+on: [push, pull_request]
+
+jobs:
+  grep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block AGPL headers in shipped source
+        run: |
+          if grep -rin "AGPL\|Affero General Public" src/ --exclude-dir=node_modules; then
+            echo "AGPL string found in src/"; exit 1;
+          fi
+      - name: Block telemetry and runtime CDN imports
+        run: |
+          if grep -rin "vercel/analytics\|speed-insights\|unpkg\|cdn.jsdelivr\|google-analytics\|googletagmanager" src/ --exclude-dir=node_modules; then
+            echo "Telemetry or runtime CDN reference found in src/"; exit 1;
+          fi
