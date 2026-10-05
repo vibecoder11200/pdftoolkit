@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyResolvedTheme,
@@ -61,5 +64,25 @@ describe('applyResolvedTheme', () => {
     applyResolvedTheme('light');
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(document.documentElement.style.colorScheme).toBe('light');
+  });
+});
+
+// public/theme-boot.js re-implements the resolution contract pre-paint (it
+// cannot import theme.ts). If this drifts, dark users get a light flash that
+// no component test can catch — keep the two in lockstep.
+describe('theme-boot mirror guard', () => {
+  const boot = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'theme-boot.js'),
+    'utf8',
+  );
+
+  it('matches the theme.ts contract', () => {
+    expect(boot).toContain("'pdftoolkit-theme'");
+    expect(boot).toContain("value === 'dark'");
+    // Unknown values follow the system scheme, mirroring readStoredTheme.
+    expect(boot).toContain("value !== 'light'");
+    expect(boot).toContain('prefers-color-scheme: dark');
+    expect(boot).toContain('dataset.theme');
+    expect(boot).toContain('colorScheme');
   });
 });

@@ -82,7 +82,7 @@ function makeIconPng(size, { tile = INDIGO, fullBleed = false } = {}) {
       if (a !== 0) {
         let color = tile;
         if (inPage(u, v)) {
-          color = inFold(u, v) ? (tile === INDIGO_DARK ? FOLD_DARK : FOLD) : WHITE;
+          color = inFold(u, v) ? FOLD : WHITE;
         }
         if (inGlyph(u, v)) color = tile;
         r = (color >> 16) & 255;

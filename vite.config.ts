@@ -48,6 +48,23 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    {
+      // index.html references boot/favicons as %BASE_URL%… for the BUILD (the
+      // SW navigateFallback serves index.html on offline deep links, so the
+      // URL must be base-absolute, not relative — see public/theme-boot.js).
+      // In dev, vite's env hook resolves %BASE_URL% first and the dev HTML
+      // rebasing then prepends base AGAIN (…/pdftoolkit/pdftoolkit/…  → SPA
+      // fallback 404). Stripping the placeholder pre-transform lets dev's own
+      // rebasing resolve the now-relative URLs against publicDir exactly once.
+      name: 'strip-base-url-in-dev',
+      apply: 'serve',
+      transformIndexHtml: {
+        order: 'pre',
+        handler(html) {
+          return html.replaceAll('%BASE_URL%', '');
+        },
+      },
+    },
     tailwindcss(),
     {
       name: 'emit-qpdf-wasm',

@@ -49,6 +49,9 @@ function newSpotId(): string {
 
 const PAD_W = 480;
 const PAD_H = 200;
+// Editor constants, paired: the pad canvas and the preview <img> stay bg-white
+// (NOT a theme token) because the exported PNG is transparent and INK must
+// keep its contrast on the editing surface in both themes.
 const INK = '#1b2a6b';
 const DEFAULT_WFRAC = 0.25;
 const MIN_WFRAC = 0.08;
@@ -583,7 +586,7 @@ export function SignTool() {
           <p className="text-[13px] text-text-muted">{t('sign.pad_hint')}</p>
           <canvas
             ref={padRef}
-            className="mt-2 block aspect-[12/5] w-full cursor-crosshair touch-none rounded-lg border border-border-strong bg-surface-card"
+            className="mt-2 block aspect-[12/5] w-full cursor-crosshair touch-none rounded-lg border border-border-strong bg-white"
             onPointerDown={(e) => {
               drawingRef.current = true;
               lastRef.current = padPoint(e.clientX, e.clientY);
@@ -668,7 +671,7 @@ export function SignTool() {
           <img
             src={sig.url}
             alt=""
-            className="h-12 max-w-44 rounded border border-border-default bg-surface-card object-contain"
+            className="h-12 max-w-44 rounded border border-border-default bg-white object-contain"
           />
         </div>
       ) : null}

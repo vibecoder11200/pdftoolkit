@@ -2,8 +2,6 @@
 @import "./theme/tokens.css";
 
 @theme {
-  --hue: 243;
-
   --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, sans-serif;
 }
 
