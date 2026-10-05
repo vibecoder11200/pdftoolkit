@@ -39,5 +39,11 @@
     "vite": "7.3.0",
     "vite-plugin-pwa": "2.0.0",
     "vitest": "2.1.8"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecoder11200/pdftoolkit.git"
+  },
+  "license": "MIT",
+  "homepage": "https://vibecoder11200.github.io/pdftoolkit/"
 }
