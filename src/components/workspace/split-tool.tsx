@@ -185,7 +185,7 @@ export function SplitTool() {
       side={
         <>
           <label className="flex flex-col gap-1.5 text-[13.5px]">
-            <span className="font-semibold text-slate-900">{t('split.ranges_label')}</span>
+            <span className="font-semibold text-text-primary">{t('split.ranges_label')}</span>
             <textarea
               value={rangesText}
               onChange={(e) => {
@@ -196,21 +196,21 @@ export function SplitTool() {
               rows={3}
               inputMode="numeric"
               aria-label={t('split.ranges_label')}
-              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
+              className="min-h-11 w-full rounded-lg border border-border-strong bg-surface-card px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
           </label>
           {liveError ? (
-            <p role="alert" className="text-[13px] text-red-600">
+            <p role="alert" className="text-[13px] text-danger">
               {liveError}
             </p>
           ) : (
-            <p className="text-[13px] text-slate-500">{t('split.ranges_hint', { max: numPages })}</p>
+            <p className="text-[13px] text-text-muted">{t('split.ranges_hint', { max: numPages })}</p>
           )}
-          <p className="text-[13px] font-semibold text-slate-900 tabular-nums">
+          <p className="text-[13px] font-semibold text-text-primary tabular-nums">
             {t('split.covered_count', { count: covered.length })}
           </p>
           <div role="radiogroup" aria-label={t('split.mode_label')} className="flex flex-col gap-2">
-            <span className="text-[13.5px] font-semibold text-slate-900">{t('split.mode_label')}</span>
+            <span className="text-[13.5px] font-semibold text-text-primary">{t('split.mode_label')}</span>
             <button
               type="button"
               role="radio"
@@ -218,13 +218,13 @@ export function SplitTool() {
               onClick={() => setMode('separate')}
               className={`min-h-11 rounded-lg border px-4 py-2 text-left text-sm font-semibold ${
                 mode === 'separate'
-                  ? 'border-indigo-600 bg-indigo-50 text-slate-900'
-                  : 'border-slate-300 bg-white text-slate-600'
+                  ? 'border-accent bg-accent-soft text-text-primary'
+                  : 'border-border-strong bg-surface-card text-text-muted'
               }`}
             >
               {t('split.mode_separate')}
             </button>
-            <p className="-mt-1 text-xs text-slate-500">{t('split.mode_separate_hint')}</p>
+            <p className="-mt-1 text-xs text-text-muted">{t('split.mode_separate_hint')}</p>
             <button
               type="button"
               role="radio"
@@ -232,19 +232,19 @@ export function SplitTool() {
               onClick={() => setMode('combined')}
               className={`min-h-11 rounded-lg border px-4 py-2 text-left text-sm font-semibold ${
                 mode === 'combined'
-                  ? 'border-indigo-600 bg-indigo-50 text-slate-900'
-                  : 'border-slate-300 bg-white text-slate-600'
+                  ? 'border-accent bg-accent-soft text-text-primary'
+                  : 'border-border-strong bg-surface-card text-text-muted'
               }`}
             >
               {t('split.mode_combined')}
             </button>
-            <p className="-mt-1 text-xs text-slate-500">{t('split.mode_combined_hint')}</p>
+            <p className="-mt-1 text-xs text-text-muted">{t('split.mode_combined_hint')}</p>
           </div>
           <Button onClick={() => void run()} disabled={!file || busy}>
             {t('split.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('split.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('split.progress_idle')}</span>
           )}
         </>
       }
@@ -272,17 +272,17 @@ export function SplitTool() {
         <div className="mt-3 flex flex-col gap-2">
           <div
             key={`${file.file.name}-0`}
-            className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]"
+            className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
           >
             <span>📄</span>
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{file.file.name}</span>
-            <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+            <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
               {formatBytes(file.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} · {numPages} trang
             </span>
             <button
               type="button"
               aria-label={`Remove ${file.file.name}`}
-              className="min-h-10 min-w-10 text-slate-500 hover:text-red-600"
+              className="min-h-10 min-w-10 text-text-muted hover:text-danger"
               onClick={() => removeAt(0)}
             >
               ✕
@@ -292,8 +292,8 @@ export function SplitTool() {
       ) : null}
       {numPages > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('split.covered_count', { count: covered.length })}
             </span>
             <span>· {t('split.thumb_hint')}</span>
@@ -315,3 +315,5 @@ export function SplitTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

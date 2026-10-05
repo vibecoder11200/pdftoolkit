@@ -169,7 +169,7 @@ export function EncryptTool() {
             {mode === 'encrypt' ? t('protect.cta_encrypt') : t('protect.cta_decrypt')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('protect.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('protect.progress_idle')}</span>
           )}
         </>
       }
@@ -186,8 +186,8 @@ export function EncryptTool() {
             onClick={() => switchMode(m)}
             className={`inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border px-4 text-sm font-semibold ${
               mode === m
-                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+                ? 'border-accent bg-accent-soft text-accent'
+                : 'border-border-strong bg-surface-card text-text-muted hover:bg-surface-hover'
             }`}
           >
             {t(m === 'encrypt' ? 'protect.tab_encrypt' : 'protect.tab_decrypt')}
@@ -213,10 +213,10 @@ export function EncryptTool() {
       </div>
 
       {src ? (
-        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]">
+        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
           <span>📄</span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
-          <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+          <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
             {formatBytes(src.file.size, locale)}
           </span>
         </div>
@@ -225,11 +225,11 @@ export function EncryptTool() {
       {mode === 'encrypt' ? (
         <>
           <div
-            className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[13.5px]"
+            className="mt-4 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
             role="note"
           >
-            <strong className="block text-amber-900">{t('protect.warn_title')}</strong>
-            <span className="text-amber-900">{t('protect.warn_forgot')}</span>
+            <strong className="block text-warning">{t('protect.warn_title')}</strong>
+            <span className="text-warning">{t('protect.warn_forgot')}</span>
           </div>
 
           <div className="mt-4 flex flex-col gap-3">
@@ -241,7 +241,7 @@ export function EncryptTool() {
                 value={userPass}
                 onChange={(e) => setUserPass(e.target.value)}
                 placeholder={t('protect.user_pass_placeholder')}
-                className="min-h-11 w-full rounded-lg border border-slate-300 px-3.5 text-sm"
+                className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
               />
             </label>
             <label className="block text-sm">
@@ -252,9 +252,9 @@ export function EncryptTool() {
                 value={ownerPass}
                 onChange={(e) => setOwnerPass(e.target.value)}
                 placeholder={t('protect.owner_pass_placeholder')}
-                className="min-h-11 w-full rounded-lg border border-slate-300 px-3.5 text-sm"
+                className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
               />
-              <span className="mt-1 block text-[13px] text-slate-500">
+              <span className="mt-1 block text-[13px] text-text-muted">
                 {t('protect.owner_pass_hint')}
               </span>
             </label>
@@ -265,7 +265,7 @@ export function EncryptTool() {
             <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('protect.bits_label')}>
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-                  bits === 256 ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                  bits === 256 ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                 }`}
               >
                 <input
@@ -274,16 +274,16 @@ export function EncryptTool() {
                   value="256"
                   checked={bits === 256}
                   onChange={() => setBits(256)}
-                  className="mt-1 h-4 w-4 accent-indigo-600"
+                  className="mt-1 h-4 w-4 accent-accent"
                 />
                 <span>
                   <span className="block font-semibold">{t('protect.bits_256')}</span>
-                  <span className="block text-[13px] text-slate-500">{t('protect.bits_256_hint')}</span>
+                  <span className="block text-[13px] text-text-muted">{t('protect.bits_256_hint')}</span>
                 </span>
               </label>
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-                  bits === 128 ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                  bits === 128 ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                 }`}
               >
                 <input
@@ -292,15 +292,15 @@ export function EncryptTool() {
                   value="128"
                   checked={bits === 128}
                   onChange={() => setBits(128)}
-                  className="mt-1 h-4 w-4 accent-indigo-600"
+                  className="mt-1 h-4 w-4 accent-accent"
                 />
                 <span>
                   <span className="block font-semibold">{t('protect.bits_128')}</span>
-                  <span className="block text-[13px] text-slate-500">{t('protect.bits_128_hint')}</span>
+                  <span className="block text-[13px] text-text-muted">{t('protect.bits_128_hint')}</span>
                 </span>
               </label>
             </div>
-            <p className="mt-2 text-[13px] text-slate-500">{t('protect.bits_note')}</p>
+            <p className="mt-2 text-[13px] text-text-muted">{t('protect.bits_note')}</p>
           </fieldset>
         </>
       ) : (
@@ -313,7 +313,7 @@ export function EncryptTool() {
               value={decryptPass}
               onChange={(e) => setDecryptPass(e.target.value)}
               placeholder={t('protect.decrypt_pass_placeholder')}
-              className="min-h-11 w-full rounded-lg border border-slate-300 px-3.5 text-sm"
+              className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
             />
           </label>
         </div>
@@ -321,3 +321,5 @@ export function EncryptTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

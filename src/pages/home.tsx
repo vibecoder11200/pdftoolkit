@@ -14,19 +14,19 @@ export function HomePage() {
     <div className="mx-auto max-w-7xl px-7 pb-24">
       <Nav />
       <main>
-        <section className="-mx-7 border-b border-slate-200 px-7 pt-15 pb-10 text-center">
+        <section className="-mx-7 border-b border-border-default px-7 pt-15 pb-10 text-center">
           <h1 className="mx-auto max-w-3xl text-3xl font-extrabold text-balance sm:text-4xl">
             {t('hero.title')}
           </h1>
-          <p className="mx-auto mt-3 max-w-[62ch] text-base text-slate-500">{t('hero.subtitle')}</p>
+          <p className="mx-auto mt-3 max-w-[62ch] text-base text-text-muted">{t('hero.subtitle')}</p>
           <div className="mt-5.5 flex flex-wrap justify-center gap-3">
             <Button>{t('hero.cta_primary')}</Button>
             <Button variant="secondary">{t('hero.cta_secondary')}</Button>
           </div>
-          <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-slate-500">
+          <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-text-muted">
             {[t('hero.badge_no_account'), t('hero.badge_offline'), t('hero.badge_opensource')].map(
               (b) => (
-                <span key={b} className="rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                <span key={b} className="rounded-full border border-border-default bg-surface-card px-3 py-1.5">
                   {b}
                 </span>
               ),
@@ -36,9 +36,9 @@ export function HomePage() {
         <HomeGrid filter={filter} onFilter={setFilter} />
         <section className="mt-10 grid grid-cols-1 gap-3.5 md:grid-cols-3" aria-label="trust">
           {(['local', 'offline', 'free'] as const).map((k) => (
-            <div key={k} className="rounded-2xl border border-slate-200 bg-white p-4.5">
+            <div key={k} className="rounded-2xl border border-border-default bg-surface-card p-4.5">
               <strong className="block text-sm">{t(`trust.${k}_title`)}</strong>
-              <span className="text-[13.5px] text-slate-500">{t(`trust.${k}_desc`)}</span>
+              <span className="text-[13.5px] text-text-muted">{t(`trust.${k}_desc`)}</span>
             </div>
           ))}
         </section>
@@ -47,3 +47,5 @@ export function HomePage() {
     </div>
   );
 }
+
+// token-mapped

@@ -1,0 +1,17 @@
+<!--
+  Canonical brand geometry — folded page + "P" knocked out of an indigo tile.
+  Single source of truth for the mark; the same 32-unit grid coordinates are
+  mirrored in scripts/gen-icons.mjs (PNG favicon/app icons + public/favicon.svg)
+  and src/components/ui/logo.tsx (in-app component with token colors).
+  Keep all three in sync when changing the geometry.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6.4" fill="#4f46e5" />
+  <path d="M8.64 6.72H19.2L23.36 10.88V25.28H8.64Z" fill="#ffffff" />
+  <path d="M19.2 6.72 23.36 10.88H19.2Z" fill="#c7d2fe" />
+  <path
+    d="M11.04 8.96H13.92A3.68 3.68 0 0 1 13.92 16.32V22.4H11.04ZM13.92 11.2A1.44 1.44 0 0 1 13.92 14.08Z"
+    fill="#4f46e5"
+    fill-rule="evenodd"
+  />
+</svg>

@@ -10,9 +10,11 @@ export function MetadataToolPage() {
       <Nav />
       <main>
         <MetadataTool />
-        <p className="mt-4 text-[13px] text-slate-500">{t('footer.note')}</p>
+        <p className="mt-4 text-[13px] text-text-muted">{t('footer.note')}</p>
       </main>
       <Footer />
     </div>
   );
 }
+
+// token-mapped

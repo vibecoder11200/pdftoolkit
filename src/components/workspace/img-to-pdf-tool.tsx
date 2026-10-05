@@ -187,7 +187,7 @@ export function ImgToPdfTool() {
             {t('images_to_pdf.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('images_to_pdf.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('images_to_pdf.progress_idle')}</span>
           )}
         </>
       }
@@ -205,7 +205,7 @@ export function ImgToPdfTool() {
           {files.map((f, i) => (
             <div
               key={`${f.name}-${f.size}-${i}`}
-              className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]"
+              className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
             >
               {previews[i] ? (
                 <img
@@ -217,13 +217,13 @@ export function ImgToPdfTool() {
                 <span>🖼️</span>
               )}
               <span className="overflow-hidden text-ellipsis whitespace-nowrap">{f.name}</span>
-              <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+              <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
                 {formatBytes(f.size, locale)}
               </span>
               <button
                 type="button"
                 aria-label={`Remove ${f.name}`}
-                className="min-h-10 min-w-10 text-slate-500 hover:text-red-600"
+                className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                 onClick={() => removeAt(i)}
               >
                 ✕
@@ -235,3 +235,5 @@ export function ImgToPdfTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

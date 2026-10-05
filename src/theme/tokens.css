@@ -1,0 +1,143 @@
+/*
+ * Semantic color tokens — the single source of truth for app colors.
+ * Light values live on :root, dark overrides on [data-theme="dark"].
+ * Dark values lower L and keep hue 243 so both themes read as one brand.
+ *
+ * Exposed to Tailwind through `@theme inline` (below): the generated
+ * utilities (bg-surface-card, text-text-muted, border-border-default, …)
+ * resolve `var(--…)` at runtime, so switching `data-theme` restyles
+ * everything with no class churn. Phase 1 maps classes mechanically;
+ * contrast fine-tuning per component belongs to phase 4.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* surfaces */
+  --surface-page: oklch(97.5% 0.005 243);
+  --surface-card: oklch(100% 0 0);
+  --surface-sunken: oklch(95.2% 0.007 245);
+  --surface-hover: oklch(94.5% 0.008 245);
+  --surface-inverse: oklch(21% 0.035 258);
+  --surface-overlay: oklch(15% 0.03 258);
+
+  /* borders */
+  --border-default: oklch(91.5% 0.01 250);
+  --border-strong: oklch(85.5% 0.012 250);
+
+  /* text */
+  --text-primary: oklch(19% 0.008 243);
+  --text-muted: oklch(50% 0.022 254);
+  --text-inverse: oklch(98% 0.003 243);
+  /* shared "text on a filled mid-tone chip" (accent/success/danger fills) */
+  --text-on-accent: oklch(99% 0 0);
+
+  /* brand + state colors */
+  --accent: oklch(55% 0.16 243);
+  --accent-hover: oklch(50% 0.16 243);
+  --accent-soft: oklch(95% 0.03 243);
+  --danger: oklch(55% 0.21 27);
+  --danger-soft: oklch(96% 0.018 27);
+  --success: oklch(55% 0.13 160);
+  --success-soft: oklch(96.5% 0.028 160);
+  --warning: oklch(44% 0.095 68);
+  --warning-soft: oklch(97% 0.03 90);
+
+  /* tool-icon tones (soft = tile bg, plain = icon text) */
+  --tone-red-soft: oklch(96% 0.02 27);
+  --tone-red: oklch(55% 0.21 27);
+  --tone-orange-soft: oklch(96% 0.03 60);
+  --tone-orange: oklch(60% 0.17 45);
+  --tone-teal-soft: oklch(96% 0.03 190);
+  --tone-teal: oklch(53% 0.1 185);
+  --tone-green-soft: oklch(96% 0.03 150);
+  --tone-green: oklch(52% 0.15 150);
+  --tone-blue-soft: oklch(96% 0.025 250);
+  --tone-blue: oklch(52% 0.16 260);
+  --tone-purple-soft: oklch(96% 0.025 300);
+  --tone-purple: oklch(50% 0.18 300);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: oklch(16.5% 0.013 243);
+  --surface-card: oklch(20.5% 0.015 243);
+  --surface-sunken: oklch(24.5% 0.016 243);
+  --surface-hover: oklch(26% 0.017 243);
+  --surface-inverse: oklch(93% 0.006 243);
+  --surface-overlay: oklch(10% 0.012 243);
+
+  --border-default: oklch(29% 0.018 243);
+  --border-strong: oklch(37% 0.02 243);
+
+  --text-primary: oklch(93% 0.006 243);
+  --text-muted: oklch(71% 0.015 245);
+  --text-inverse: oklch(17% 0.015 243);
+  /* dark text on the lightened accent/success/danger fills */
+  --text-on-accent: oklch(17% 0.04 243);
+
+  --accent: oklch(72% 0.125 243);
+  --accent-hover: oklch(77% 0.115 243);
+  --accent-soft: oklch(28% 0.055 243);
+  --danger: oklch(70% 0.17 25);
+  --danger-soft: oklch(27% 0.06 25);
+  --success: oklch(72% 0.13 160);
+  --success-soft: oklch(27% 0.05 160);
+  --warning: oklch(80% 0.12 85);
+  --warning-soft: oklch(27% 0.05 80);
+
+  --tone-red-soft: oklch(27% 0.06 25);
+  --tone-red: oklch(75% 0.13 25);
+  --tone-orange-soft: oklch(27% 0.06 50);
+  --tone-orange: oklch(78% 0.12 55);
+  --tone-teal-soft: oklch(27% 0.05 190);
+  --tone-teal: oklch(76% 0.1 185);
+  --tone-green-soft: oklch(27% 0.055 150);
+  --tone-green: oklch(76% 0.13 150);
+  --tone-blue-soft: oklch(27% 0.06 255);
+  --tone-blue: oklch(74% 0.13 255);
+  --tone-purple-soft: oklch(27% 0.06 300);
+  --tone-purple: oklch(74% 0.14 300);
+}
+
+/*
+ * `inline` makes utilities reference these custom properties as-is, so the
+ * value under :root / [data-theme="dark"] is picked up at runtime instead
+ * of being baked in at build time.
+ */
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-accent: var(--text-on-accent);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-tone-red: var(--tone-red);
+  --color-tone-red-soft: var(--tone-red-soft);
+  --color-tone-orange: var(--tone-orange);
+  --color-tone-orange-soft: var(--tone-orange-soft);
+  --color-tone-teal: var(--tone-teal);
+  --color-tone-teal-soft: var(--tone-teal-soft);
+  --color-tone-green: var(--tone-green);
+  --color-tone-green-soft: var(--tone-green-soft);
+  --color-tone-blue: var(--tone-blue);
+  --color-tone-blue-soft: var(--tone-blue-soft);
+  --color-tone-purple: var(--tone-purple);
+  --color-tone-purple-soft: var(--tone-purple-soft);
+}

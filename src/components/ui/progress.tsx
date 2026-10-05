@@ -3,16 +3,18 @@ export function Progress({ value, label }: { value: number; label: string }) {
   return (
     <div>
       <div
-        className="mt-3 h-2 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
+        className="mt-3 h-2 overflow-hidden rounded-full border border-border-default bg-surface-sunken"
         role="progressbar"
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={label}
       >
-        <div className="h-full bg-indigo-600 transition-[width]" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-1.5 text-[13px] text-slate-500">{label}</p>
+      <p className="mt-1.5 text-[13px] text-text-muted">{label}</p>
     </div>
   );
 }
+
+// token-mapped

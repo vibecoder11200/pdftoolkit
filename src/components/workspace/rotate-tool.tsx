@@ -143,7 +143,7 @@ export function RotateTool() {
                 <label
                   key={deg}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-                    angle === deg ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                    angle === deg ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                   }`}
                 >
                   <input
@@ -152,7 +152,7 @@ export function RotateTool() {
                     value={deg}
                     checked={angle === deg}
                     onChange={() => setAngle(deg)}
-                    className="h-4 w-4 accent-indigo-600"
+                    className="h-4 w-4 accent-accent"
                   />
                   <span className="font-semibold tabular-nums">{deg}°</span>
                 </label>
@@ -163,21 +163,21 @@ export function RotateTool() {
             {t('rotate.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('rotate.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('rotate.progress_idle')}</span>
           )}
           {numPages > 0 ? (
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={reselectAll}
-                className="min-h-9 rounded-lg border border-slate-300 bg-white px-3.5 text-[13px] font-semibold"
+                className="min-h-9 rounded-lg border border-border-strong bg-surface-card px-3.5 text-[13px] font-semibold"
               >
                 {t('rotate.select_all')}
               </button>
               <button
                 type="button"
                 onClick={() => setSelected(new Set())}
-                className="min-h-9 rounded-lg border border-slate-300 bg-white px-3.5 text-[13px]"
+                className="min-h-9 rounded-lg border border-border-strong bg-surface-card px-3.5 text-[13px]"
               >
                 {t('rotate.clear_selection')}
               </button>
@@ -201,8 +201,8 @@ export function RotateTool() {
       />
       {numPages > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('rotate.selected_count', { count: selected.size, total: numPages })}
             </span>
             <span>· {t('rotate.thumb_hint')}</span>
@@ -225,25 +225,25 @@ export function RotateTool() {
                       toggle(p);
                     }
                   }}
-                  className={`relative cursor-pointer rounded-lg border-2 bg-white p-1.5 ${
-                    isSelected ? 'border-indigo-600' : 'border-slate-200 hover:border-slate-300'
+                  className={`relative cursor-pointer rounded-lg border-2 bg-surface-card p-1.5 ${
+                    isSelected ? 'border-accent' : 'border-border-default hover:border-border-strong'
                   }`}
                 >
-                  <span className="absolute top-2.5 left-2.5 z-10 rounded-md bg-slate-900/85 px-1.75 py-0.5 text-[11px] font-bold text-white tabular-nums">
+                  <span className="absolute top-2.5 left-2.5 z-10 rounded-md bg-surface-inverse/85 px-1.75 py-0.5 text-[11px] font-bold text-text-inverse tabular-nums">
                     {p}
                   </span>
                   <span
                     className={`absolute top-2 right-2 z-10 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
                       isSelected
-                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                        : 'border-slate-300 bg-white text-transparent'
+                        ? 'border-accent bg-accent text-text-on-accent'
+                        : 'border-border-strong bg-surface-card text-transparent'
                     }`}
                     aria-hidden
                   >
                     ✓
                   </span>
                   {isSelected ? (
-                    <span className="absolute bottom-2.5 left-2.5 z-10 rounded-md bg-indigo-600 px-1.75 py-0.5 text-[11px] font-bold text-white tabular-nums">
+                    <span className="absolute bottom-2.5 left-2.5 z-10 rounded-md bg-accent px-1.75 py-0.5 text-[11px] font-bold text-text-on-accent tabular-nums">
                       {angle}°
                     </span>
                   ) : null}
@@ -252,12 +252,12 @@ export function RotateTool() {
                       src={urlFor(`p${p}`) ?? undefined}
                       alt=""
                       draggable={false}
-                      className="block aspect-[0.707] w-full rounded border border-slate-200 object-contain transition-transform duration-200"
+                      className="block aspect-[0.707] w-full rounded border border-border-default object-contain transition-transform duration-200"
                       style={isSelected ? { transform: `rotate(${angle}deg)` } : undefined}
                     />
                   ) : (
                     <span
-                      className="block aspect-[0.707] w-full rounded border border-slate-200 bg-gradient-to-b from-white to-slate-100 transition-transform duration-200"
+                      className="block aspect-[0.707] w-full rounded border border-border-default bg-gradient-to-b from-surface-card to-surface-sunken transition-transform duration-200"
                       style={isSelected ? { transform: `rotate(${angle}deg)` } : undefined}
                       aria-hidden
                     />
@@ -271,3 +271,5 @@ export function RotateTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

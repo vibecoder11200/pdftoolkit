@@ -504,9 +504,9 @@ export function SignTool() {
             {t('sign.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('sign.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('sign.progress_idle')}</span>
           )}
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm">
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border-strong bg-surface-card px-3.5 py-2.5 text-sm">
             <input
               type="checkbox"
               checked={digital}
@@ -514,26 +514,26 @@ export function SignTool() {
                 setDigital(e.target.checked);
                 if (!e.target.checked) setDigitalAck(false);
               }}
-              className="mt-0.5 h-4 w-4 accent-indigo-600"
+              className="mt-0.5 h-4 w-4 accent-accent"
             />
             <span>
               <span className="block font-semibold">{t('sign.digital_label')}</span>
-              <span className="block text-[13px] text-slate-500">{t('sign.digital_hint')}</span>
+              <span className="block text-[13px] text-text-muted">{t('sign.digital_hint')}</span>
             </span>
           </label>
           {digital ? (
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-warning bg-warning-soft px-3.5 py-2.5 text-sm">
               <input
                 type="checkbox"
                 checked={digitalAck}
                 onChange={(e) => setDigitalAck(e.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-indigo-600"
+                className="mt-0.5 h-4 w-4 accent-accent"
               />
-              <span className="text-amber-900">{t('sign.digital_ack')}</span>
+              <span className="text-warning">{t('sign.digital_ack')}</span>
             </label>
           ) : null}
           <label className="block text-sm">
-            <span className="mb-1 block font-bold text-slate-900">{t('sign.size_label')}</span>
+            <span className="mb-1 block font-bold text-text-primary">{t('sign.size_label')}</span>
             <input
               type="range"
               min={Math.round(MIN_WFRAC * 100)}
@@ -550,9 +550,9 @@ export function SignTool() {
                   setDefaultWFrac(v);
                 }
               }}
-              className="w-full accent-indigo-600"
+              className="w-full accent-accent"
             />
-            <span className="text-[13px] text-slate-500">{t('sign.size_value', { pct: sizePct })}</span>
+            <span className="text-[13px] text-text-muted">{t('sign.size_value', { pct: sizePct })}</span>
           </label>
         </>
       }
@@ -569,8 +569,8 @@ export function SignTool() {
             onClick={() => setTab(m)}
             className={`inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border px-4 text-sm font-semibold ${
               tab === m
-                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+                ? 'border-accent bg-accent-soft text-accent'
+                : 'border-border-strong bg-surface-card text-text-muted hover:bg-surface-hover'
             }`}
           >
             {t(m === 'draw' ? 'sign.tab_draw' : m === 'type' ? 'sign.tab_type' : 'sign.tab_upload')}
@@ -580,10 +580,10 @@ export function SignTool() {
 
       {tab === 'draw' ? (
         <div className="mt-3">
-          <p className="text-[13px] text-slate-500">{t('sign.pad_hint')}</p>
+          <p className="text-[13px] text-text-muted">{t('sign.pad_hint')}</p>
           <canvas
             ref={padRef}
-            className="mt-2 block aspect-[12/5] w-full cursor-crosshair touch-none rounded-lg border border-slate-300 bg-white"
+            className="mt-2 block aspect-[12/5] w-full cursor-crosshair touch-none rounded-lg border border-border-strong bg-surface-card"
             onPointerDown={(e) => {
               drawingRef.current = true;
               lastRef.current = padPoint(e.clientX, e.clientY);
@@ -635,7 +635,7 @@ export function SignTool() {
             value={typedName}
             onChange={(e) => setTypedName(e.target.value)}
             placeholder={t('sign.type_placeholder')}
-            className="min-h-11 w-full rounded-lg border border-slate-300 px-3.5 text-sm"
+            className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
             style={{ fontFamily: '"Segoe Script", "Brush Script MT", "Snell Roundhand", cursive' }}
           />
         </label>
@@ -646,7 +646,7 @@ export function SignTool() {
           <Button variant="secondary" onClick={() => pngInputRef.current?.click()}>
             {t('sign.upload_cta')}
           </Button>
-          <span className="text-[13px] text-slate-500">{t('sign.upload_hint')}</span>
+          <span className="text-[13px] text-text-muted">{t('sign.upload_hint')}</span>
           <input
             ref={pngInputRef}
             type="file"
@@ -668,7 +668,7 @@ export function SignTool() {
           <img
             src={sig.url}
             alt=""
-            className="h-12 max-w-44 rounded border border-slate-200 bg-white object-contain"
+            className="h-12 max-w-44 rounded border border-border-default bg-surface-card object-contain"
           />
         </div>
       ) : null}
@@ -691,20 +691,20 @@ export function SignTool() {
       </div>
 
       {src ? (
-        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]">
+        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
           <span>📄</span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
-          <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+          <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
             {formatBytes(src.file.size, locale)} · {numPages} {lng === 'vi' ? 'trang' : 'pages'}
           </span>
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[13.5px]" role="note">
-        <strong className="block text-amber-900">{t('sign.disclaimer_title')}</strong>
-        <span className="block text-amber-900">{t('sign.disclaimer')}</span>
-        <span className="mt-1.5 block text-amber-900">{t('sign.single_note')}</span>
-        <span className="mt-1.5 block text-amber-900">{t('sign.scope_note')}</span>
+      <div className="mt-4 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]" role="note">
+        <strong className="block text-warning">{t('sign.disclaimer_title')}</strong>
+        <span className="block text-warning">{t('sign.disclaimer')}</span>
+        <span className="mt-1.5 block text-warning">{t('sign.single_note')}</span>
+        <span className="mt-1.5 block text-warning">{t('sign.scope_note')}</span>
       </div>
 
       <fieldset className="mt-4">
@@ -712,7 +712,7 @@ export function SignTool() {
         <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('sign.position_q')}>
           <label
             className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-              spotMode === 'picked' ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+              spotMode === 'picked' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
             }`}
           >
             <input
@@ -721,16 +721,16 @@ export function SignTool() {
               value="picked"
               checked={spotMode === 'picked'}
               onChange={() => setSpotMode('picked')}
-              className="mt-1 h-4 w-4 accent-indigo-600"
+              className="mt-1 h-4 w-4 accent-accent"
             />
             <span>
               <span className="block font-semibold">{t('sign.position_picked', { n: currentPage })}</span>
-              <span className="block text-[13px] text-slate-500">{t('sign.position_picked_hint')}</span>
+              <span className="block text-[13px] text-text-muted">{t('sign.position_picked_hint')}</span>
             </span>
           </label>
           <label
             className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-              spotMode === 'last' ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+              spotMode === 'last' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
             }`}
           >
             <input
@@ -739,11 +739,11 @@ export function SignTool() {
               value="last"
               checked={spotMode === 'last'}
               onChange={() => setSpotMode('last')}
-              className="mt-1 h-4 w-4 accent-indigo-600"
+              className="mt-1 h-4 w-4 accent-accent"
             />
             <span>
               <span className="block font-semibold">{t('sign.position_last')}</span>
-              <span className="block text-[13px] text-slate-500">{t('sign.position_last_hint')}</span>
+              <span className="block text-[13px] text-text-muted">{t('sign.position_last_hint')}</span>
             </span>
           </label>
         </div>
@@ -760,7 +760,7 @@ export function SignTool() {
             >
               {t('sign.page_prev')}
             </Button>
-            <span className="text-[13px] text-slate-500 tabular-nums">
+            <span className="text-[13px] text-text-muted tabular-nums">
               {t('sign.page_of', { n: currentPage, total: numPages })}
             </span>
             <Button
@@ -772,12 +772,12 @@ export function SignTool() {
               {t('sign.page_next')}
             </Button>
           </div>
-          <p className="mt-2 text-[13px] text-slate-500">
+          <p className="mt-2 text-[13px] text-text-muted">
             {t('sign.preview_hint')} · {t('sign.preview_resize')}
           </p>
           <div
             ref={wrapRef}
-            className="relative mt-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+            className="relative mt-2 overflow-hidden rounded-lg border border-border-default bg-surface-sunken"
           >
             <canvas
               ref={previewCanvasRef}
@@ -797,7 +797,7 @@ export function SignTool() {
                     aria-label={t('sign.spot_label', { n: s.page })}
                     title={t('sign.preview_placed', { n: s.page })}
                     className={`absolute touch-none ${
-                      s.id === selectedId ? 'ring-2 ring-indigo-600' : 'ring-1 ring-slate-900/40'
+                      s.id === selectedId ? 'ring-2 ring-accent' : 'ring-1 ring-surface-inverse/40'
                     }`}
                     style={{
                       left: `${s.nx * 100}%`,
@@ -836,7 +836,7 @@ export function SignTool() {
                       role="button"
                       tabIndex={-1}
                       aria-label={t('sign.spot_remove', { n: s.page })}
-                      className="absolute -right-2 -bottom-2 grid h-6 w-6 cursor-nwse-resize place-items-center rounded-full border border-indigo-600 bg-white text-[12px] text-indigo-700"
+                      className="absolute -right-2 -bottom-2 grid h-6 w-6 cursor-nwse-resize place-items-center rounded-full border border-accent bg-surface-card text-[12px] text-accent"
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         setSelectedId(s.id);
@@ -868,11 +868,11 @@ export function SignTool() {
                   .map((s) => (
                     <li
                       key={s.id}
-                      className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]"
+                      className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
                     >
                       <button
                         type="button"
-                        className="font-semibold text-indigo-700 hover:underline"
+                        className="font-semibold text-accent hover:underline"
                         onClick={() => {
                           setCurrentPage(s.page);
                           setSelectedId(s.id);
@@ -880,13 +880,13 @@ export function SignTool() {
                       >
                         {t('sign.spot_label', { n: s.page })}
                       </button>
-                      <span className="ml-auto text-xs text-slate-500 tabular-nums">
+                      <span className="ml-auto text-xs text-text-muted tabular-nums">
                         {Math.round(s.wFrac * 100)}%
                       </span>
                       <button
                         type="button"
                         aria-label={t('sign.spot_remove', { n: s.page })}
-                        className="min-h-10 min-w-10 text-slate-500 hover:text-red-600"
+                        className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                         onClick={() => removeSpot(s.id)}
                       >
                         ✕
@@ -896,7 +896,7 @@ export function SignTool() {
               </ul>
             </div>
           ) : null}
-          <div className="mt-3.5 mb-2.5 text-[13px] text-slate-500">
+          <div className="mt-3.5 mb-2.5 text-[13px] text-text-muted">
             {t('sign.page_of', { n: currentPage, total: numPages })}
           </div>
           <ThumbnailStrip
@@ -916,3 +916,5 @@ export function SignTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

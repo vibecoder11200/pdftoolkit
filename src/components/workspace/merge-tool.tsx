@@ -126,7 +126,7 @@ export function MergeTool() {
             {t('merge.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('merge.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('merge.progress_idle')}</span>
           )}
         </>
       }
@@ -152,18 +152,18 @@ export function MergeTool() {
           {files.map((f, i) => (
             <div
               key={`${f.file.name}-${i}`}
-              className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]"
+              className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
             >
               <span>📄</span>
               <span className="overflow-hidden text-ellipsis whitespace-nowrap">{f.file.name}</span>
-              <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+              <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
                 {formatBytes(f.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} ·{' '}
                 {pageCounts[i] ?? 0} trang
               </span>
               <button
                 type="button"
                 aria-label={`Remove ${f.file.name}`}
-                className="min-h-10 min-w-10 text-slate-500 hover:text-red-600"
+                className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                 onClick={() => removeAt(i)}
               >
                 ✕
@@ -174,8 +174,8 @@ export function MergeTool() {
       ) : null}
       {pages.length > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('merge.keep_count', { count: kept.length })}
             </span>
             <span>· {t('merge.thumb_hint')}</span>
@@ -207,3 +207,5 @@ export function MergeTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

@@ -1,6 +1,13 @@
 {
   "topbar": {
-    "privacy": "100% processed on your device"
+    "privacy": "100% processed on your device",
+    "theme_toggle": "Theme",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_system": "System"
+  },
+  "a11y": {
+    "logo": "PDF Toolkit — back to home"
   },
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",

@@ -68,8 +68,20 @@ export default defineConfig({
       strategies: 'generateSW',
       workbox: {
         // Fonts are build-emitted (not in public/), so they must be globbed
-        // here — includeAssets only sees publicDir.
-        globPatterns: ['**/*.{js,css,html}', 'assets/qpdf.wasm', 'assets/standard_fonts/*'],
+        // here — includeAssets only sees publicDir. Favicon set, PWA icons
+        // and the webmanifest are precached too: an offline cold start (SW
+        // navigateFallback) still needs theme-boot.js (**/*.js covers it),
+        // the tab icon and the install manifest (red-team #16).
+        globPatterns: [
+          '**/*.{js,css,html}',
+          'assets/qpdf.wasm',
+          'assets/standard_fonts/*',
+          'favicon.svg',
+          'favicon-32.png',
+          'apple-touch-icon-180.png',
+          'icons/*.png',
+          'manifest.webmanifest',
+        ],
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
         navigateFallbackDenylist: [/^\/api/],
         // Pin the content hash of stable-filename assets (qpdf.wasm, fonts)
@@ -103,8 +115,8 @@ export default defineConfig({
         theme_color: '#4f46e5',
         lang: 'vi',
         icons: [
-          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           {
             src: 'icons/icon-maskable-512.png',
             sizes: '512x512',

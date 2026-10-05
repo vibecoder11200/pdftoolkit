@@ -54,30 +54,30 @@ export function ThumbnailStrip({
               const from = Number(e.dataTransfer.getData('text/plain'));
               if (Number.isFinite(from)) onMove?.(from, p.pageNumber);
             }}
-            className={`relative cursor-grab rounded-lg border-2 bg-white p-1.5 ${
-              p.selected ? 'border-indigo-600' : 'border-slate-200 hover:border-slate-300'
+            className={`relative cursor-grab rounded-lg border-2 bg-surface-card p-1.5 ${
+              p.selected ? 'border-accent' : 'border-border-default hover:border-border-strong'
             }`}
           >
-            <span className="absolute top-2.5 left-2.5 rounded-md bg-slate-900/85 px-1.75 py-0.5 text-[11px] font-bold text-white tabular-nums">
+            <span className="absolute top-2.5 left-2.5 rounded-md bg-surface-inverse/85 px-1.75 py-0.5 text-[11px] font-bold text-text-inverse tabular-nums">
               {p.pageNumber}
             </span>
             <span
               className={`absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
-                p.selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-transparent'
+                p.selected ? 'border-accent bg-accent text-text-on-accent' : 'border-border-strong bg-surface-card text-transparent'
               }`}
               aria-hidden
             >
               ✓
             </span>
             {p.url ? (
-              <img src={p.url} alt="" className="block aspect-[0.707] w-full rounded border border-slate-200 object-contain" draggable={false} />
+              <img src={p.url} alt="" className="block aspect-[0.707] w-full rounded border border-border-default object-contain" draggable={false} />
             ) : (
-              <span className="block aspect-[0.707] w-full rounded border border-slate-200 bg-gradient-to-b from-white to-slate-100" aria-hidden />
+              <span className="block aspect-[0.707] w-full rounded border border-border-default bg-gradient-to-b from-surface-card to-surface-sunken" aria-hidden />
             )}
             <button
               type="button"
               aria-label={`View page ${p.pageNumber} fullscreen`}
-              className="absolute right-2.5 bottom-2.5 hidden h-8 w-8 place-items-center rounded-lg border border-slate-300 bg-white text-sm text-slate-500 hover:border-indigo-600 hover:text-slate-900 hover:[display:grid] group-hover:grid"
+              className="absolute right-2.5 bottom-2.5 hidden h-8 w-8 place-items-center rounded-lg border border-border-strong bg-surface-card text-sm text-text-muted hover:border-accent hover:text-text-primary hover:[display:grid] group-hover:grid"
               onClick={(e) => {
                 e.stopPropagation();
                 setFs(p.pageNumber);
@@ -90,14 +90,14 @@ export function ThumbnailStrip({
       </div>
       <Dialog open={fs !== null} onClose={() => setFs(null)} title={fs !== null ? fullscreenTitle(fs) : ''}>
         {fs !== null && pages[fs - 1]?.url ? (
-          <img src={pages[fs - 1].url ?? ''} alt="" className="w-full rounded-lg border border-slate-200" />
+          <img src={pages[fs - 1].url ?? ''} alt="" className="w-full rounded-lg border border-border-default" />
         ) : (
-          <div className="aspect-[0.707] w-full rounded-lg border border-slate-200 bg-slate-100" />
+          <div className="aspect-[0.707] w-full rounded-lg border border-border-default bg-surface-sunken" />
         )}
         <button
           type="button"
           onClick={() => setFs(null)}
-          className="mt-3 min-h-9 rounded-lg border border-slate-300 px-3.5 text-sm"
+          className="mt-3 min-h-9 rounded-lg border border-border-strong px-3.5 text-sm"
         >
           {closeLabel}
         </button>
@@ -105,3 +105,5 @@ export function ThumbnailStrip({
     </>
   );
 }
+
+// token-mapped

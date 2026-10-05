@@ -20,7 +20,7 @@ export function Dropzone({ title, hint, accept, multiple = true, onFiles }: Drop
 
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-slate-300 px-4 py-3 text-center text-[13.5px] text-slate-500"
+      className="flex flex-wrap items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-border-strong px-4 py-3 text-center text-[13.5px] text-text-muted"
       role="button"
       tabIndex={0}
       aria-label={title}
@@ -37,7 +37,7 @@ export function Dropzone({ title, hint, accept, multiple = true, onFiles }: Drop
         if (e.dataTransfer.files.length > 0) emit(e.dataTransfer.files);
       }}
     >
-      <strong className="text-slate-900">{title}</strong>
+      <strong className="text-text-primary">{title}</strong>
       <span>{hint}</span>
       <input
         ref={inputRef}
@@ -55,3 +55,5 @@ export function Dropzone({ title, hint, accept, multiple = true, onFiles }: Drop
     </div>
   );
 }
+
+// token-mapped

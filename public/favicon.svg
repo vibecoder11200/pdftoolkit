@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .tile { fill: #4f46e5; }
+    .fold { fill: #c7d2fe; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #312e81; }
+      .fold { fill: #a5b4fc; }
+    }
+  </style>
+  <rect class="tile" width="32" height="32" rx="6.4" />
+  <path d="M8.64 6.72H19.2L23.36 10.88V25.28H8.64Z" fill="#ffffff" />
+  <path class="fold" d="M19.2 6.72L23.36 10.88H19.2Z" />
+  <path class="tile" d="M11.04 8.96H13.92A3.68 3.68 0 0 1 13.92 16.32V22.4H11.04ZM13.92 11.2A1.44 1.44 0 0 1 13.92 14.08Z" fill-rule="evenodd" />
+</svg>

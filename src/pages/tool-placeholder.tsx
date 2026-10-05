@@ -7,11 +7,13 @@ export function ToolPlaceholderPage({ toolKey }: { toolKey: string }) {
   return (
     <div className="mx-auto max-w-7xl px-7 pb-24">
       <Nav />
-      <main className="mt-8 rounded-2xl border border-slate-200 bg-white p-11 text-center text-slate-500">
-        <strong className="block text-slate-900">{t(`${toolKey}.title`)}</strong>
+      <main className="mt-8 rounded-2xl border border-border-default bg-surface-card p-11 text-center text-text-muted">
+        <strong className="block text-text-primary">{t(`${toolKey}.title`)}</strong>
         <span className="text-sm">{t(`${toolKey}.desc`)}</span>
       </main>
       <Footer />
     </div>
   );
 }
+
+// token-mapped

@@ -230,7 +230,7 @@ export function CompressTool() {
             {t('compress.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('compress.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('compress.progress_idle')}</span>
           )}
         </>
       }
@@ -249,10 +249,10 @@ export function CompressTool() {
         }}
       />
       {src ? (
-        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 text-[13.5px]">
+        <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
           <span>📄</span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
-          <span className="ml-auto text-xs whitespace-nowrap text-slate-500 tabular-nums">
+          <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
             {formatBytes(src.file.size, locale)} · {numPages} {lng === 'vi' ? 'trang' : 'pages'}
           </span>
         </div>
@@ -262,7 +262,7 @@ export function CompressTool() {
         <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('compress.mode_q')}>
           <label
             className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-              mode === 'vector' ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+              mode === 'vector' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
             }`}
           >
             <input
@@ -271,16 +271,16 @@ export function CompressTool() {
               value="vector"
               checked={mode === 'vector'}
               onChange={() => setMode('vector')}
-              className="mt-1 h-4 w-4 accent-indigo-600"
+              className="mt-1 h-4 w-4 accent-accent"
             />
             <span>
               <span className="block font-semibold">{t('compress.mode_vector')}</span>
-              <span className="block text-[13px] text-slate-500">{t('compress.mode_vector_hint')}</span>
+              <span className="block text-[13px] text-text-muted">{t('compress.mode_vector_hint')}</span>
             </span>
           </label>
           <label
             className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-              mode === 'image' ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+              mode === 'image' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
             }`}
           >
             <input
@@ -289,20 +289,20 @@ export function CompressTool() {
               value="image"
               checked={mode === 'image'}
               onChange={() => setMode('image')}
-              className="mt-1 h-4 w-4 accent-indigo-600"
+              className="mt-1 h-4 w-4 accent-accent"
             />
             <span>
               <span className="block font-semibold">{t('compress.mode_image')}</span>
-              <span className="block text-[13px] text-slate-500">{t('compress.mode_image_hint')}</span>
+              <span className="block text-[13px] text-text-muted">{t('compress.mode_image_hint')}</span>
             </span>
           </label>
         </div>
         <div
-          className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[13.5px]"
+          className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
           role="note"
         >
-          <strong className="block text-amber-900">{t('compress.raster_title')}</strong>
-          <span className="text-amber-900">{t('compress.raster_warning')}</span>
+          <strong className="block text-warning">{t('compress.raster_title')}</strong>
+          <span className="text-warning">{t('compress.raster_warning')}</span>
         </div>
       </fieldset>
       {mode === 'image' ? (
@@ -317,7 +317,7 @@ export function CompressTool() {
               <label
                 key={q}
                 className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-                  quality === q ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                  quality === q ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                 }`}
               >
                 <input
@@ -326,11 +326,11 @@ export function CompressTool() {
                   value={q}
                   checked={quality === q}
                   onChange={() => setQuality(q)}
-                  className="mt-1 h-4 w-4 accent-indigo-600"
+                  className="mt-1 h-4 w-4 accent-accent"
                 />
                 <span>
                   <span className="block font-semibold">{t(`compress.quality_${q}`)}</span>
-                  <span className="block text-[13px] text-slate-500">
+                  <span className="block text-[13px] text-text-muted">
                     {t(`compress.quality_${q}_hint`)}
                   </span>
                 </span>
@@ -342,14 +342,14 @@ export function CompressTool() {
       {result && savedLabel ? (
         <section
           aria-live="polite"
-          className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3.5 text-[13.5px]"
+          className="mt-4 rounded-lg border border-border-default bg-surface-page px-4 py-3.5 text-[13.5px]"
         >
-          <strong className="block text-slate-900">{t('compress.result_title')}</strong>
+          <strong className="block text-text-primary">{t('compress.result_title')}</strong>
           <p className="mt-1.5 tabular-nums">
             {t('compress.result_before')}: {formatBytes(result.beforeBytes, locale)} →{' '}
             {t('compress.result_after')}: {formatBytes(result.afterBytes, locale)} · {savedLabel}
           </p>
-          <p className="mt-1.5 text-slate-600">
+          <p className="mt-1.5 text-text-muted">
             {t(thresholdKey(result.mode, result.savedPct), {
               pct: Math.abs(result.savedPct).toFixed(1),
             })}
@@ -364,3 +364,5 @@ export function CompressTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

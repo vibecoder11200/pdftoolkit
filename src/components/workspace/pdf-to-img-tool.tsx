@@ -178,7 +178,7 @@ export function PdfToImgTool() {
                 <label
                   key={f}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
-                    format === f ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                    format === f ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                   }`}
                 >
                   <input
@@ -187,10 +187,10 @@ export function PdfToImgTool() {
                     value={f}
                     checked={format === f}
                     onChange={() => setFormat(f)}
-                    className="h-4 w-4 accent-indigo-600"
+                    className="h-4 w-4 accent-accent"
                   />
                   <span className="font-semibold">{t(`pdf_to_images.format_${f}`)}</span>
-                  <span className="text-xs text-slate-500">{t(`pdf_to_images.format_${f}_hint`)}</span>
+                  <span className="text-xs text-text-muted">{t(`pdf_to_images.format_${f}_hint`)}</span>
                 </label>
               ))}
             </div>
@@ -206,7 +206,7 @@ export function PdfToImgTool() {
                 <label
                   key={d}
                   className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm ${
-                    dpi === d ? 'border-indigo-600 bg-white' : 'border-slate-300 bg-white'
+                    dpi === d ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
                   }`}
                 >
                   <input
@@ -215,19 +215,19 @@ export function PdfToImgTool() {
                     value={d}
                     checked={dpi === d}
                     onChange={() => setDpi(d)}
-                    className="h-4 w-4 accent-indigo-600"
+                    className="h-4 w-4 accent-accent"
                   />
                   <span className="font-semibold tabular-nums">{d}</span>
                 </label>
               ))}
             </div>
-            <p className="mt-1.5 text-xs text-slate-500">{t('pdf_to_images.dpi_hint')}</p>
+            <p className="mt-1.5 text-xs text-text-muted">{t('pdf_to_images.dpi_hint')}</p>
           </fieldset>
           <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy}>
             {t('pdf_to_images.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('pdf_to_images.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('pdf_to_images.progress_idle')}</span>
           )}
         </>
       }
@@ -247,8 +247,8 @@ export function PdfToImgTool() {
       />
       {numPages > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('pdf_to_images.page_count', { count: numPages })}
             </span>
             <span>· {t('pdf_to_images.thumb_hint')}</span>
@@ -269,3 +269,5 @@ export function PdfToImgTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

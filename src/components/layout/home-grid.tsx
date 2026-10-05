@@ -23,7 +23,7 @@ export function HomeGrid({ filter, onFilter }: { filter: Filter; onFilter: (f: F
 
   return (
     <div>
-      <div className="sticky top-13 z-20 flex flex-wrap gap-2.5 bg-slate-50/90 py-4 backdrop-blur" role="group" aria-label={t('filters.all')}>
+      <div className="sticky top-13 z-20 flex flex-wrap gap-2.5 bg-surface-page/90 py-4 backdrop-blur" role="group" aria-label={t('filters.all')}>
         {FILTERS.map((f) => (
           <button
             key={f}
@@ -33,8 +33,8 @@ export function HomeGrid({ filter, onFilter }: { filter: Filter; onFilter: (f: F
             onClick={() => onFilter(f)}
             className={`min-h-10 rounded-full border px-4.5 py-2 text-[13.5px] font-semibold ${
               filter === f
-                ? 'border-slate-900 bg-slate-900 text-white'
-                : 'border-slate-300 bg-white text-slate-500 hover:border-indigo-600 hover:text-slate-900'
+                ? 'border-surface-inverse bg-surface-inverse text-text-inverse'
+                : 'border-border-strong bg-surface-card text-text-muted hover:border-accent hover:text-text-primary'
             }`}
           >
             {t(FILTER_LABEL[f])}
@@ -46,7 +46,7 @@ export function HomeGrid({ filter, onFilter }: { filter: Filter; onFilter: (f: F
           (g) =>
             (filter === 'all' || filter === g.key) && (
               <section key={g.key} aria-label={g.label}>
-                <h2 className="mt-7.5 mb-3 text-xs font-bold tracking-[0.08em] text-slate-600 uppercase" data-group={g.key}>
+                <h2 className="mt-7.5 mb-3 text-xs font-bold tracking-[0.08em] text-text-muted uppercase" data-group={g.key}>
                   {g.label}
                 </h2>
                 <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -61,3 +61,5 @@ export function HomeGrid({ filter, onFilter }: { filter: Filter; onFilter: (f: F
     </div>
   );
 }
+
+// token-mapped

@@ -21,7 +21,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/85 p-4"
+      className="fixed inset-0 z-[100] grid place-items-center bg-surface-overlay/85 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -29,12 +29,12 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       aria-modal="true"
       aria-label={title}
     >
-      <div className="w-full max-w-2xl overflow-auto rounded-xl bg-white p-5">
+      <div className="w-full max-w-2xl overflow-auto rounded-xl bg-surface-card p-5">
         <div className="mb-3 flex items-center gap-2 font-bold">
           <span>{title}</span>
           <button
             type="button"
-            className="ml-auto min-h-9 min-w-9 rounded-lg border border-slate-300 px-3 text-sm"
+            className="ml-auto min-h-9 min-w-9 rounded-lg border border-border-strong px-3 text-sm"
             onClick={onClose}
           >
             ✕
@@ -45,3 +45,5 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
     </div>
   );
 }
+
+// token-mapped

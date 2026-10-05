@@ -132,7 +132,7 @@ export function ReorderTool() {
             {t('reorder.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('reorder.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('reorder.progress_idle')}</span>
           )}
         </>
       }
@@ -159,8 +159,8 @@ export function ReorderTool() {
       />
       {order.length > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('reorder.page_count', { count: order.length })}
             </span>
             <span>· {t('reorder.thumb_hint')}</span>
@@ -182,19 +182,19 @@ export function ReorderTool() {
             {order.map((orig, idx) => (
               <li
                 key={`reorder-row-${orig}`}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 p-2 text-[13.5px]"
+                className="flex items-center gap-2 rounded-lg border border-border-default p-2 text-[13.5px]"
               >
                 <span className="font-bold tabular-nums">
                   {t('reorder.position', { n: idx + 1 })}
                 </span>
-                <span className="text-slate-500">{t('reorder.source_page', { n: orig })}</span>
+                <span className="text-text-muted">{t('reorder.source_page', { n: orig })}</span>
                 <span className="ml-auto flex gap-2">
                   <button
                     type="button"
                     aria-label={t('reorder.move_up', { n: idx + 1 })}
                     disabled={idx === 0}
                     onClick={() => step(idx, -1)}
-                    className="min-h-10 min-w-10 rounded-lg border border-slate-300 disabled:opacity-40"
+                    className="min-h-10 min-w-10 rounded-lg border border-border-strong disabled:opacity-40"
                   >
                     {t('reorder.up')}
                   </button>
@@ -203,7 +203,7 @@ export function ReorderTool() {
                     aria-label={t('reorder.move_down', { n: idx + 1 })}
                     disabled={idx === order.length - 1}
                     onClick={() => step(idx, 1)}
-                    className="min-h-10 min-w-10 rounded-lg border border-slate-300 disabled:opacity-40"
+                    className="min-h-10 min-w-10 rounded-lg border border-border-strong disabled:opacity-40"
                   >
                     {t('reorder.down')}
                   </button>
@@ -216,3 +216,5 @@ export function ReorderTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

@@ -1,6 +1,13 @@
 {
   "topbar": {
-    "privacy": "100% xử lý trên máy bạn"
+    "privacy": "100% xử lý trên máy bạn",
+    "theme_toggle": "Chủ đề",
+    "theme_light": "Sáng",
+    "theme_dark": "Tối",
+    "theme_system": "Theo hệ thống"
+  },
+  "a11y": {
+    "logo": "PDF Toolkit — về trang chủ"
   },
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",

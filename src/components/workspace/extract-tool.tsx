@@ -136,7 +136,7 @@ export function ExtractTool() {
             {t('extract.clear_selection')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('extract.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('extract.progress_idle')}</span>
           )}
         </>
       }
@@ -157,8 +157,8 @@ export function ExtractTool() {
       />
       {numPages > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('extract.selected_count', { count: selected.size, total: numPages })}
             </span>
             <span>· {t('extract.thumb_hint')}</span>
@@ -180,3 +180,5 @@ export function ExtractTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped

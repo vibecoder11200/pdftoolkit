@@ -136,7 +136,7 @@ export function DeleteTool() {
             {t('remove.cta_save')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-slate-500">{t('remove.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('remove.progress_idle')}</span>
           )}
         </>
       }
@@ -163,8 +163,8 @@ export function DeleteTool() {
       />
       {numPages > 0 ? (
         <>
-          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
-            <span className="font-bold text-slate-900">
+          <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
+            <span className="font-bold text-text-primary">
               {t('remove.keep_count', { count: keptCount })}
             </span>
             <span>· {t('remove.thumb_hint')}</span>
@@ -198,3 +198,5 @@ export function DeleteTool() {
     </WorkspaceShell>
   );
 }
+
+// token-mapped
