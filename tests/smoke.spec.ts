@@ -37,3 +37,16 @@ test('merge tool loads a PDF and renders lazy thumbnails', async ({ page }) => {
   await expect(thumbs).toHaveCount(2); // fixture has 2 pages
   await expect(page.getByRole('heading', { name: 'Gộp PDF' })).toBeVisible();
 });
+
+test('digital self-sign downloads a signed PDF (browser bundle path)', async ({ page }) => {
+  await page.goto('./tools/sign');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.getByRole('heading', { name: 'Ký tài liệu' }).waitFor();
+  // Digital toggle, then the mandatory acknowledgment it reveals.
+  await page.locator('input[type="checkbox"]').first().check();
+  await page.locator('input[type="checkbox"]').nth(1).check();
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Đặt ký và tải xuống' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/-signed\.pdf$/);
+});

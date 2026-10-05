@@ -49,12 +49,8 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
   const pumpRef = useRef<() => void>(() => {});
   const ioRef = useRef<IntersectionObserver | null>(null);
   const queueRef = useRef<Set<string>>(new Set());
-  const inflightRef = useRef(0);
+  const inflightIdsRef = useRef(new Set<string>());
 
-  const jobOf = useCallback(
-    (id: string) => jobsRef.current.find((j) => j.id === id) ?? null,
-    [],
-  );
   const isFresh = useCallback((id: string) => {
     const job = jobsRef.current.find((j) => j.id === id);
     if (!job) return false;
@@ -114,13 +110,13 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
     }
 
     pumpRef.current = () => {
-      while (!abort.signal.aborted && inflightRef.current < CONCURRENCY) {
+      while (!abort.signal.aborted && inflightIdsRef.current.size < CONCURRENCY) {
         const [id] = queueRef.current;
         if (id === undefined) return;
         queueRef.current.delete(id);
         const job = jobsRef.current.find((j) => j.id === id);
-        if (!job || isFresh(id)) continue;
-        inflightRef.current += 1;
+        if (!job || isFresh(id) || inflightIdsRef.current.has(id)) continue;
+        inflightIdsRef.current.add(id);
         void (async () => {
           try {
             // Lazy: keeps the 400KB+ pdf.js chunk out of the initial bundle.
@@ -144,7 +140,7 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
           } catch {
             /* keep placeholder */
           } finally {
-            inflightRef.current -= 1;
+            inflightIdsRef.current.delete(id);
             pumpRef.current();
           }
         })();
@@ -154,6 +150,7 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
     return () => {
       abort.abort();
       queueRef.current.clear();
+      inflightIdsRef.current.clear();
     };
   }, [signature, isFresh]);
 
@@ -181,8 +178,7 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
     () => ({
       urlFor: (id: string) => (isFresh(id) ? entriesRef.current[id].url : null),
       observe,
-      jobOf,
     }),
-    [observe, isFresh, jobOf],
+    [observe, isFresh],
   );
 }

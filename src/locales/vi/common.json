@@ -99,7 +99,9 @@
     "err_failed": "Đặt chữ ký thất bại: {{message}}",
     "digital_label": "Thêm chữ ký số tự tạo (PKCS#7)",
     "digital_hint": "Tạo cặp khóa + chứng thư tự ký ngay trên máy, không gửi dữ liệu đi đâu. Adobe/UPDF báo \"chưa tin cậy\" vì không phải CA.",
-    "err_already_signed": "File đã có một chữ ký số; bản này chỉ hỗ trợ một chữ ký mỗi file."
+    "err_already_signed": "File đã có một chữ ký số; bản này chỉ hỗ trợ một chữ ký mỗi file.",
+    "digital_ack": "Tôi hiểu đây là chứng thư tự tạo trên chính máy này — Adobe/UPDF sẽ báo \"chưa tin cậy\".",
+    "err_ack_missing": "Hãy xác nhận bạn hiểu phạm vi chữ ký số tự tạo trước khi ký."
   },
   "footer": {
     "note": "PDF Toolkit · MIT · không telemetry · không CDN runtime"

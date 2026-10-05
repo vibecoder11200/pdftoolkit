@@ -28,9 +28,24 @@ const standardFontsDir = fileURLToPath(
   new URL('./node_modules/pdfjs-dist/standard_fonts/', import.meta.url),
 );
 const standardFonts = readdirSync(standardFontsDir).filter((f) => /\.(pfb|ttf)$/.test(f));
+const fontRevisions = Object.fromEntries(
+  standardFonts.map((f) => [
+    f,
+    createHash('sha256').update(readFileSync(standardFontsDir + f)).digest('hex'),
+  ]),
+);
 
 export default defineConfig({
   base: '/pdftoolkit/',
+  resolve: {
+    alias: {
+      // js-pdf-signer's `browser` field is an IIFE with no exports; force the
+      // CJS entry so named imports survive Vite's browser resolution.
+      'js-pdf-signer': fileURLToPath(
+        new URL('./node_modules/js-pdf-signer/src/index.js', import.meta.url),
+      ),
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -51,17 +66,27 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       strategies: 'generateSW',
-      includeAssets: ['**/*.wasm', 'assets/standard_fonts/*.pfb', 'assets/standard_fonts/*.ttf'],
       workbox: {
+        // Fonts are build-emitted (not in public/), so they must be globbed
+        // here — includeAssets only sees publicDir.
+        globPatterns: ['**/*.{js,css,html}', 'assets/qpdf.wasm', 'assets/standard_fonts/*'],
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
         navigateFallbackDenylist: [/^\/api/],
-        // Pin the content hash of the stable-filename qpdf.wasm so the
-        // precache entry is integrity-addressed (see qpdfWasmRevision).
+        // Pin the content hash of stable-filename assets (qpdf.wasm, fonts)
+        // so a swapped binary can never silently serve from an old precache
+        // entry (see qpdfWasmRevision / fontRevisions).
         manifestTransforms: [
           (entries) => ({
-            manifest: entries.map((entry) =>
-              entry.url === 'assets/qpdf.wasm' ? { ...entry, revision: qpdfWasmRevision } : entry,
-            ),
+            manifest: entries.map((entry) => {
+              if (entry.url === 'assets/qpdf.wasm') {
+                return { ...entry, revision: qpdfWasmRevision };
+              }
+              const font = entry.url.match(/^assets\/standard_fonts\/(.+)$/)?.[1];
+              if (font && fontRevisions[font]) {
+                return { ...entry, revision: fontRevisions[font] };
+              }
+              return entry;
+            }),
             warnings: undefined,
           }),
         ],

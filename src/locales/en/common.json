@@ -99,7 +99,9 @@
     "err_failed": "Could not place the signature: {{message}}",
     "digital_label": "Add self-signed digital signature (PKCS#7)",
     "digital_hint": "Generates a key pair and self-signed certificate on your device; nothing is uploaded. Adobe/UPDF show \"untrusted\" because it is not CA-issued.",
-    "err_already_signed": "This file already has a digital signature; only one signature per file is supported in this release."
+    "err_already_signed": "This file already has a digital signature; only one signature per file is supported in this release.",
+    "digital_ack": "I understand this certificate is created on this device — Adobe/UPDF will flag it \"untrusted\".",
+    "err_ack_missing": "Acknowledge the self-signed certificate scope before signing."
   },
   "footer": {
     "note": "PDF Toolkit · MIT · no telemetry · no runtime CDN"

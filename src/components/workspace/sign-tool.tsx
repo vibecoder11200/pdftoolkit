@@ -86,6 +86,8 @@ export function SignTool() {
   const [defaultWFrac, setDefaultWFrac] = useState(DEFAULT_WFRAC);
   const [spotMode, setSpotMode] = useState<SpotMode>('picked');
   const [digital, setDigital] = useState(false);
+  const [digitalAck, setDigitalAck] = useState(false);
+  const [loadSeq, setLoadSeq] = useState(0);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<RunError | null>(null);
   const [succeeded, setSucceeded] = useState(false);
@@ -241,6 +243,7 @@ export function SignTool() {
   // ---- PDF info + thumbnails + main preview --------------------------------
   useEffect(() => {
     let cancelled = false;
+    setLoadSeq((n) => n + 1);
     setNumPages(0);
     setCurrentPage(1);
     setSpots([]);
@@ -271,32 +274,31 @@ export function SignTool() {
           id: `p${i + 1}`,
           bytes: src.bytes,
           page: i + 1,
-          version: 0,
+          version: loadSeq,
         }))
       : [];
   const { urlFor, observe } = useThumbnails(thumbJobs);
 
+  // Serialize main-preview renders: pdf.js rejects overlapping renders on
+  // the same canvas during rapid page flips.
+  const pendingPreviewRef = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
-    let cancelled = false;
     if (!src || numPages === 0) return;
-    void (async () => {
+    const render = async () => {
       const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      if (cancelled) return;
       const canvas = previewCanvasRef.current;
       if (!canvas) return;
       try {
         await renderPageToCanvas(src.bytes, currentPage, canvas, PREVIEW_SCALE);
       } catch (e) {
-        if (cancelled) return;
         setRunError({
           key: 'sign.err_failed',
           values: { message: e instanceof Error ? e.message : String(e) },
         });
       }
-    })();
-    return () => {
-      cancelled = true;
     };
+    pendingPreviewRef.current = pendingPreviewRef.current.then(render, render);
   }, [src, numPages, currentPage]);
 
   // ---- spots ----------------------------------------------------------------
@@ -364,6 +366,10 @@ export function SignTool() {
     }
     if (sig && spotMode === 'picked' && spots.length === 0) {
       setRunError({ key: 'sign.err_no_spot' });
+      return;
+    }
+    if (digital && !digitalAck) {
+      setRunError({ key: 'sign.err_ack_missing' });
       return;
     }
     setBusy(true);
@@ -447,6 +453,7 @@ export function SignTool() {
     setCurrentPage(1);
     setSpotMode('picked');
     setDigital(false);
+    setDigitalAck(false);
     setProgress(null);
     setRunError(null);
     setSucceeded(false);
@@ -490,7 +497,10 @@ export function SignTool() {
       error={error}
       side={
         <>
-          <Button onClick={() => void run()} disabled={!src || (!sig && !digital) || busy}>
+          <Button
+            onClick={() => void run()}
+            disabled={!src || (!sig && !digital) || (digital && !digitalAck) || busy}
+          >
             {t('sign.cta')}
           </Button>
           {progress ? null : (
@@ -500,7 +510,10 @@ export function SignTool() {
             <input
               type="checkbox"
               checked={digital}
-              onChange={(e) => setDigital(e.target.checked)}
+              onChange={(e) => {
+                setDigital(e.target.checked);
+                if (!e.target.checked) setDigitalAck(false);
+              }}
               className="mt-0.5 h-4 w-4 accent-indigo-600"
             />
             <span>
@@ -508,6 +521,17 @@ export function SignTool() {
               <span className="block text-[13px] text-slate-500">{t('sign.digital_hint')}</span>
             </span>
           </label>
+          {digital ? (
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={digitalAck}
+                onChange={(e) => setDigitalAck(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-indigo-600"
+              />
+              <span className="text-amber-900">{t('sign.digital_ack')}</span>
+            </label>
+          ) : null}
           <label className="block text-sm">
             <span className="mb-1 block font-bold text-slate-900">{t('sign.size_label')}</span>
             <input
