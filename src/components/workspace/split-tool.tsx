@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -59,7 +60,7 @@ export function SplitTool() {
   const [rangesText, setRangesText] = useState('');
   const [mode, setMode] = useState<SplitMode>('separate');
   const [lastValid, setLastValid] = useState<number[]>([]);
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const [loadSeq, setLoadSeq] = useState(0);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,6 +71,7 @@ export function SplitTool() {
 
   useEffect(() => {
     const gen = (genRef.current += 1);
+    setLoadSeq((n) => n + 1);
     setNumPages(0);
     setLastValid([]);
     if (!file) return;
@@ -95,39 +97,16 @@ export function SplitTool() {
   const covered = parsed.error ? lastValid : parsed.ranges.flat();
   const coveredSet = new Set(covered);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const bytes = file?.bytes;
-    if (!bytes || numPages === 0) {
-      setThumbs({});
-      return;
-    }
-    const renderAll = async () => {
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<number, string> = {};
-      const total = Math.min(numPages, 60);
-      for (let p = 1; p <= total; p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(bytes, p, canvas, 0.4);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[p] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    void renderAll();
-    return () => abort.abort();
-  }, [file, numPages]);
+  const thumbJobs =
+    file && numPages > 0
+      ? Array.from({ length: numPages }, (_, i) => ({
+          id: `p${i + 1}`,
+          bytes: file.bytes,
+          page: i + 1,
+          version: loadSeq,
+        }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const liveError = (() => {
     if (!file || numPages === 0) return null;
@@ -321,13 +300,14 @@ export function SplitTool() {
           </div>
           <ThumbnailStrip
             pages={Array.from({ length: numPages }, (_, i) => ({
-              key: `split-p${i + 1}`,
+              key: `p${i + 1}`,
               pageNumber: i + 1,
-              url: thumbs[i + 1] ?? null,
+              url: urlFor(`p${i + 1}`),
               selected: coveredSet.has(i + 1),
             }))}
             fullscreenTitle={(n) => t('split.fs_title', { n })}
             closeLabel={t('split.fs_close')}
+            register={observe}
             onToggle={(pageNumber: number) => togglePage(pageNumber)}
           />
         </>

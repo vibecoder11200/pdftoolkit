@@ -3,6 +3,10 @@ name: pages
 on:
   push:
     branches: [main]
+  pull_request:
+  schedule:
+    # Nightly 100MB matrix pass (phase 6) — never blocks PRs.
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -25,9 +29,33 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # PR gate: engine + 1MB/10MB matrix (phase 6 — 100MB is nightly-only).
+      - run: npm test
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  matrix-100mb:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node tests/fixtures/gen.mjs --large
+      - run: npx vitest run tests/engine.spec.ts tests/matrix.spec.ts --reporter=default --reporter=json --outputFile=test-results/matrix.json
+        env:
+          MATRIX_100MB: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matrix-100mb-report
+          path: test-results/
+          if-no-files-found: ignore
 
   deploy:
     needs: build

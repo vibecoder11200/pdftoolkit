@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -9,15 +10,11 @@ import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 
-const THUMB_SCALE = 0.4;
-const THUMB_CAP = 60;
-
 export function ExtractTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
   const [numPages, setNumPages] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runErrorKey, setRunErrorKey] = useState<string | null>(null);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
@@ -49,34 +46,16 @@ export function ExtractTool() {
     })();
   }, [src]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      if (!src) return;
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<number, string> = {};
-      for (let p = 1; p <= Math.min(numPages, THUMB_CAP); p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(src.bytes, p, canvas, THUMB_SCALE);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[p] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (src && numPages > 0) void renderAll();
-    return () => abort.abort();
-  }, [src, numPages]);
+  const thumbJobs =
+    src && numPages > 0
+      ? Array.from({ length: numPages }, (_, i) => ({
+          id: `p${i + 1}`,
+          bytes: src.bytes,
+          page: i + 1,
+          version: genRef.current,
+        }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const toggle = (pageNumber: number) => {
     setSelected((prev) => {
@@ -186,13 +165,14 @@ export function ExtractTool() {
           </div>
           <ThumbnailStrip
             pages={Array.from({ length: numPages }, (_, i) => i + 1).map((n) => ({
-              key: `extract-${n}`,
+              key: `p${n}`,
               pageNumber: n,
-              url: thumbs[n] ?? null,
+              url: urlFor(`p${n}`),
               selected: selected.has(n),
             }))}
             fullscreenTitle={(n) => t('extract.fs_title', { n })}
             closeLabel={t('extract.fs_close')}
+            register={observe}
             onToggle={(pageNumber) => toggle(pageNumber)}
           />
         </>

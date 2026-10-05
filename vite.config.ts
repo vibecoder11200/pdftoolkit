@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
@@ -21,6 +21,14 @@ const qpdfWasm = readFileSync(
 // from an old precache entry.
 const qpdfWasmRevision = createHash('sha256').update(qpdfWasm).digest('hex');
 
+// pdf.js standard-font programs, served from assets/standard_fonts/ (see
+// src/engine/pdfjs.ts). Without them, PDFs that reference standard fonts
+// without embedding render with missing glyphs in thumbnails/preview.
+const standardFontsDir = fileURLToPath(
+  new URL('./node_modules/pdfjs-dist/standard_fonts/', import.meta.url),
+);
+const standardFonts = readdirSync(standardFontsDir).filter((f) => /\.(pfb|ttf)$/.test(f));
+
 export default defineConfig({
   base: '/pdftoolkit/',
   plugins: [
@@ -31,12 +39,19 @@ export default defineConfig({
       apply: 'build',
       generateBundle() {
         this.emitFile({ type: 'asset', fileName: 'assets/qpdf.wasm', source: qpdfWasm });
+        for (const f of standardFonts) {
+          this.emitFile({
+            type: 'asset',
+            fileName: `assets/standard_fonts/${f}`,
+            source: readFileSync(standardFontsDir + f),
+          });
+        }
       },
     },
     VitePWA({
       registerType: 'autoUpdate',
       strategies: 'generateSW',
-      includeAssets: ['**/*.wasm'],
+      includeAssets: ['**/*.wasm', 'assets/standard_fonts/*.pfb', 'assets/standard_fonts/*.ttf'],
       workbox: {
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
         navigateFallbackDenylist: [/^\/api/],

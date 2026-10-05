@@ -26,11 +26,10 @@ export async function checkPdfFile(file: File): Promise<FileVerdict> {
   if (HEIC_TYPES.has(file.type) || sniffHeicName(file.name)) {
     return { ok: false, reason: 'heic-refused' };
   }
+  // Magic bytes are mandatory (phase 5): a renamed non-PDF must not pass on
+  // MIME or extension alone. The empty-MIME acceptance from phase 1 only
+  // controls what the file picker offers, never what the engine receives.
   const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
-  const looksPdf =
-    sniffPdfMagic(head) ||
-    file.type === 'application/pdf' ||
-    file.name.toLowerCase().endsWith('.pdf');
-  if (!looksPdf) return { ok: false, reason: 'not-pdf' };
+  if (!sniffPdfMagic(head)) return { ok: false, reason: 'not-pdf' };
   return { ok: true };
 }

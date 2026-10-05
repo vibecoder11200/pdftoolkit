@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -9,16 +10,12 @@ import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 
-const THUMB_SCALE = 0.4;
-const THUMB_CAP = 60;
-
 export function ReorderTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
   // `order` is the full permutation: display position -> original 1-based page.
   const [order, setOrder] = useState<number[]>([]);
   const [numPages, setNumPages] = useState(0);
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runErrorKey, setRunErrorKey] = useState<string | null>(null);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
@@ -50,34 +47,18 @@ export function ReorderTool() {
     })();
   }, [src]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      if (!src) return;
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<number, string> = {};
-      for (let p = 1; p <= Math.min(numPages, THUMB_CAP); p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(src.bytes, p, canvas, THUMB_SCALE);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[p] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (src && numPages > 0) void renderAll();
-    return () => abort.abort();
-  }, [src, numPages]);
+  // Keyed by ORIGINAL page number, not display position: dragging while a
+  // render is pending keeps each blob URL attached to the right page.
+  const thumbJobs =
+    src && numPages > 0
+      ? Array.from({ length: numPages }, (_, i) => ({
+          id: `p${i + 1}`,
+          bytes: src.bytes,
+          page: i + 1,
+          version: genRef.current,
+        }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const move = (fromPos: number, toPos: number) => {
     setOrder((prev) => {
@@ -186,13 +167,14 @@ export function ReorderTool() {
           </div>
           <ThumbnailStrip
             pages={order.map((orig, idx) => ({
-              key: `reorder-${orig}`,
+              key: `p${orig}`,
               pageNumber: idx + 1,
-              url: thumbs[orig] ?? null,
+              url: urlFor(`p${orig}`),
               selected: true,
             }))}
             fullscreenTitle={(n) => t('reorder.fs_title', { n })}
             closeLabel={t('reorder.fs_close')}
+            register={observe}
             onToggle={() => {}}
             onMove={(from, to) => move(from, to)}
           />

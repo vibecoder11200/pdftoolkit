@@ -14,9 +14,18 @@ interface ThumbnailStripProps {
   closeLabel: string;
   onToggle: (pageNumber: number, index: number) => void;
   onMove?: (from: number, to: number) => void;
+  /** Lazy-render hook: registers each cell so it renders when visible. */
+  register?: (key: string, el: HTMLElement | null) => (() => void) | void;
 }
 
-export function ThumbnailStrip({ pages, fullscreenTitle, closeLabel, onToggle, onMove }: ThumbnailStripProps) {
+export function ThumbnailStrip({
+  pages,
+  fullscreenTitle,
+  closeLabel,
+  onToggle,
+  onMove,
+  register,
+}: ThumbnailStripProps) {
   const [fs, setFs] = useState<number | null>(null);
 
   return (
@@ -25,6 +34,7 @@ export function ThumbnailStrip({ pages, fullscreenTitle, closeLabel, onToggle, o
         {pages.map((p, idx) => (
           <div
             key={p.key}
+            ref={register ? (el) => register(p.key, el) : undefined}
             role="checkbox"
             aria-checked={p.selected}
             aria-label={`Page ${p.pageNumber}`}

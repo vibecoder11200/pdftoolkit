@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -19,7 +20,6 @@ export function RotateTool() {
   const [numPages, setNumPages] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [angle, setAngle] = useState<Angle>(90);
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const genRef = useRef(0);
@@ -41,7 +41,6 @@ export function RotateTool() {
     if (!source) {
       setNumPages(0);
       setSelected(new Set());
-      setThumbs({});
       return;
     }
     let cancelled = false;
@@ -66,35 +65,18 @@ export function RotateTool() {
     };
   }, [source]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      if (!source) return;
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<number, string> = {};
-      const total = Math.min(numPages, 100);
-      for (let p = 1; p <= total; p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(source.bytes, p, canvas, 0.4);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[p] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (source && numPages > 0) void renderAll();
-    return () => abort.abort();
-  }, [source, numPages]);
+  // Keyed by page number; the preview pre-rotates via CSS, so the bytes and
+  // therefore the rendered thumbnail never change while picking an angle.
+  const thumbJobs =
+    source && numPages > 0
+      ? Array.from({ length: numPages }, (_, i) => ({
+          id: `p${i + 1}`,
+          bytes: source.bytes,
+          page: i + 1,
+          version: genRef.current,
+        }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const toggle = (page: number) => {
     setSelected((prev) => {
@@ -132,7 +114,6 @@ export function RotateTool() {
     clear();
     setNumPages(0);
     setSelected(new Set());
-    setThumbs({});
     setProgress(null);
     setRunError(null);
   };
@@ -232,6 +213,7 @@ export function RotateTool() {
               return (
                 <div
                   key={p}
+                  ref={(el) => observe(`p${p}`, el)}
                   role="checkbox"
                   aria-checked={isSelected}
                   aria-label={`Page ${p}`}
@@ -265,9 +247,9 @@ export function RotateTool() {
                       {angle}°
                     </span>
                   ) : null}
-                  {thumbs[p] ? (
+                  {urlFor(`p${p}`) ? (
                     <img
-                      src={thumbs[p]}
+                      src={urlFor(`p${p}`) ?? undefined}
                       alt=""
                       draggable={false}
                       className="block aspect-[0.707] w-full rounded border border-slate-200 object-contain transition-transform duration-200"

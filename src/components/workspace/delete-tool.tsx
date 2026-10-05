@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -28,7 +29,6 @@ export function DeleteTool() {
   const [numPages, setNumPages] = useState<number>(0);
   const [keys, setKeys] = useState<string[]>([]);
   const [deselected, setDeselected] = useState<Set<number>>(new Set());
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const genRef = useRef(0);
@@ -53,7 +53,6 @@ export function DeleteTool() {
       setNumPages(0);
       setKeys([]);
       setDeselected(new Set());
-      setThumbs({});
       return;
     }
     setBytes(first.bytes);
@@ -66,34 +65,11 @@ export function DeleteTool() {
     });
   }, [files, loadInfo]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      if (!bytes || numPages === 0) return;
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<string, string> = {};
-      for (let p = 1; p <= Math.min(numPages, 60); p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(bytes, p, canvas, 0.4);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[keys[p - 1]] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (bytes && numPages > 0) void renderAll();
-    return () => abort.abort();
-  }, [bytes, numPages, keys]);
+  const thumbJobs =
+    bytes && keys.length > 0
+      ? keys.map((key, i) => ({ id: key, bytes, page: i + 1, version: 0 }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const toRemove = [...deselected].sort((a, b) => b - a);
   const keptCount = numPages - deselected.size;
@@ -197,11 +173,12 @@ export function DeleteTool() {
             pages={keys.map((key, idx) => ({
               key,
               pageNumber: idx + 1,
-              url: thumbs[key] ?? null,
+              url: urlFor(key),
               selected: !deselected.has(idx + 1),
             }))}
             fullscreenTitle={(n) => t('remove.fs_title', { n })}
             closeLabel={t('remove.fs_close')}
+            register={observe}
             onToggle={(pageNumber: number) => {
               setDeselected((prev) => {
                 const next = new Set(prev);

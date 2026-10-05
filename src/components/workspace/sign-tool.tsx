@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
 import { downloadBytes } from '../../lib/download';
@@ -52,8 +53,6 @@ const INK = '#1b2a6b';
 const DEFAULT_WFRAC = 0.25;
 const MIN_WFRAC = 0.08;
 const MAX_WFRAC = 0.6;
-const THUMB_SCALE = 0.4;
-const THUMB_CAP = 60;
 const PREVIEW_SCALE = 1.0;
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -82,7 +81,6 @@ export function SignTool() {
   const [uploadSig, setUploadSig] = useState<SigImage | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [spots, setSpots] = useState<Spot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [defaultWFrac, setDefaultWFrac] = useState(DEFAULT_WFRAC);
@@ -266,34 +264,17 @@ export function SignTool() {
     };
   }, [src]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      if (!src || numPages === 0) return;
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<number, string> = {};
-      for (let p = 1; p <= Math.min(numPages, THUMB_CAP); p += 1) {
-        if (abort.signal.aborted) return;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(src.bytes, p, canvas, THUMB_SCALE);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[p] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (src && numPages > 0) void renderAll();
-    return () => abort.abort();
-  }, [src, numPages]);
+  // ---- thumbnails (lazy viewport) + main preview ---------------------------
+  const thumbJobs =
+    src && numPages > 0
+      ? Array.from({ length: numPages }, (_, i) => ({
+          id: `p${i + 1}`,
+          bytes: src.bytes,
+          page: i + 1,
+          version: 0,
+        }))
+      : [];
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   useEffect(() => {
     let cancelled = false;
@@ -896,13 +877,14 @@ export function SignTool() {
           </div>
           <ThumbnailStrip
             pages={Array.from({ length: numPages }, (_, i) => ({
-              key: `sign-p-${i + 1}`,
+              key: `p${i + 1}`,
               pageNumber: i + 1,
-              url: thumbs[i + 1] ?? null,
+              url: urlFor(`p${i + 1}`),
               selected: spots.some((s) => s.page === i + 1),
             }))}
             fullscreenTitle={(n) => t('sign.fs_title', { n })}
             closeLabel={t('sign.fs_close')}
+            register={observe}
             onToggle={(pageNumber: number) => setCurrentPage(pageNumber)}
           />
         </>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -31,7 +32,6 @@ export function MergeTool() {
   const [pages, setPages] = useState<PageEntry[]>([]);
   const [pageCounts, setPageCounts] = useState<number[]>([]);
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const genRef = useRef(0);
@@ -65,35 +65,13 @@ export function MergeTool() {
     void loadCounts(files.map((f) => ({ bytes: f.bytes })));
   }, [files, loadCounts]);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    const renderAll = async () => {
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const next: Record<string, string> = {};
-      for (const entry of pages.slice(0, 60)) {
-        if (abort.signal.aborted) return;
-        const src = files[entry.fileIndex]?.bytes;
-        if (!src) continue;
-        try {
-          const canvas = document.createElement('canvas');
-          await renderPageToCanvas(src, entry.pageInFile, canvas, 0.4);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-          if (!blob || abort.signal.aborted) return;
-          next[entry.uuid] = URL.createObjectURL(blob);
-        } catch {
-          /* keep placeholder */
-        }
-      }
-      if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
-      }
-    };
-    if (pages.length > 0) void renderAll();
-    return () => abort.abort();
-  }, [pages, files]);
+  const thumbJobs = pages.map((entry) => ({
+    id: entry.uuid,
+    bytes: files[entry.fileIndex].bytes,
+    page: entry.pageInFile,
+    version: 0,
+  }));
+  const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const kept = pages.filter((p) => !deselected.has(p.uuid));
   const totalBytes = files.reduce((a, f) => a + f.file.size, 0);
@@ -206,11 +184,12 @@ export function MergeTool() {
             pages={pages.map((p, idx) => ({
               key: p.uuid,
               pageNumber: idx + 1,
-              url: thumbs[p.uuid] ?? null,
+              url: urlFor(p.uuid),
               selected: !deselected.has(p.uuid),
             }))}
             fullscreenTitle={(n) => t('merge.fs_title', { n })}
             closeLabel={t('merge.fs_close')}
+            register={observe}
             onToggle={(_pageNumber: number, idx: number) => {
               const entry = pages[idx];
               if (!entry) return;

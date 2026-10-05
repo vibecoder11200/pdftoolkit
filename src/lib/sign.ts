@@ -29,9 +29,10 @@ export async function addSelfSignature(doc: PDFDocument): Promise<Uint8Array> {
       F: 4,
     }),
   );
-  const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'));
-  const fields = acroForm.lookup(PDFName.of('Fields'));
-  if (!(fields instanceof pdfLib.PDFArray)) {
+  const acroForm = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), pdfLib.PDFDict);
+  if (!acroForm) throw new Error('no-acroform');
+  const fields = acroForm.lookupMaybe(PDFName.of('Fields'), pdfLib.PDFArray);
+  if (!fields) {
     throw new Error('no-acroform-fields');
   }
   fields.push(sigRef);

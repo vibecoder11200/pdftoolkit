@@ -28,3 +28,12 @@ test('VI/EN toggle switches hero copy', async ({ page }) => {
     'file không rời khỏi máy bạn',
   );
 });
+
+test('merge tool loads a PDF and renders lazy thumbnails', async ({ page }) => {
+  await page.goto('./tools/merge');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  const thumbs = page.locator('img[src^="blob:"]');
+  await expect(thumbs.first()).toBeVisible({ timeout: 30_000 });
+  await expect(thumbs).toHaveCount(2); // fixture has 2 pages
+  await expect(page.getByRole('heading', { name: 'Gộp PDF' })).toBeVisible();
+});
