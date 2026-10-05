@@ -66,8 +66,7 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
       (ioEntries) => {
         for (const e of ioEntries) {
           if (!e.isIntersecting) continue;
-          const io = ioRef.current;
-          if (io) io.unobserve(e.target);
+          ioRef.current?.unobserve(e.target);
           const id = (e.target as HTMLElement).dataset.thumbId;
           if (!id || isFresh(id)) continue;
           queueRef.current.add(id);
@@ -169,8 +168,7 @@ export function useThumbnails(jobs: ThumbJob[], scale = 0.4) {
     ioRef.current?.observe(el);
     return () => {
       elementsRef.current.delete(id);
-      const io = ioRef.current;
-      if (io) io.unobserve(el);
+      ioRef.current?.unobserve(el);
     };
   }, []);
 

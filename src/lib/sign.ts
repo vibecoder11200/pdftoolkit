@@ -37,9 +37,7 @@ export async function addSelfSignature(doc: PDFDocument): Promise<Uint8Array> {
   }
   fields.push(sigRef);
 
-  const field = form
-    .getFields()
-    .find((f) => f.getName() === 'Sig1');
+  const field = form.getFields().find((f) => f.getName() === 'Sig1');
   if (!field || !(field instanceof PDFSignature)) {
     throw new Error('sig-field-not-created');
   }

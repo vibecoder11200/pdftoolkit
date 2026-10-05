@@ -477,7 +477,7 @@ export function SignTool() {
       : null;
 
   const currentSpots = spots.filter((s) => s.page === currentPage);
-  const sizePct = Math.round(((selected?.wFrac ?? defaultWFrac) * 100));
+  const sizePct = Math.round((selected?.wFrac ?? defaultWFrac) * 100);
 
   return (
     <WorkspaceShell

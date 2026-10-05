@@ -33,12 +33,9 @@ beforeEach(() => {
 // IntersectionObserver stub whose observe() fires the callback like a real
 // browser does for initially-visible elements.
 type IoEntry = { target: HTMLElement; isIntersecting: boolean };
-const observers: FakeIntersectionObserver[] = [];
 class FakeIntersectionObserver {
   observed = new Set<HTMLElement>();
-  constructor(private cb: (entries: IoEntry[]) => void) {
-    observers.push(this);
-  }
+  constructor(private cb: (entries: IoEntry[]) => void) {}
   observe(el: HTMLElement) {
     this.observed.add(el);
     queueMicrotask(() => this.cb([{ target: el, isIntersecting: true }]));
@@ -121,7 +118,6 @@ afterEach(() => {
   root = null;
   api = null;
   pending = [];
-  observers.length = 0;
   document.body.innerHTML = '';
 });
 
