@@ -123,3 +123,8 @@ src-tauri/WixTools/
 # --- Index rebuildable của tooling (plans/ mới là canonical) ---
 plans.db*
 plans.db-journal
+
+# --- Tài liệu nội bộ — chỉ ở local, không public ---
+plans/
+docs/
+wireframes/

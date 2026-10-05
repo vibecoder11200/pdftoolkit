@@ -44,4 +44,6 @@ The app is deployed to GitHub Pages under `/pdftoolkit/` (see `.github/workflows
 
 ## License
 
-MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Idea-level attribution in [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md); no third-party application code is vendored.
+MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+**Attribution:** written from scratch; no third-party application code is vendored. The product shape was informed by studying public tools (PDFCraft, Stirling-PDF, PDFLince, private-pdf) without reusing their code. CI keeps `src/` free of AGPL code, telemetry beacons and runtime CDN imports.
