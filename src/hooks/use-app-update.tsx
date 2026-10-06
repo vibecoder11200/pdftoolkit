@@ -10,6 +10,12 @@ import {
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+/** How long to wait for a waiting worker's BUILD_COMMIT reply before treating it as unanswerable. */
+const BUILD_COMMIT_TIMEOUT_MS = 1_500;
+
+declare const __COMMIT_HASH__: string;
+/** This page's build commit (same value the footer chip shows). */
+const APP_COMMIT = __COMMIT_HASH__;
 
 interface AppUpdateState {
   /** A new service worker is waiting (or arrived externally) — footer dot. */
@@ -48,13 +54,73 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   const dismissedRef = useRef(false);
   const reloadStartedRef = useRef(false);
   const cleanupChecksRef = useRef<() => void>(noop);
+  const pendingCommitsRef = useRef(new Map<ServiceWorker, (commit: string | null) => void>());
+
+  // Replies to REQUEST_BUILD_COMMIT (sw.ts BUILD_COMMIT branch) arrive here.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; commit?: string } | null;
+      if (data?.type !== 'BUILD_COMMIT') return;
+      const resolve = pendingCommitsRef.current.get(e.source as ServiceWorker);
+      if (resolve) {
+        pendingCommitsRef.current.delete(e.source as ServiceWorker);
+        resolve(typeof data.commit === 'string' ? data.commit : null);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
+  // Decide what a waiting worker means for THIS page. If it is a different
+  // build → banner (the page content is older than the staged update). If it
+  // reports the SAME commit the page already runs (deploy happened across a
+  // hard reload: content is current, only the old worker is still staged) →
+  // nothing to announce; activate it silently so the registration settles.
+  // An unanswerable worker (pre-handshake build) → conservative banner.
+  const considerWaiting = useCallback(async (waiting: ServiceWorker) => {
+    const commit = await new Promise<string | null>((resolve) => {
+      const finish = (value: string | null) => {
+        window.clearTimeout(timer);
+        pendingCommitsRef.current.delete(waiting);
+        resolve(value);
+      };
+      const timer = window.setTimeout(() => finish(null), BUILD_COMMIT_TIMEOUT_MS);
+      pendingCommitsRef.current.set(waiting, finish);
+      try {
+        waiting.postMessage({ type: 'REQUEST_BUILD_COMMIT' });
+      } catch {
+        finish(null);
+      }
+    });
+    if (commit === null || commit !== APP_COMMIT) {
+      setHasWaiting(true);
+      if (!dismissedRef.current) setBannerVisible(true);
+      return;
+    }
+    try {
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+    } catch {
+      /* worker went away between handshake and activation */
+    }
+  }, []);
 
   // NOTE: the plugin's updateServiceWorker is deliberately NOT used (see
   // applyUpdate) — only its event callbacks matter here.
   useRegisterSW({
     onNeedRefresh() {
-      setHasWaiting(true);
-      if (!dismissedRef.current) setBannerVisible(true);
+      void (async () => {
+        const reg = await navigator.serviceWorker
+          ?.getRegistration()
+          .catch(() => undefined);
+        const waiting = reg?.waiting;
+        if (waiting) {
+          await considerWaiting(waiting);
+          return;
+        }
+        setHasWaiting(true);
+        if (!dismissedRef.current) setBannerVisible(true);
+      })();
     },
     onRegisteredSW(swUrl, registration) {
       if (!registration) return;
@@ -91,20 +157,17 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   useEffect(() => cleanupChecksRef.current, []);
 
   // A worker can already be waiting when the page loads (user kept the tab
-  // open across a deploy, then reloaded) — surface it without waiting for an
-  // event that has already fired.
+  // open across a deploy, then reloaded) — evaluate it without waiting for
+  // an event that has already fired.
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker
       .getRegistration()
       .then((reg) => {
-        if (reg?.waiting) {
-          setHasWaiting(true);
-          if (!dismissedRef.current) setBannerVisible(true);
-        }
+        if (reg?.waiting) void considerWaiting(reg.waiting);
       })
       .catch(() => undefined);
-  }, []);
+  }, [considerWaiting]);
 
   const applyUpdate = useCallback(() => {
     if (reloadStartedRef.current) return;

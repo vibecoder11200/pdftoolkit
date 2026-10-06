@@ -33,30 +33,17 @@ interface WaitingFake {
   activate: () => void;
 }
 
-function makeWaiting(state = 'installed'): WaitingFake {
-  const listeners = new Set<(e: unknown) => void>();
-  const waiting: WaitingFake = {
-    state,
-    postMessage: vi.fn(),
-    addEventListener: (_type, cb) => listeners.add(cb),
-    activate: () => {
-      waiting.state = 'activated';
-      for (const cb of [...listeners]) cb({ target: waiting });
-    },
-  };
-  return waiting;
-}
-
 interface ServiceWorkerFake {
   getRegistration: () => Promise<{ waiting: WaitingFake } | null>;
-  addEventListener: (type: string, cb: () => void) => void;
+  addEventListener: (type: string, cb: (e: unknown) => void) => void;
   removeEventListener: (type: string, cb: () => void) => void;
   fireControllerChange: () => void;
+  fireMessage: (data: unknown, source: unknown) => void;
   setWaiting: (waiting: WaitingFake | null) => void;
 }
 
 function mockServiceWorker(initialWaiting: WaitingFake | null): ServiceWorkerFake {
-  const listeners = new Map<string, Set<() => void>>();
+  const listeners = new Map<string, Set<(arg: unknown) => void>>();
   let current: WaitingFake | null = initialWaiting;
   const sw: ServiceWorkerFake = {
     getRegistration: async () => (current ? { waiting: current } : null),
@@ -69,7 +56,10 @@ function mockServiceWorker(initialWaiting: WaitingFake | null): ServiceWorkerFak
       listeners.get(type)?.delete(cb);
     },
     fireControllerChange: () => {
-      for (const cb of [...(listeners.get('controllerchange') ?? [])]) cb();
+      for (const cb of [...(listeners.get('controllerchange') ?? [])]) cb(undefined);
+    },
+    fireMessage: (data, source) => {
+      for (const cb of [...(listeners.get('message') ?? [])]) cb({ data, source });
     },
     setWaiting: (waiting) => {
       current = waiting;
@@ -77,6 +67,30 @@ function mockServiceWorker(initialWaiting: WaitingFake | null): ServiceWorkerFak
   };
   Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw });
   return sw;
+}
+
+function makeWaiting(
+  sw: ServiceWorkerFake,
+  opts: { commit?: string | null; silent?: boolean } = {},
+): WaitingFake {
+  const listeners = new Set<(e: unknown) => void>();
+  const waiting: WaitingFake = {
+    state: 'installed',
+    postMessage: vi.fn((data: { type?: string }) => {
+      if (data?.type === 'REQUEST_BUILD_COMMIT' && !opts.silent) {
+        // A waiting worker built with the handshake answers from sw.ts.
+        queueMicrotask(() =>
+          sw.fireMessage({ type: 'BUILD_COMMIT', commit: opts.commit ?? null }, waiting),
+        );
+      }
+    }),
+    addEventListener: (_type, cb) => listeners.add(cb),
+    activate: () => {
+      waiting.state = 'activated';
+      for (const cb of [...listeners]) cb({ target: waiting });
+    },
+  };
+  return waiting;
 }
 
 let container: HTMLElement;
@@ -97,6 +111,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   act(() => root.unmount());
   container.remove();
   // @ts-expect-error test-only removal of the injected mock
@@ -123,16 +138,16 @@ const probe = () => container.querySelector('[data-testid="probe-has-waiting"]')
 const reloadBtn = () => container.querySelector<HTMLButtonElement>('[data-testid="update-reload"]')!;
 const laterBtn = () => container.querySelector<HTMLButtonElement>('[data-testid="update-later"]')!;
 
-describe('use-app-update state machine (red-team F2)', () => {
-  it('needRefresh shows the banner; click posts SKIP_WAITING directly and reloads on activation', async () => {
-    const waiting = makeWaiting();
+describe('use-app-update state machine (red-team F2 + vite-plugin-pwa#789)', () => {
+  it('different-commit waiting worker: banner shows; click posts SKIP_WAITING and reloads on activation', async () => {
     const sw = mockServiceWorker(null); // nothing waiting when the page loads
+    const waiting = makeWaiting(sw, { commit: 'e2enext00' }); // a genuinely newer build
     await renderTree();
     expect(banner()).toBeNull();
     await act(async () => h.opts.onNeedRefresh?.());
+    // The handshake resolved with a DIFFERENT commit → banner.
     expect(banner()).not.toBeNull();
     expect(probe()).toBe('true');
-    // By click time the registration reports a waiting worker.
     sw.setWaiting(waiting);
 
     await act(async () => reloadBtn().click());
@@ -148,18 +163,73 @@ describe('use-app-update state machine (red-team F2)', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('same-commit waiting worker (hard-reload case): NO banner, silent activation', async () => {
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: __COMMIT_HASH__ }); // staged build == page build
+    await renderTree();
+    expect(banner()).toBeNull();
+    // Mid-session install: the waiting event fires with the worker present.
+    sw.setWaiting(waiting);
+    await act(async () => h.opts.onNeedRefresh?.());
+    expect(banner()).toBeNull();
+    expect(probe()).toBe('false');
+    // Activated silently instead of nagging the user.
+    expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('worker already waiting at mount with a different commit: banner + click works (stale-page case)', async () => {
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: 'olderpage' });
+    sw.setWaiting(waiting);
+    await renderTree();
+    expect(banner()).not.toBeNull();
+    expect(probe()).toBe('true');
+    await act(async () => reloadBtn().click());
+    expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    await act(async () => waiting.activate());
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('worker already waiting at mount with the SAME commit: no banner, silent activation', async () => {
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: __COMMIT_HASH__ });
+    sw.setWaiting(waiting);
+    await renderTree();
+    expect(banner()).toBeNull();
+    expect(probe()).toBe('false');
+    expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+  });
+
+  it('unanswerable worker (pre-handshake build): conservative banner after the timeout', async () => {
+    vi.useFakeTimers();
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { silent: true }); // never replies
+    sw.setWaiting(waiting);
+    await renderTree();
+    expect(banner()).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_600);
+    });
+    expect(banner()).not.toBeNull();
+    expect(probe()).toBe('true');
+  });
+
   it('controllerchange alone (clientsClaim path) reloads without waiting for the timer', async () => {
-    const waiting = makeWaiting();
-    const sw = mockServiceWorker(waiting);
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: 'e2enext00' });
     await renderTree();
     await act(async () => h.opts.onNeedRefresh?.());
+    sw.setWaiting(waiting);
     await act(async () => reloadBtn().click());
     await act(async () => sw.fireControllerChange());
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it('dismiss hides the banner but keeps hasWaiting (footer dot survives); refire stays hidden', async () => {
-    mockServiceWorker(makeWaiting());
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: 'e2enext00' });
+    sw.setWaiting(waiting);
     await renderTree();
     await act(async () => h.opts.onNeedRefresh?.());
     expect(banner()).not.toBeNull();
@@ -173,33 +243,17 @@ describe('use-app-update state machine (red-team F2)', () => {
     expect(probe()).toBe('true');
   });
 
-  it('vanished waiting worker → fallback plain reload, no postMessage', async () => {
-    // Realistic sequence: the update was announced, another tab claimed it,
-    // the registration no longer has a waiting worker at click time.
-    const waiting = makeWaiting();
-    const sw = mockServiceWorker(waiting);
+  it('vanished waiting worker → fallback plain reload, no SKIP_WAITING', async () => {
+    const sw = mockServiceWorker(null);
+    const waiting = makeWaiting(sw, { commit: 'e2enext00' });
+    sw.setWaiting(waiting);
     await renderTree();
     await act(async () => h.opts.onNeedRefresh?.());
     expect(banner()).not.toBeNull();
-    sw.setWaiting(null); // gone before the click
+    sw.setWaiting(null); // another tab took the update before the click
     await act(async () => reloadBtn().click());
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(waiting.postMessage).not.toHaveBeenCalled();
-  });
-
-  it('a worker already waiting at mount surfaces the banner and the click still works (hard-reload case)', async () => {
-    // The v0.2.1→v0.3.0 bootstrap: the worker installed while the page was
-    // loading, so the plugin's `waiting` event never fired in-session — the
-    // banner comes from the boot check, and applyUpdate must still work.
-    const waiting = makeWaiting();
-    mockServiceWorker(waiting);
-    await renderTree();
-    expect(banner()).not.toBeNull();
-    expect(probe()).toBe('true');
-    await act(async () => reloadBtn().click());
-    expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
-    await act(async () => waiting.activate());
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(waiting.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
   });
 
   it('no service worker at all → context stays inert, no crash', async () => {

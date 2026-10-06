@@ -18,6 +18,15 @@ import { MAX_FILE_BYTES } from './lib/file-accept';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: PrecacheEntry[] };
 
+// The SW build inherits the user vite config's `define` (vite-plugin-pwa
+// prepareViteBuild copies viteOptions.define), so the identifier below is
+// replaced at build time — it must stay a BARE identifier (define never
+// touches string literals). The update banner asks the WAITING worker what
+// build it is (REQUEST_BUILD_COMMIT) and compares against the page's own
+// commit: equal means the page already runs this build (deploy across a hard
+// reload) and the banner must not nag — use-app-update.tsx activates silently.
+const BUILD_COMMIT = __COMMIT_HASH__;
+
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 // Parity with the generateSW template (which ships clientsClaim by default):
@@ -125,12 +134,16 @@ self.addEventListener('message', (e) => {
     self.skipWaiting();
     return;
   }
-  if (e.data?.type === 'SHARE_TARGET_READY') {
-    const sender = e.source as Client | null;
+  if (e.data?.type === 'REQUEST_BUILD_COMMIT' && e.source) {
+    (e.source as Client).postMessage({ type: 'BUILD_COMMIT', commit: BUILD_COMMIT });
+    return;
+  }
+  if (e.data?.type === 'SHARE_TARGET_READY' && e.source) {
+    const sender = e.source as Client;
     // Registration-scoped postMessage works from ANY same-origin page (the
     // whole github.io user space shares this origin) — without the scope
     // check, a foreign sibling page could pull parked shared files.
-    if (!sender || !isAppClient(sender)) return;
+    if (!isAppClient(sender)) return;
     readyClients.add(sender.id);
     // Prune ids whose clients are gone so the set cannot grow unbounded.
     void self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {

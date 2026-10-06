@@ -109,6 +109,12 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
   on controllerchange/activation/stall-timer — because the plugin's
   `updateServiceWorker` reload path is unreliable exactly there
   (vite-plugin-pwa#789); do not "simplify" it back to `updateServiceWorker`.
+  The SW also answers `REQUEST_BUILD_COMMIT` with its inlined `BUILD_COMMIT`
+  (define reaches the SW build — the identifier must stay bare; define never
+  replaces string literals); a waiting worker reporting the SAME commit as
+  the page is activated SILENTLY (hard-reload case — no banner), and
+  `tests/update-flow.e2e.spec.ts` gates both scenarios by mutating
+  `dist/sw.js` between page loads.
   Two gates
   guard the manifest: `scripts/precache-diff.mjs` (diff `{url, revision}` vs
   `plans/precache-baseline.sw.js` — local-only; refresh it when the diff shows
