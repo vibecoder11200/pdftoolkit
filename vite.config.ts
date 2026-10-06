@@ -130,6 +130,10 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#f8f8fc',
         theme_color: '#0078c6',
+        // OS "open with" PDFs → this app. focus-existing keeps an in-progress
+        // session alive; the launch-queue consumer routes files from there.
+        file_handlers: [{ action: './', accept: { 'application/pdf': ['.pdf'] } }],
+        launch_handler: { client_mode: 'focus-existing' },
         lang: 'vi',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

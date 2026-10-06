@@ -264,7 +264,11 @@
     "err_not_pdf": "File {{name}} is not a PDF.",
     "err_heic": "HEIC/HEIF files are not accepted. Export to JPG/PNG first.",
     "err_encode": "Could not recompress images. Try again.",
-    "err_failed": "Compress failed: {{message}}"
+    "err_failed": "Compress failed: {{message}}",
+    "mode_linearize": "Optimize for web (linearize)",
+    "mode_linearize_hint": "Restructures the file so the first page renders quickly when opened online. No compression.",
+    "progress_working_linearize": "Optimizing for web...",
+    "result_ok_linearize": "Web-optimized — the first page now renders fast when streamed."
   },
   "pdf-to-img": {
     "title": "PDF to images",
@@ -287,7 +291,11 @@
     "progress_idle": "Pick a format and DPI, then export.",
     "error_load": "Could not read this file. Try another PDF.",
     "error_no_file": "Choose a PDF first.",
-    "error_save": "Could not render pages. Try again."
+    "error_save": "Could not render pages. Try again.",
+    "zip_hint": "multi-page: all images are packed into one .zip",
+    "zip_overflow": "Images exceed 200 MB in total — switched to per-image downloads.",
+    "progress_zip": "Packing ZIP...",
+    "single_cta": "Download images one by one"
   },
   "img-to-pdf": {
     "title": "Images to PDF",
@@ -379,7 +387,13 @@
     "reject_unsupported": "unsupported format",
     "reject_heic-refused": "HEIC/HEIF — export to JPG/PNG first",
     "reject_too-large": "over 200 MB",
-    "reject_corrupt": "damaged or unreadable"
+    "reject_corrupt": "damaged or unreadable",
+    "pick_folder": "or pick a whole folder…",
+    "batch_too_large": "Total size {{size}} exceeds the 500 MB batch budget. Pick fewer files or compress first.",
+    "batch_skipped_empty": "Skipped {{count}} empty (0-byte) file(s).",
+    "launch_banner_text": "Received {{count}} file(s) from the OS — open Home to process.",
+    "launch_banner_action": "Open Home",
+    "launch_banner_dismiss": "Dismiss"
   },
   "steps": {
     "pick": "Pick files",

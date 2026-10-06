@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon, XIcon } from '../ui/icons';
@@ -37,6 +39,21 @@ export function MergeTool() {
     const taken = takePendingFiles();
     if (taken) void add(taken.files);
   }, [add]);
+  const [batchNote, setBatchNote] = useState<string | null>(null);
+  const pickFolder = () => {
+    void (async () => {
+      const outcome = await pickDirectory(['.pdf']);
+      if (!outcome.ok) {
+        setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, lng === 'vi' ? 'vi-VN' : 'en-US') }));
+        return;
+      }
+      if (outcome.files.length > 0) void add(outcome.files);;
+      setBatchNote(
+        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+      );
+    })();
+  };
+
   const [pages, setPages] = useState<PageEntry[]>([]);
   const [pageCounts, setPageCounts] = useState<number[]>([]);
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
@@ -156,7 +173,17 @@ export function MergeTool() {
         hint={t('merge.dropzone_hint')}
         accept="application/pdf,.pdf"
         onFiles={(f) => void add(f)}
+        footer={
+          <button
+            type="button"
+            className="min-h-9 rounded-lg border border-border-strong px-3 text-[13px] text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            onClick={pickFolder}
+          >
+            {t('home.pick_folder')}
+          </button>
+        }
       />
+      {batchNote ? <ErrorBanner error={batchNote} /> : null}
       {files.length > 0 ? (
         <div className="mt-3 flex flex-col gap-2">
           {files.map((f, i) => (

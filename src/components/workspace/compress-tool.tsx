@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon } from '../ui/icons';
 
-type CompressMode = 'vector' | 'image';
+type CompressMode = 'vector' | 'image' | 'linearize';
 type ImageQuality = 'balanced' | 'small';
 
 const QUALITY_PRESET: Record<ImageQuality, { scale: number; jpeg: number }> = {
@@ -45,13 +47,18 @@ interface RunError {
 
 function outputName(original: string, mode: CompressMode): string {
   const base = original.replace(/\.pdf$/i, '').trim() || 'compressed';
-  return mode === 'vector' ? `${base}-vector-pack.pdf` : `${base}-raster.pdf`;
+  if (mode === 'vector') return `${base}-vector-pack.pdf`;
+  if (mode === 'linearize') return `${base}-web.pdf`;
+  return `${base}-raster.pdf`;
 }
 
 function thresholdKey(mode: CompressMode, pct: number): string {
   if (pct < 0) return 'compress.result_larger';
   if (mode === 'vector') {
     return pct < VECTOR_THRESHOLD_PCT ? 'compress.result_low_vector' : 'compress.result_ok_vector';
+  }
+  if (mode === 'linearize') {
+    return pct < 0 ? 'compress.result_larger' : 'compress.result_ok_linearize';
   }
   return pct < IMAGE_THRESHOLD_PCT ? 'compress.result_low_image' : 'compress.result_ok_image';
 }
@@ -66,6 +73,21 @@ export function CompressTool() {
   }, [add]);
   const [mode, setMode] = useState<CompressMode>('vector');
   const [quality, setQuality] = useState<ImageQuality>('balanced');
+  const [batchNote, setBatchNote] = useState<string | null>(null);
+  const pickFolder = () => {
+    void (async () => {
+      const outcome = await pickDirectory(['.pdf']);
+      if (!outcome.ok) {
+        setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, locale) }));
+        return;
+      }
+      if (outcome.files.length > 0) void add(outcome.files.slice(0, 1));;
+      setBatchNote(
+        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+      );
+    })();
+  };
+
   const [numPages, setNumPages] = useState(0);
   const [pageSizes, setPageSizes] = useState<PageSize[]>([]);
   const [result, setResult] = useState<CompressResult | null>(null);
@@ -132,6 +154,12 @@ export function CompressTool() {
         setProgress({ value: 20, label: t('compress.progress_working_vector') });
         const out = await engine.compressVectorPack(src.bytes);
         finish(out, 'vector', src.bytes.byteLength, src.file.name);
+      } else if (mode === 'linearize') {
+        // Mode (c): fast web view — no compression, deliberately not chained
+        // with the vector pack (one qpdf transform per run, per plan).
+        setProgress({ value: 20, label: t('compress.progress_working_linearize') });
+        const out = await engine.linearizePdf(src.bytes);
+        finish(out, 'linearize', src.bytes.byteLength, src.file.name);
       } else {
         // Mode (b): opt-in canvas downsample. Each page becomes a JPEG;
         // text selection is lost (explicit raster warning in the UI).
@@ -256,7 +284,17 @@ export function CompressTool() {
           clear();
           void add([f[0]]);
         }}
+        footer={
+          <button
+            type="button"
+            className="min-h-9 rounded-lg border border-border-strong px-3 text-[13px] text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            onClick={pickFolder}
+          >
+            {t('home.pick_folder')}
+          </button>
+        }
       />
+      {batchNote ? <ErrorBanner error={batchNote} /> : null}
       {src ? (
         <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
           <span className="text-text-muted"><FileIcon size={17} /></span>
@@ -305,14 +343,34 @@ export function CompressTool() {
               <span className="block text-[13px] text-text-muted">{t('compress.mode_image_hint')}</span>
             </span>
           </label>
+          <label
+            className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
+              mode === 'linearize' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
+            }`}
+          >
+            <input
+              type="radio"
+              name="compress-mode"
+              value="linearize"
+              checked={mode === 'linearize'}
+              onChange={() => setMode('linearize')}
+              className="mt-1 h-4 w-4 accent-accent"
+            />
+            <span>
+              <span className="block font-semibold">{t('compress.mode_linearize')}</span>
+              <span className="block text-[13px] text-text-muted">{t('compress.mode_linearize_hint')}</span>
+            </span>
+          </label>
         </div>
-        <div
-          className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
-          role="note"
-        >
-          <strong className="block text-warning">{t('compress.raster_title')}</strong>
-          <span className="text-warning">{t('compress.raster_warning')}</span>
-        </div>
+        {mode === 'image' ? (
+          <div
+            className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
+            role="note"
+          >
+            <strong className="block text-warning">{t('compress.raster_title')}</strong>
+            <span className="text-warning">{t('compress.raster_warning')}</span>
+          </div>
+        ) : null}
       </fieldset>
       {mode === 'image' ? (
         <fieldset className="mt-4">

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
+import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
@@ -53,6 +54,7 @@ export function PdfToImgTool() {
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runErrorKey, setRunErrorKey] = useState<string | null>(null);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
+  const [zipOverflow, setZipOverflow] = useState(false);
   const [busy, setBusy] = useState(false);
   const genRef = useRef(0);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
@@ -110,29 +112,54 @@ export function PdfToImgTool() {
     return () => abort.abort();
   }, [src, numPages]);
 
-  const run = async () => {
+  const renderAll = async (): Promise<{ name: string; bytes: Uint8Array }[]> => {
+    const { renderPageToCanvas } = await import('../../engine/pdfjs');
+    const scale = dpi / 72;
+    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const ext = format === 'jpg' ? 'jpg' : 'png';
+    const stem = baseName(src!.file.name);
+    const images: { name: string; bytes: Uint8Array }[] = [];
+    for (let p = 1; p <= numPages; p += 1) {
+      setProgress({
+        value: Math.round(((p - 1) / numPages) * 90),
+        label: t('pdf-to-img.progress_working', { current: p, total: numPages }),
+      });
+      const canvas = document.createElement('canvas');
+      await renderPageToCanvas(src!.bytes, p, canvas, scale);
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, mime, 0.92));
+      if (!blob) throw new Error('encode failed');
+      images.push({ name: `${stem}-p${p}.${ext}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    return images;
+  };
+
+  const run = async (kind: 'auto' | 'single' = 'auto') => {
     setRunErrorKey(null);
+    setZipOverflow(false);
     if (!src || numPages === 0) {
       setRunErrorKey('pdf-to-img.error_no_file');
       return;
     }
     setBusy(true);
     try {
-      const { renderPageToCanvas } = await import('../../engine/pdfjs');
-      const scale = dpi / 72;
-      const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-      const ext = format === 'jpg' ? 'jpg' : 'png';
-      const stem = baseName(src.file.name);
-      for (let p = 1; p <= numPages; p += 1) {
-        setProgress({
-          value: Math.round(((p - 1) / numPages) * 100),
-          label: t('pdf-to-img.progress_working', { current: p, total: numPages }),
-        });
-        const canvas = document.createElement('canvas');
-        await renderPageToCanvas(src.bytes, p, canvas, scale);
-        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, mime, 0.92));
-        if (!blob) throw new Error('encode failed');
-        downloadBlob(blob, `${stem}-p${p}.${ext}`);
+      const images = await renderAll();
+      // Multi-page default: one ZIP via the worker (red-team #10). The 200MB
+      // budget lives in zipStore; over budget → banner + automatic per-image
+      // fallback instead of a dead end.
+      if (kind === 'auto' && numPages > 1) {
+        setProgress({ value: 95, label: t('pdf-to-img.progress_zip') });
+        try {
+          const zip = await engine.zipStore(images);
+          downloadBytes(zip, `${baseName(src.file.name)}-images.zip`, 'application/zip');
+          setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
+          return;
+        } catch (e) {
+          if ((e as Error).name !== 'ZipSizeError') throw e;
+          setZipOverflow(true);
+        }
+      }
+      for (const image of images) {
+        downloadBlob(new Blob([image.bytes.slice().buffer as ArrayBuffer]), image.name);
         await new Promise((r) => setTimeout(r, 150));
       }
       setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
@@ -151,10 +178,14 @@ export function PdfToImgTool() {
     setProgress(null);
     setRunErrorKey(null);
     setLoadErrorKey(null);
+    setZipOverflow(false);
   };
 
   const error =
-    fileError ?? (runErrorKey ? t(runErrorKey) : null) ?? (loadErrorKey ? t(loadErrorKey) : null);
+    fileError ??
+    (zipOverflow ? t('pdf-to-img.zip_overflow') : null) ??
+    (runErrorKey ? t(runErrorKey) : null) ??
+    (loadErrorKey ? t(loadErrorKey) : null);
 
   return (
     <WorkspaceShell
@@ -232,9 +263,21 @@ export function PdfToImgTool() {
             </div>
             <p className="mt-1.5 text-xs text-text-muted">{t('pdf-to-img.dpi_hint')}</p>
           </fieldset>
-          <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy}>
+          <Button onClick={() => void run('auto')} disabled={!src || numPages === 0 || busy}>
             {t('pdf-to-img.cta')}
           </Button>
+          {numPages > 1 ? (
+            <Button
+              variant="secondary"
+              onClick={() => void run('single')}
+              disabled={!src || numPages === 0 || busy}
+            >
+              {t('pdf-to-img.single_cta')}
+            </Button>
+          ) : null}
+          {numPages > 1 ? (
+            <span className="text-[13px] text-text-muted">{t('pdf-to-img.zip_hint')}</span>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('pdf-to-img.progress_idle')}</span>
           )}

@@ -138,6 +138,37 @@ test('mobile hamburger opens, navigates, and restores focus', async ({ page }) =
   await expect(page.locator('#mobile-nav-panel')).toBeHidden();
 });
 
+test('PWA file handler: launchQueue hands a PDF to the reactive sheet', async ({ page }) => {
+  const bytes = Array.from(readFixture('fixture-1mb.pdf'));
+  await page.addInitScript((payload) => {
+    const file = new File([new Uint8Array(payload)], 'handled.pdf', { type: 'application/pdf' });
+    Object.defineProperty(window, 'launchQueue', {
+      value: {
+        setConsumer: (cb: (p: { files: { getFile: () => Promise<File> }[] }) => void) =>
+          cb({ files: [{ getFile: async () => file }] }),
+      },
+    });
+  }, bytes);
+  await page.goto('./');
+  const sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  await sheet.getByRole('button', { name: /Gộp PDF/ }).click();
+  await expect(page).toHaveURL(/\/tools\/merge$/);
+  const thumbs = page.locator('img[src^="blob:"]');
+  await expect(thumbs.first()).toBeVisible({ timeout: 30_000 });
+});
+
+test('pdf-to-img on a 2-page PDF downloads one zip (not per-image files)', async ({ page }) => {
+  await page.goto('./tools/pdf-to-img');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  const cta = page.getByRole('button', { name: 'Xuất và tải xuống' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  const downloadPromise = page.waitForEvent('download', { timeout: 90_000 });
+  await cta.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('fixture-1mb-images.zip');
+});
+
 test('axe: no serious/critical violations on home, merge, and 4 swept tools', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();

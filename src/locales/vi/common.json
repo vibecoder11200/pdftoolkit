@@ -264,7 +264,11 @@
     "err_not_pdf": "File {{name}} không phải PDF.",
     "err_heic": "Không nhận file HEIC/HEIF. Hãy xuất sang JPG/PNG trước.",
     "err_encode": "Không nén ảnh được. Hãy thử lại.",
-    "err_failed": "Nén thất bại: {{message}}"
+    "err_failed": "Nén thất bại: {{message}}",
+    "mode_linearize": "Tối ưu cho web (linearize)",
+    "mode_linearize_hint": "Sắp xếp lại cấu trúc file để trang đầu hiện nhanh khi mở qua mạng. Không nén.",
+    "progress_working_linearize": "Đang tối ưu cho web...",
+    "result_ok_linearize": "Đã tối ưu cho web — trang đầu hiển thị sớm khi mở online."
   },
   "pdf-to-img": {
     "title": "PDF sang ảnh",
@@ -287,7 +291,11 @@
     "progress_idle": "Chọn định dạng và DPI rồi bấm xuất.",
     "error_load": "Không đọc được file này. Hãy thử PDF khác.",
     "error_no_file": "Hãy chọn file PDF trước.",
-    "error_save": "Không xuất ảnh được. Hãy thử lại."
+    "error_save": "Không xuất ảnh được. Hãy thử lại.",
+    "zip_hint": "trên 1 trang: gói tất cả ảnh thành 1 file .zip",
+    "zip_overflow": "Tổng ảnh vượt 200 MB — tự động chuyển sang tải từng ảnh.",
+    "progress_zip": "Đang đóng gói ZIP...",
+    "single_cta": "Tải từng ảnh"
   },
   "img-to-pdf": {
     "title": "Ảnh sang PDF",
@@ -379,7 +387,13 @@
     "reject_unsupported": "định dạng không hỗ trợ",
     "reject_heic-refused": "HEIC/HEIF — hãy xuất sang JPG/PNG trước",
     "reject_too-large": "vượt 200 MB",
-    "reject_corrupt": "hỏng hoặc không đọc được"
+    "reject_corrupt": "hỏng hoặc không đọc được",
+    "pick_folder": "hoặc chọn cả thư mục…",
+    "batch_too_large": "Tổng dung lượng {{size}} vượt quá 500 MB cho một lần nạp. Hãy chọn ít file hơn hoặc nén trước.",
+    "batch_skipped_empty": "Đã bỏ qua {{count}} file rỗng (0 byte).",
+    "launch_banner_text": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
+    "launch_banner_action": "Mở Home",
+    "launch_banner_dismiss": "Bỏ qua"
   },
   "steps": {
     "pick": "Chọn file",

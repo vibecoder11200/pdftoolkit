@@ -12,6 +12,8 @@ interface DropzoneProps {
   icon?: ReactNode;
   /** Denser padding for sidebars / secondary drop targets. */
   compact?: boolean;
+  /** Extra actions under the hint (e.g. folder pick). Clicks stay local. */
+  footer?: ReactNode;
   onFiles: (files: File[]) => void;
 }
 
@@ -23,6 +25,7 @@ export function Dropzone({
   className = '',
   icon,
   compact = false,
+  footer,
   onFiles,
 }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -37,8 +40,9 @@ export function Dropzone({
   );
 
   return (
-    <div
-      className={`flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed text-center text-[13.5px] transition-[border-color,background-color,transform] ${
+    <>
+      <div
+        className={`flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed text-center text-[13.5px] transition-[border-color,background-color,transform] ${
         compact ? 'px-3 py-2.5' : 'px-4 py-3'
       } ${
         dragActive
@@ -87,7 +91,11 @@ export function Dropzone({
           e.target.value = '';
         }}
       />
-    </div>
+      </div>
+      {/* Secondary actions stay OUTSIDE the role="button" surface — nesting
+          an interactive control inside another is an axe violation. */}
+      {footer ? <div className="mt-1.5">{footer}</div> : null}
+    </>
   );
 }
 

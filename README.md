@@ -15,7 +15,12 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
-| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate | Compress (lossless vector pack + opt-in image recompress) · PDF → images · Images → PDF | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+
+## Extras
+
+- **Batch folders**: merge, Images→PDF and compress can ingest an entire folder (filter, name-sort, 0-byte skip; 500 MB total batch budget).
+- **Open with PDF** (Chromium/Edge installed as PWA): OS "Open with" hands PDFs straight to the app — an existing session is never disturbed (focus-existing; files land in the suggestion sheet on Home, or a banner on tool pages). Firefox/Safari are unaffected.
 
 ## Privacy
 

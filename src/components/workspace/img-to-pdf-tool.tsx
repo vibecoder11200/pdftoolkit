@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PDFDocument, PageSizes } from 'pdf-lib';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
+import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { XIcon } from '../ui/icons';
@@ -67,6 +69,21 @@ async function bitmapToBytes(bitmap: ImageBitmap, png: boolean): Promise<Uint8Ar
 
 export function ImgToPdfTool() {
   const { t, i18n } = useTranslation();
+  const [batchNote, setBatchNote] = useState<string | null>(null);
+  const pickFolder = () => {
+    void (async () => {
+      const outcome = await pickDirectory(['.jpg', '.jpeg', '.png']);
+      if (!outcome.ok) {
+        setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, locale) }));
+        return;
+      }
+      if (outcome.files.length > 0) addFiles(outcome.files);;
+      setBatchNote(
+        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+      );
+    })();
+  };
+
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
@@ -210,7 +227,17 @@ export function ImgToPdfTool() {
         hint={t('img-to-pdf.dropzone_hint')}
         accept={ACCEPT}
         onFiles={(f) => addFiles(f)}
+        footer={
+          <button
+            type="button"
+            className="min-h-9 rounded-lg border border-border-strong px-3 text-[13px] text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            onClick={pickFolder}
+          >
+            {t('home.pick_folder')}
+          </button>
+        }
       />
+      {batchNote ? <ErrorBanner error={batchNote} /> : null}
       {files.length > 0 ? (
         <div className="mt-3 flex flex-col gap-2">
           {files.map((f, i) => (
