@@ -38,7 +38,9 @@
   --accent-soft: oklch(95% 0.03 243);
   --danger: oklch(55% 0.21 27);
   --danger-soft: oklch(96% 0.018 27);
-  --success: oklch(55% 0.13 160);
+  /* 47% (not 55%): --success doubles as text on --success-soft (privacy
+     badge) and must clear 4.5:1 there — axe-verified. */
+  --success: oklch(47% 0.13 160);
   --success-soft: oklch(96.5% 0.028 160);
   --warning: oklch(44% 0.095 68);
   --warning-soft: oklch(97% 0.03 90);

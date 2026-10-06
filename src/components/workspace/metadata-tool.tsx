@@ -9,6 +9,7 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { WorkspaceShell } from './workspace-shell';
+import { FileIcon } from '../ui/icons';
 
 interface MetadataForm {
   title: string;
@@ -180,9 +181,9 @@ export function MetadataTool() {
           : undefined
       }
       steps={[
-        { label: '1', state: src ? 'done' : 'now' },
-        { label: '2', state: src && !loadErrorKey ? 'now' : 'todo' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: src ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: src && !loadErrorKey ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={error}
       side={
@@ -217,7 +218,7 @@ export function MetadataTool() {
             anywhere in this file.
           */}
           <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
-            <span aria-hidden>📄</span>
+            <span aria-hidden className="text-text-muted"><FileIcon size={17} /></span>
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
             <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
               {formatBytes(src.file.size, locale)}

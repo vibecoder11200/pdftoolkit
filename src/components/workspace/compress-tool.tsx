@@ -8,6 +8,7 @@ import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { FileIcon } from '../ui/icons';
 
 type CompressMode = 'vector' | 'image';
 type ImageQuality = 'balanced' | 'small';
@@ -219,15 +220,17 @@ export function CompressTool() {
       title={t('compress.title')}
       meta={
         src
-          ? lng === 'vi'
-            ? `${src.file.name} · ${numPages} trang · ${formatBytes(src.file.size, 'vi-VN')}`
-            : `${src.file.name} · ${numPages} pages · ${formatBytes(src.file.size, 'en-US')}`
+          ? t('meta.file_pages', {
+              name: src.file.name,
+              count: numPages,
+              size: formatBytes(src.file.size, locale),
+            })
           : undefined
       }
       steps={[
-        { label: '1', state: src ? 'done' : 'now' },
-        { label: '2', state: result ? 'done' : src ? 'now' : 'todo' },
-        { label: '3', state: result ? 'now' : 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: src ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: result ? 'done' : src ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: result ? 'now' : 'todo' },
       ]}
       error={error}
       side={
@@ -256,10 +259,10 @@ export function CompressTool() {
       />
       {src ? (
         <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
-          <span>📄</span>
+          <span className="text-text-muted"><FileIcon size={17} /></span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
           <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
-            {formatBytes(src.file.size, locale)} · {numPages} {lng === 'vi' ? 'trang' : 'pages'}
+            {formatBytes(src.file.size, locale)} · {t('units.pages', { count: numPages })}
           </span>
         </div>
       ) : null}

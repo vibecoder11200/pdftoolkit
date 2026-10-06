@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { XIcon } from './icons';
 import type { ReactNode } from 'react';
 
 interface DialogProps {
@@ -12,6 +14,7 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Dialog({ open, onClose, title, children }: DialogProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   // Latest-closure indirection so the lifecycle effect can depend on `open`
   // alone: re-keying on onClose (an inline arrow in every consumer) would
@@ -69,10 +72,11 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
           <span>{title}</span>
           <button
             type="button"
-            className="ml-auto min-h-9 min-w-9 rounded-lg border border-border-strong px-3 text-sm"
+            aria-label={t('a11y.close')}
+            className="ml-auto grid min-h-9 min-w-9 place-items-center rounded-lg border border-border-strong px-3 text-sm"
             onClick={onClose}
           >
-            ✕
+            <XIcon />
           </button>
         </div>
         {children}

@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { HomePage } from './pages/home';
+import { ComingSoonPage } from './pages/tool-placeholder';
 import { MergeToolPage } from './pages/merge';
 import { SplitToolPage } from './pages/split';
 import { ExtractToolPage } from './pages/extract';
@@ -60,6 +61,9 @@ const toolRoutes = [
 export const router = createBrowserRouter(
   [
     { path: '/', element: <HomePage /> },
+    // Explicit "under development" entry (validation D2) — click shows the
+    // coming-soon state instead of silently falling through to the catch-all.
+    { path: '/tools/convert', element: <ComingSoonPage /> },
     ...toolRoutes,
     { path: '*', element: <HomePage /> },
   ],

@@ -8,6 +8,7 @@ import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { FileIcon } from '../ui/icons';
 
 type ProtectMode = 'encrypt' | 'decrypt';
 
@@ -167,9 +168,9 @@ export function EncryptTool() {
       title={t('encrypt.title')}
       meta={src ? `${src.file.name} · ${formatBytes(src.file.size, locale)}` : undefined}
       steps={[
-        { label: '1', state: src ? 'done' : 'now' },
-        { label: '2', state: succeeded ? 'done' : src ? 'now' : 'todo' },
-        { label: '3', state: succeeded ? 'now' : 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: src ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: succeeded ? 'done' : src ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: succeeded ? 'now' : 'todo' },
       ]}
       error={error}
       side={
@@ -223,7 +224,7 @@ export function EncryptTool() {
 
       {src ? (
         <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]">
-          <span>📄</span>
+          <span className="text-text-muted"><FileIcon size={17} /></span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{src.file.name}</span>
           <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
             {formatBytes(src.file.size, locale)}

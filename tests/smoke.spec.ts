@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { AxeBuilder } from '@axe-core/playwright';
 import { readFileSync } from 'node:fs';
 
 // Dispatch a real window-level drop (home universal dropzone) with the given
@@ -116,4 +117,36 @@ test('dropping a locked PDF suggests Decrypt and opens encrypt in decrypt mode',
   await expect(page).toHaveURL(/\/tools\/encrypt$/);
   // Decrypt tab is active with the file already loaded.
   await expect(page.getByPlaceholder('Nhập mật khẩu của file')).toBeVisible({ timeout: 15_000 });
+});
+
+test('mobile hamburger opens, navigates, and restores focus', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 });
+  await page.goto('./');
+  const hamburger = page.getByRole('button', { name: 'Menu' });
+  await hamburger.click();
+  const panel = page.locator('#mobile-nav-panel');
+  await expect(panel).toBeVisible();
+  await expect(hamburger).toHaveAttribute('aria-expanded', 'true');
+  // Esc closes and hands focus back to the toggle.
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(hamburger).toBeFocused();
+  // Navigating from the panel closes it and lands on the tool.
+  await hamburger.click();
+  await panel.getByRole('link', { name: 'GỘP PDF' }).click();
+  await expect(page).toHaveURL(/\/tools\/merge$/);
+  await expect(page.locator('#mobile-nav-panel')).toBeHidden();
+});
+
+test('axe: no serious/critical violations on home and merge', async ({ page }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();
+  for (const path of ['/', './tools/merge']) {
+    await page.goto(path);
+    const results = await new AxeBuilder({ page }).analyze();
+    const bad = results.violations.filter(
+      (v) => v.impact === 'serious' || v.impact === 'critical',
+    );
+    expect(bad, `${path}: ${bad.map((v) => v.id).join(', ')}`).toEqual([]);
+  }
 });

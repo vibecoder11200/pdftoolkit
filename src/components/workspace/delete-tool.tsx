@@ -112,15 +112,16 @@ export function DeleteTool() {
       title={t('remove.title')}
       meta={
         bytes
-          ? lng === 'vi'
-            ? `1 file · ${keptCount} trang · ${formatBytes(fileSize, 'vi-VN')}`
-            : `1 file · ${keptCount} pages · ${formatBytes(fileSize, 'en-US')}`
+          ? t('meta.one_file_pages', {
+              count: keptCount,
+              size: formatBytes(fileSize, lng === 'vi' ? 'vi-VN' : 'en-US'),
+            })
           : undefined
       }
       steps={[
-        { label: '1', state: bytes ? 'done' : 'now' },
-        { label: '2', state: bytes ? 'now' : 'todo' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: bytes ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: bytes ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={fileError ?? runError}
       side={

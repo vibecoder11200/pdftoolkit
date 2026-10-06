@@ -1,11 +1,21 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Progress } from '../ui/progress';
+import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
+import { CheckIcon, RefreshIcon, ResetIcon } from '../ui/icons';
+
+export interface StepItem {
+  key: string;
+  label: string;
+  state: 'done' | 'now' | 'todo';
+}
 
 interface WorkspaceShellProps {
   title: string;
   meta?: string;
-  steps: { label: string; state: 'done' | 'now' | 'todo' }[];
-  error?: string | null;
+  steps: StepItem[];
+  /** ErrorDetail, or a plain string (wrapped as {title} for compatibility). */
+  error?: string | ErrorDetail | null;
   side: ReactNode;
   children: ReactNode;
   progress?: { value: number; label: string } | null;
@@ -26,6 +36,7 @@ export function WorkspaceShell({
   onReselectAll,
   onNewFiles,
 }: WorkspaceShellProps) {
+  const { t } = useTranslation();
   return (
     <div className="mt-3.5 overflow-hidden rounded-2xl border border-border-default bg-surface-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-default px-5.5 py-4">
@@ -33,9 +44,9 @@ export function WorkspaceShell({
         {meta ? (
           <span className="text-[13px] text-text-muted tabular-nums">{meta}</span>
         ) : null}
-        <div className="flex items-center gap-2 text-xs font-semibold text-text-muted" aria-label="Progress">
+        <div className="flex items-center gap-2 text-xs font-semibold text-text-muted" aria-label={t('a11y.progress')}>
           {steps.map((s, i) => (
-            <span key={s.label} className="flex items-center gap-1.5">
+            <span key={s.key} className="flex items-center gap-1.5">
               {i > 0 ? <span className="h-px w-5 bg-border-default" aria-hidden /> : null}
               <span
                 className={`grid h-5 w-5 place-items-center rounded-full border text-[11px] ${
@@ -45,8 +56,9 @@ export function WorkspaceShell({
                       ? 'border-accent bg-accent text-text-on-accent'
                       : 'border-border-strong bg-surface-sunken'
                 }`}
+                aria-current={s.state === 'now' ? 'step' : undefined}
               >
-                {s.state === 'done' ? '✓' : i + 1}
+                {s.state === 'done' ? <CheckIcon size={11} /> : i + 1}
               </span>
               <span className={s.state === 'now' ? 'text-text-primary' : ''}>{s.label}</span>
             </span>
@@ -54,18 +66,19 @@ export function WorkspaceShell({
         </div>
         <span className="flex-1" />
         {onNewFiles ? (
-          <button type="button" className="min-h-10 text-sm text-text-muted hover:text-text-primary" onClick={onNewFiles}>
-            ⟳
+          <button
+            type="button"
+            aria-label={t('a11y.new_files')}
+            className="grid min-h-10 min-w-10 place-items-center text-text-muted hover:text-text-primary"
+            onClick={onNewFiles}
+          >
+            <RefreshIcon size={17} />
           </button>
         ) : null}
       </div>
       <div className="grid min-h-[420px] grid-cols-1 lg:grid-cols-[1fr_280px]">
         <div className="border-b border-border-default px-5 py-4 lg:border-r lg:border-b-0">
-          {error ? (
-            <div className="mb-3.5 rounded-lg border border-danger bg-danger-soft px-4 py-3 text-[13.5px]" role="alert">
-              {error}
-            </div>
-          ) : null}
+          {error ? <ErrorBanner error={error} /> : null}
           {children}
           {progress ? <Progress value={progress.value} label={progress.label} /> : null}
         </div>
@@ -75,15 +88,21 @@ export function WorkspaceShell({
         {onReselectAll ? (
           <button
             type="button"
+            aria-label={t('a11y.reselect')}
             onClick={onReselectAll}
-            className="inline-flex min-h-11 items-center rounded-lg border border-border-strong bg-surface-card px-5 text-sm font-semibold"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-border-strong bg-surface-card text-text-muted hover:text-text-primary"
           >
-            ⟳
+            <RefreshIcon size={17} />
           </button>
         ) : null}
         {onReset ? (
-          <button type="button" onClick={onReset} className="min-h-10 text-sm text-text-muted hover:text-text-primary">
-            ⟲
+          <button
+            type="button"
+            aria-label={t('a11y.reset')}
+            onClick={onReset}
+            className="grid min-h-10 min-w-10 place-items-center text-text-muted hover:text-text-primary"
+          >
+            <ResetIcon size={17} />
           </button>
         ) : null}
       </div>

@@ -9,6 +9,7 @@ import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
 
 interface PageEntry {
@@ -117,14 +118,16 @@ export function MergeTool() {
     <WorkspaceShell
       title={t('merge.title')}
       meta={
-        lng === 'vi'
-          ? `${files.length} file · ${kept.length} trang · ${formatBytes(totalBytes, 'vi-VN')}`
-          : `${files.length} files · ${kept.length} pages · ${formatBytes(totalBytes, 'en-US')}`
+        t('meta.files_pages', {
+          files: t('units.files', { count: files.length }),
+          count: kept.length,
+          size: formatBytes(totalBytes, lng === 'vi' ? 'vi-VN' : 'en-US'),
+        })
       }
       steps={[
-        { label: '1', state: 'done' },
-        { label: '2', state: 'now' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: 'done' },
+        { key: 'configure', label: t('steps.configure'), state: 'now' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={fileError ?? runError}
       side={
@@ -161,19 +164,19 @@ export function MergeTool() {
               key={`${f.file.name}-${i}`}
               className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
             >
-              <span>📄</span>
+              <span className="text-text-muted"><FileIcon size={17} /></span>
               <span className="overflow-hidden text-ellipsis whitespace-nowrap">{f.file.name}</span>
               <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
                 {formatBytes(f.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} ·{' '}
-                {pageCounts[i] ?? 0} trang
+                {t('units.pages', { count: pageCounts[i] ?? 0 })}
               </span>
               <button
                 type="button"
-                aria-label={`Remove ${f.file.name}`}
+                aria-label={t('a11y.remove_file', { name: f.file.name })}
                 className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                 onClick={() => removeAt(i)}
               >
-                ✕
+                <XIcon />
               </button>
             </div>
           ))}

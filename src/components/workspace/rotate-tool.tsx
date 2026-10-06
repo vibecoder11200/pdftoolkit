@@ -123,15 +123,17 @@ export function RotateTool() {
       title={t('rotate.title')}
       meta={
         source
-          ? lng === 'vi'
-            ? `${source.file.name} · ${numPages} trang · ${formatBytes(source.file.size, 'vi-VN')}`
-            : `${source.file.name} · ${numPages} pages · ${formatBytes(source.file.size, 'en-US')}`
+          ? t('meta.file_pages', {
+                name: source.file.name,
+                count: numPages,
+                size: formatBytes(source.file.size, lng === 'vi' ? 'vi-VN' : 'en-US'),
+              })
           : undefined
       }
       steps={[
-        { label: '1', state: source ? 'done' : 'now' },
-        { label: '2', state: source ? 'now' : 'todo' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: source ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: source ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={fileError ?? runError}
       side={

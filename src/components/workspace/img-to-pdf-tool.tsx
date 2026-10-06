@@ -8,6 +8,7 @@ import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { XIcon } from '../ui/icons';
 
 const ACCEPT = 'image/jpeg,.jpg,.jpeg,image/png,.png';
 const JPEG_QUALITY = 0.92;
@@ -186,9 +187,9 @@ export function ImgToPdfTool() {
           : undefined
       }
       steps={[
-        { label: '1', state: files.length > 0 ? 'done' : 'now' },
-        { label: '2', state: files.length > 0 ? 'now' : 'todo' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: files.length > 0 ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: files.length > 0 ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={error ? t(error.key, error.values) : null}
       side={
@@ -236,7 +237,7 @@ export function ImgToPdfTool() {
                 className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                 onClick={() => removeAt(i)}
               >
-                ✕
+                <XIcon />
               </button>
             </div>
           ))}

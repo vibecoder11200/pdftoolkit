@@ -154,15 +154,17 @@ export function PdfToImgTool() {
       title={t('pdf-to-img.title')}
       meta={
         src
-          ? lng === 'vi'
-            ? `${src.file.name} · ${numPages} trang · ${formatBytes(src.file.size, 'vi-VN')}`
-            : `${src.file.name} · ${numPages} pages · ${formatBytes(src.file.size, 'en-US')}`
+          ? t('meta.file_pages', {
+                name: src.file.name,
+                count: numPages,
+                size: formatBytes(src.file.size, lng === 'vi' ? 'vi-VN' : 'en-US'),
+              })
           : undefined
       }
       steps={[
-        { label: '1', state: src ? 'done' : 'now' },
-        { label: '2', state: src ? 'now' : 'todo' },
-        { label: '3', state: 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: src ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: src ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: 'todo' },
       ]}
       error={error}
       side={

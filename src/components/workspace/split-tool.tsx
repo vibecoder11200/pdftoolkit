@@ -9,6 +9,7 @@ import { parseRanges } from '../../lib/ranges';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
 
 type SplitMode = 'combined' | 'separate';
@@ -171,15 +172,17 @@ export function SplitTool() {
       title={t('split.title')}
       meta={
         file
-          ? lng === 'vi'
-            ? `${file.file.name} · ${numPages} trang · ${formatBytes(file.file.size, 'vi-VN')}`
-            : `${file.file.name} · ${numPages} pages · ${formatBytes(file.file.size, 'en-US')}`
+          ? t('meta.file_pages', {
+                name: file.file.name,
+                count: numPages,
+                size: formatBytes(file.file.size, lng === 'vi' ? 'vi-VN' : 'en-US'),
+              })
           : undefined
       }
       steps={[
-        { label: '1', state: file ? 'done' : 'now' },
-        { label: '2', state: covered.length > 0 ? 'done' : file ? 'now' : 'todo' },
-        { label: '3', state: progress?.value === 100 ? 'done' : 'todo' },
+        { key: 'pick', label: t('steps.pick'), state: file ? 'done' : 'now' },
+        { key: 'configure', label: t('steps.configure'), state: covered.length > 0 ? 'done' : file ? 'now' : 'todo' },
+        { key: 'download', label: t('steps.download'), state: progress?.value === 100 ? 'done' : 'todo' },
       ]}
       error={fileError ?? runError}
       side={
@@ -274,10 +277,10 @@ export function SplitTool() {
             key={`${file.file.name}-0`}
             className="flex items-center gap-2.5 rounded-lg border border-border-default p-2.5 text-[13.5px]"
           >
-            <span>📄</span>
+            <span className="text-text-muted"><FileIcon size={17} /></span>
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{file.file.name}</span>
             <span className="ml-auto text-xs whitespace-nowrap text-text-muted tabular-nums">
-              {formatBytes(file.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} · {numPages} trang
+              {formatBytes(file.file.size, lng === 'vi' ? 'vi-VN' : 'en-US')} · {t('units.pages', { count: numPages })}
             </span>
             <button
               type="button"
@@ -285,7 +288,7 @@ export function SplitTool() {
               className="min-h-10 min-w-10 text-text-muted hover:text-danger"
               onClick={() => removeAt(0)}
             >
-              ✕
+              <XIcon />
             </button>
           </div>
         </div>

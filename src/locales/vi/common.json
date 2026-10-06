@@ -7,7 +7,17 @@
     "theme_system": "Theo hệ thống"
   },
   "a11y": {
-    "logo": "PDF Toolkit — về trang chủ"
+    "logo": "PDF Toolkit — về trang chủ",
+    "menu": "Menu",
+    "menu_close": "Đóng menu",
+    "close": "Đóng",
+    "remove_file": "Bỏ {{name}}",
+    "new_files": "Nạp file khác",
+    "reselect": "Chọn lại toàn bộ",
+    "reset": "Đặt lại",
+    "retry": "Thử lại",
+    "progress": "Tiến trình",
+    "loading": "Đang xử lý..."
   },
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",
@@ -369,5 +379,27 @@
     "reject_heic-refused": "HEIC/HEIF — hãy xuất sang JPG/PNG trước",
     "reject_too-large": "vượt 200 MB",
     "reject_corrupt": "hỏng hoặc không đọc được"
+  },
+  "steps": {
+    "pick": "Chọn file",
+    "configure": "Tùy chỉnh",
+    "download": "Tải xuống"
+  },
+  "units": {
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} file",
+    "pages_one": "{{count}} trang",
+    "pages_other": "{{count}} trang"
+  },
+  "meta": {
+    "file_pages": "{{name}} · {{count}} trang · {{size}}",
+    "file_selected_pages": "{{name}} · {{selected}}/{{count}} trang · {{size}}",
+    "one_file_pages": "1 file · {{count}} trang · {{size}}",
+    "files_pages": "{{files}} · {{count}} trang · {{size}}"
+  },
+  "coming_soon": {
+    "title": "Công cụ đổi định dạng đang phát triển",
+    "hint": "Chuyển đổi PDF sang các định dạng khác sẽ có trong bản cập nhật tiếp theo. Các công cụ còn lại đều dùng được bình thường.",
+    "badge": "Sớm ra mắt"
   }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Dialog } from '../ui/dialog';
+import { CheckIcon, ExpandIcon } from '../ui/icons';
 
 interface PageThumb {
   key: string;
@@ -67,23 +68,23 @@ export function ThumbnailStrip({
               }`}
               aria-hidden
             >
-              ✓
+              <CheckIcon size={12} />
             </span>
             {p.url ? (
               <img src={p.url} alt="" className="block aspect-[0.707] w-full rounded border border-border-default object-contain" draggable={false} />
             ) : (
-              <span className="block aspect-[0.707] w-full rounded border border-border-default bg-gradient-to-b from-surface-card to-surface-sunken" aria-hidden />
+              <span className="block aspect-[0.707] w-full animate-pulse rounded border border-border-default bg-surface-sunken" aria-hidden />
             )}
             <button
               type="button"
-              aria-label={`View page ${p.pageNumber} fullscreen`}
+              aria-label={fullscreenTitle(p.pageNumber)}
               className="absolute right-2.5 bottom-2.5 hidden h-8 w-8 place-items-center rounded-lg border border-border-strong bg-surface-card text-sm text-text-muted hover:border-accent hover:text-text-primary hover:[display:grid] group-hover:grid"
               onClick={(e) => {
                 e.stopPropagation();
                 setFs(p.pageNumber);
               }}
             >
-              ⛶
+              <ExpandIcon size={14} />
             </button>
           </div>
         ))}
