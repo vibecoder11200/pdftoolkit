@@ -1,10 +1,23 @@
 import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// Build identity for the footer chip (plan v0.3.0 phase 2, D8): single source
+// of truth at build time — a forgotten package.json bump still shows the real
+// commit. try/catch because tarball checkouts have no .git.
+const appVersion = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')).version;
+const commitHash = (() => {
+  try {
+    return execSync('git rev-parse --short=7 HEAD').toString().trim();
+  } catch {
+    return 'unknown';
+  }
+})();
 
 // Emit qpdf.wasm next to the worker chunk: the emscripten glue resolves it
 // relative to the worker script dir (/assets/), and the lazy dynamic import
@@ -148,6 +161,10 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __COMMIT_HASH__: JSON.stringify(commitHash),
+  },
   worker: {
     format: 'es',
   },

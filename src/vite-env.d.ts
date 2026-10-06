@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+// Build-time identity injected by vite.config.ts `define` (footer chip).
+declare const __APP_VERSION__: string;
+declare const __COMMIT_HASH__: string;
+
 declare module 'js-pdf-signer' {
   export interface Signer {
     cert: unknown;
