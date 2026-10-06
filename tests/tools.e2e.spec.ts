@@ -9,7 +9,7 @@ import { stat } from 'node:fs/promises';
  * by `node tests/fixtures/gen.mjs`.
  */
 
-const FIXTURE = 'tests/fixtures/fixture-1mb.pdf';
+const FIXTURE = 'tests/fixtures/fixture-small.pdf';
 
 async function loadFixture(page: Page, path: string) {
   await page.setInputFiles('input[type="file"]', path);
@@ -87,7 +87,7 @@ test('encrypt then decrypt round-trips back to a parsable PDF', async ({ page })
   const encPromise = page.waitForEvent('download', { timeout: 120_000 });
   await page.getByRole('button', { name: 'Mã hóa và tải xuống' }).click();
   const enc = await encPromise;
-  expect(enc.suggestedFilename()).toBe('fixture-1mb-encrypted.pdf');
+  expect(enc.suggestedFilename()).toBe('fixture-small-encrypted.pdf');
 
   // Re-upload the encrypted output (named, not the browser temp GUID);
   // decrypt with the same password.
@@ -104,7 +104,7 @@ test('encrypt then decrypt round-trips back to a parsable PDF', async ({ page })
   const decPromise = page.waitForEvent('download', { timeout: 120_000 });
   await page.getByRole('button', { name: 'Giải mã và tải xuống' }).click();
   const dec = await decPromise;
-  expect(dec.suggestedFilename()).toBe('fixture-1mb-encrypted-decrypted.pdf');
+  expect(dec.suggestedFilename()).toBe('fixture-small-encrypted-decrypted.pdf');
   const bytes = readFileSync(await dec.path());
   expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   expect(bytes.length).toBeGreaterThan(0);

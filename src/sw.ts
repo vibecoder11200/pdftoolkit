@@ -43,6 +43,27 @@ interface ShareBatch {
 const SHARE_QUEUE_MAX = 5;
 const SHARE_BATCH_TTL_MS = 10 * 60 * 1000;
 const shareQueue: ShareBatch[] = [];
+// Client ids that posted SHARE_TARGET_READY — the only ones a flush may
+// target. matchAll() alone is not enough: it returns the redirected
+// navigation before its JS runs, and a message posted that early is dropped.
+const readyClients = new Set<string>();
+
+function scopePathname(): string {
+  return new URL(self.registration.scope).pathname;
+}
+
+/** Sender must live inside this registration's scope on our origin. */
+function isAppClient(client: Client): boolean {
+  try {
+    const url = new URL(client.url);
+    return (
+      url.origin === new URL(self.registration.scope).origin &&
+      url.pathname.startsWith(scopePathname())
+    );
+  } catch {
+    return false;
+  }
+}
 
 function enqueueShareFiles(files: File[]): void {
   const now = Date.now();
@@ -74,10 +95,13 @@ self.addEventListener('fetch', (event) => {
         );
         if (files.length === 0) return;
         enqueueShareFiles(files);
-        // Fast path: if a landing client from an earlier share is still open,
-        // deliver immediately; otherwise the READY handshake delivers later.
+        // Fast path: a landing client that already registered (READY) and is
+        // still open gets the files immediately; fresh landings go through
+        // the READY handshake below.
         const targets = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        const landing = targets.find((c) => new URL(c.url).searchParams.has('share-target'));
+        const landing = targets.find(
+          (c) => readyClients.has(c.id) && new URL(c.url).searchParams.has('share-target'),
+        );
         if (landing) await flushShareQueue(landing);
       } catch {
         /* malformed multipart body — nothing to hand off */
@@ -94,7 +118,18 @@ self.addEventListener('message', (e) => {
     self.skipWaiting();
     return;
   }
-  if (e.data?.type === 'SHARE_TARGET_READY' && e.source) {
-    void flushShareQueue(e.source as Client);
+  if (e.data?.type === 'SHARE_TARGET_READY') {
+    const sender = e.source as Client | null;
+    // Registration-scoped postMessage works from ANY same-origin page (the
+    // whole github.io user space shares this origin) — without the scope
+    // check, a foreign sibling page could pull parked shared files.
+    if (!sender || !isAppClient(sender)) return;
+    readyClients.add(sender.id);
+    // Prune ids whose clients are gone so the set cannot grow unbounded.
+    void self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
+      const live = new Set(all.map((c) => c.id));
+      for (const id of readyClients) if (!live.has(id)) readyClients.delete(id);
+      if (live.has(sender.id)) void flushShareQueue(sender);
+    });
   }
 });

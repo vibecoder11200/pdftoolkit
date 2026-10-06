@@ -55,7 +55,7 @@ test('VI/EN toggle switches hero copy', async ({ page }) => {
 
 test('merge tool loads a PDF and renders lazy thumbnails', async ({ page }) => {
   await page.goto('./tools/merge');
-  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-small.pdf');
   const thumbs = page.locator('img[src^="blob:"]');
   await expect(thumbs.first()).toBeVisible({ timeout: 30_000 });
   await expect(thumbs).toHaveCount(2); // fixture has 2 pages
@@ -64,7 +64,7 @@ test('merge tool loads a PDF and renders lazy thumbnails', async ({ page }) => {
 
 test('digital self-sign downloads a signed PDF (browser bundle path)', async ({ page }) => {
   await page.goto('./tools/sign');
-  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-small.pdf');
   await page.getByRole('heading', { name: 'Ký tài liệu' }).waitFor();
   // Digital toggle, then the mandatory acknowledgment it reveals.
   await page.locator('input[type="checkbox"]').first().check();
@@ -79,7 +79,7 @@ test('real certificate (.p12) signing: inspect, wrong-password retry, then sign'
   page,
 }) => {
   await page.goto('./tools/sign');
-  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-small.pdf');
   await page.getByRole('heading', { name: 'Ký tài liệu' }).waitFor();
   // Select by accessible name — positional checkbox indexing races the
   // thumbnail strip (page checkboxes render asynchronously).
@@ -104,8 +104,8 @@ test('real certificate (.p12) signing: inspect, wrong-password retry, then sign'
 test('dropping two PDFs suggests Merge and hands files off via checkPdfFile', async ({ page }) => {
   await page.goto('./');
   await dropOnWindow(page, [
-    { name: 'a.pdf', mime: 'application/pdf', bytes: readFixture('fixture-1mb.pdf') },
-    { name: 'b.pdf', mime: 'application/pdf', bytes: readFixture('fixture-1mb.pdf') },
+    { name: 'a.pdf', mime: 'application/pdf', bytes: readFixture('fixture-small.pdf') },
+    { name: 'b.pdf', mime: 'application/pdf', bytes: readFixture('fixture-small.pdf') },
     { name: 'fake.pdf', mime: 'application/pdf', bytes: new TextEncoder().encode('not a pdf at all') },
   ]);
   const sheet = page.getByRole('dialog');
@@ -165,7 +165,7 @@ test('mobile hamburger opens, navigates, and restores focus', async ({ page }) =
 });
 
 test('PWA file handler: launchQueue hands a PDF to the reactive sheet', async ({ page }) => {
-  const bytes = Array.from(readFixture('fixture-1mb.pdf'));
+  const bytes = Array.from(readFixture('fixture-small.pdf'));
   await page.addInitScript((payload) => {
     const file = new File([new Uint8Array(payload)], 'handled.pdf', { type: 'application/pdf' });
     Object.defineProperty(window, 'launchQueue', {
@@ -185,7 +185,7 @@ test('PWA file handler: launchQueue hands a PDF to the reactive sheet', async ({
 });
 
 test('launch while on a tool page: banner offers Home, action opens the sheet', async ({ page }) => {
-  const bytes = Array.from(readFixture('fixture-1mb.pdf'));
+  const bytes = Array.from(readFixture('fixture-small.pdf'));
   await page.addInitScript((payload) => {
     const file = new File([new Uint8Array(payload)], 'parked.pdf', { type: 'application/pdf' });
     // Deliver the launch only after the app has booted on the tool page.
@@ -217,7 +217,7 @@ test('all-tools grid: a single-file tool explains itself instead of truncating',
   // dropped batch to 3 files — exactly the setup where a single-file tool
   // would have silently kept only the first.
   await dropOnWindow(page, [
-    { name: 'a.pdf', mime: 'application/pdf', bytes: readFixture('fixture-1mb.pdf') },
+    { name: 'a.pdf', mime: 'application/pdf', bytes: readFixture('fixture-small.pdf') },
     { name: 'fake1.pdf', mime: 'application/pdf', bytes: new TextEncoder().encode('not a pdf') },
     { name: 'fake2.pdf', mime: 'application/pdf', bytes: new TextEncoder().encode('not a pdf') },
   ]);
@@ -230,13 +230,13 @@ test('all-tools grid: a single-file tool explains itself instead of truncating',
 
 test('pdf-to-img on a 2-page PDF downloads one zip (not per-image files)', async ({ page }) => {
   await page.goto('./tools/pdf-to-img');
-  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-small.pdf');
   const cta = page.getByRole('button', { name: 'Xuất và tải xuống' });
   await expect(cta).toBeEnabled({ timeout: 30_000 });
   const downloadPromise = page.waitForEvent('download', { timeout: 90_000 });
   await cta.click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('fixture-1mb-images.zip');
+  expect(download.suggestedFilename()).toBe('fixture-small-images.zip');
 });
 
 test('first-visit tour shows once and skip persists across reload', async ({ page }) => {

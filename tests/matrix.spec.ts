@@ -50,8 +50,8 @@ interface FixtureCase {
 // Page counts mirror tests/fixtures/gen.mjs: makePdf(2, '1mb', 40) and
 // makePdf(40, '10mb', 60).
 const PR_CASES: FixtureCase[] = [
-  { label: '1MB', file: 'fixture-1mb.pdf', pages: 2 },
-  { label: '10MB', file: 'fixture-10mb.pdf', pages: 40 },
+  { label: 'small', file: 'fixture-small.pdf', pages: 2 },
+  { label: 'medium', file: 'fixture-medium.pdf', pages: 40 },
 ];
 
 function range1Based(from: number, to: number): number[] {

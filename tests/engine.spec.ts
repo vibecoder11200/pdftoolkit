@@ -14,7 +14,7 @@ import { compressVectorPack, decryptPdf, encryptPdf, qpdfCheck } from '../src/en
 import { getTextOfFirstPage, pageCountOf } from './helpers/text-assert';
 
 const fixture = new Uint8Array(
-  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fixture-1mb.pdf')),
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fixture-small.pdf')),
 );
 
 describe('engine core (phase 2)', () => {

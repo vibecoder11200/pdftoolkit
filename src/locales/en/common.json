@@ -138,8 +138,10 @@
     "cert_warn_chain": "No intermediate in the bundle — readers may be unable to build the trust chain.",
     "cert_ack": "I understand this signature uses my real certificate; readers show it as trusted only when the CA chain is installed on their machine.",
     "cert_err_no_file": "Choose a .p12/.pfx certificate file first.",
+    "cert_err_reinspect": "Pick a .p12/.pfx file and Read certificate first (re-read if you just changed the password).",
     "cert_too_large": "The certificate file exceeds 10 MB.",
     "cert_bad_password": "Wrong certificate password. Re-enter and try again.",
+    "cert_unsupported_curve": "The key's EC curve is not supported (only P-256/P-384).",
     "cert_invalid": "This file is not a valid .p12/.pfx certificate."
   },
   "footer": {

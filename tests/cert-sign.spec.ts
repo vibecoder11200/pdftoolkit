@@ -164,7 +164,7 @@ async function verifySigned(signedBytes: Uint8Array, expectedCerts: number, keyT
 }
 
 d('signWithCertificate end-to-end (independent re-verify)', () => {
-  const pdfBytes = new Uint8Array(readFileSync(fx('fixture-1mb.pdf')));
+  const pdfBytes = new Uint8Array(readFileSync(fx('fixture-small.pdf')));
 
   it('RSA: signs, re-loads, digest matches, signature verifies, 1 cert embedded', async () => {
     const out = await signWithCertificate(pdfBytes, readFileSync(fx('fixture-cert-rsa.p12')), PASSWORD);
@@ -195,4 +195,18 @@ d('signWithCertificate end-to-end (independent re-verify)', () => {
     )) as Error;
     expect(err).toBeInstanceOf(CertBadPasswordError);
   });
+
+  it('realistic ≥1MB document: sign pipeline survives past the 100KB spread limit', async () => {
+    // Regression guard (review P0): the splice once built the whole output as
+    // a JS string via String.fromCharCode(...bytes) → RangeError above ~100KB.
+    // A 1.2MB padded title forces a genuinely large pipeline end-to-end.
+    const doc = await PDFDocument.create();
+    doc.setTitle('B'.repeat(1_200_000));
+    doc.addPage([595, 842]).drawText('big fixture', { x: 48, y: 800, size: 12 });
+    const big = await doc.save({ useObjectStreams: false });
+    expect(big.byteLength).toBeGreaterThan(1_000_000);
+    const out = await signWithCertificate(big, readFileSync(fx('fixture-cert-rsa.p12')), PASSWORD);
+    expect(out.byteLength).toBeGreaterThan(1_000_000);
+    await verifySigned(out, 1, 'RSA');
+  }, 30_000);
 });

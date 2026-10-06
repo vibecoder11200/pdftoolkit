@@ -396,9 +396,11 @@ export function SignTool() {
       setRunError({ key: 'sign.err_ack_missing' });
       return;
     }
-    const certCreds = cert ? certCredentialsRef.current : null;
-    if (cert && !certCreds?.file) {
-      setRunError({ key: 'sign.cert_err_no_file' });
+    // Credentials are nulled on pick, failed inspect, and password edits —
+    // so a missing ref covers "no file yet" and "password changed, re-inspect"
+    // in one message (an inspected empty-password P12 keeps the ref set).
+    if (cert && !certCredentialsRef.current) {
+      setRunError({ key: 'sign.cert_err_reinspect' });
       return;
     }
     setBusy(true);
@@ -446,13 +448,14 @@ export function SignTool() {
       }
       setProgress({ value: 85, label: t('sign.progress_working') });
       let out: Uint8Array;
-      if (cert && certCreds) {
+      if (cert) {
         // Real certificate: the P12 is parsed in the worker (key never leaves);
         // password crosses once via comlink (docs/ENGINE-API.md).
-        const p12 = new Uint8Array(await certCreds.file.arrayBuffer());
+        const creds = certCredentialsRef.current!;
+        const p12 = new Uint8Array(await creds.file.arrayBuffer());
         const placed = sig ? await doc.save({ useObjectStreams: false }) : src.bytes.slice();
         try {
-          out = await engine.signWithCertificate(placed, p12, certCreds.password);
+          out = await engine.signWithCertificate(placed, p12, creds.password);
         } catch (e) {
           if ((e as Error)?.name === 'CertBadPassword') {
             certWipeRef.current.password(); // F7: keep the file for retry
@@ -592,6 +595,12 @@ export function SignTool() {
               onChange={(e) => {
                 setDigital(e.target.checked);
                 if (!e.target.checked) setDigitalAck(false);
+                // Mutual exclusivity both ways: cert mode would silently win
+                // if both stayed checked (the cert branch runs first).
+                if (e.target.checked && cert) {
+                  setCert(false);
+                  certWipeRef.current.all();
+                }
               }}
               className="mt-0.5 h-4 w-4 accent-accent"
             />

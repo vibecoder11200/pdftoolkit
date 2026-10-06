@@ -70,7 +70,7 @@ test('share-target POST navigation delivers a valid PDF to the suggestion sheet'
     {
       name: 'shared.pdf',
       mimeType: 'application/pdf',
-      buffer: readFileSync('tests/fixtures/fixture-1mb.pdf'),
+      buffer: readFileSync('tests/fixtures/fixture-small.pdf'),
     },
   );
   // 303 lands on home (?share-target=1), the handshake hands the file over

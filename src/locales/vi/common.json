@@ -138,8 +138,10 @@
     "cert_warn_chain": "Thiếu intermediate trong file — trình đọc có thể không dựng đủ chuỗi tin cậy.",
     "cert_ack": "Tôi hiểu chữ ký này dùng chứng thư thật; trình đọc chỉ hiện \"tin cậy\" khi chuỗi CA đã được cài sẵn trên máy đọc.",
     "cert_err_no_file": "Hãy chọn file chứng thư .p12/.pfx trước.",
+    "cert_err_reinspect": "Hãy chọn file .p12/.pfx và bấm Đọc chứng thư trước (nếu vừa đổi mật khẩu, hãy đọc lại).",
     "cert_too_large": "File chứng thư vượt 10 MB.",
     "cert_bad_password": "Sai mật khẩu chứng thư. Hãy nhập lại và thử.",
+    "cert_unsupported_curve": "Đường cong EC của khóa không được hỗ trợ (chỉ nhận P-256/P-384).",
     "cert_invalid": "File không phải chứng thư .p12/.pfx hợp lệ."
   },
   "footer": {

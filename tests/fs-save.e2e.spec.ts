@@ -29,8 +29,8 @@ test('merge shows the picker button on Chromium and saves through it', async ({ 
   await expect(pick).toBeVisible();
   await expect(pick).toBeDisabled(); // nothing loaded yet
   await page.setInputFiles('input[type="file"]', [
-    'tests/fixtures/fixture-1mb.pdf',
-    'tests/fixtures/fixture-10mb.pdf',
+    'tests/fixtures/fixture-small.pdf',
+    'tests/fixtures/fixture-medium.pdf',
   ]);
   await page.getByRole('button', { name: 'Gộp và tải xuống' }).waitFor();
   await expect(pick).toBeEnabled();
@@ -76,8 +76,8 @@ test('cancelling the picker is not an error: merge stays idle, no banner', async
   });
   await page.goto('./tools/merge');
   await page.setInputFiles('input[type="file"]', [
-    'tests/fixtures/fixture-1mb.pdf',
-    'tests/fixtures/fixture-10mb.pdf',
+    'tests/fixtures/fixture-small.pdf',
+    'tests/fixtures/fixture-medium.pdf',
   ]);
   await page.getByRole('button', { name: 'Chọn nơi lưu' }).click();
   await page.waitForFunction(

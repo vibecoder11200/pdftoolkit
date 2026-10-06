@@ -235,6 +235,7 @@ export function mapCertError(e: unknown): CertUiError {
   const name = (e as Error)?.name;
   if (name === 'CertBadPassword') return { key: 'sign.cert_bad_password' };
   if (name === 'CertTooLarge') return { key: 'sign.cert_too_large' };
+  if (name === 'CertUnsupportedCurve') return { key: 'sign.cert_unsupported_curve' };
   if (name === 'CertAlreadySigned') return { key: 'sign.err_already_signed' };
   if (name === 'CertInvalid') return { key: 'sign.cert_invalid' };
   return { key: 'sign.cert_invalid' };

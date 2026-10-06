@@ -30,12 +30,12 @@ async function makePdf(pages, label, seedLines) {
   return doc.save({ useObjectStreams: false });
 }
 
-const small = await makePdf(2, '1mb', 40);
-const medium = await makePdf(40, '10mb', 60);
+const small = await makePdf(2, 'small', 40);
+const medium = await makePdf(40, 'medium', 60);
 
 mkdirSync(here, { recursive: true });
-writeFileSync(join(here, 'fixture-1mb.pdf'), small);
-writeFileSync(join(here, 'fixture-10mb.pdf'), medium);
+writeFileSync(join(here, 'fixture-small.pdf'), small);
+writeFileSync(join(here, 'fixture-medium.pdf'), medium);
 
 // Locked variant of the 2-page fixture for the home suggestion-sheet e2e:
 // encrypted with qpdf-wasm exactly like src/engine/qpdf.ts encryptPdf does.
@@ -160,8 +160,8 @@ try {
 
 console.log(
   JSON.stringify({
-    'fixture-1mb.pdf': small.length,
-    'fixture-10mb.pdf': medium.length,
+    'fixture-small.pdf': small.length,
+    'fixture-medium.pdf': medium.length,
     'fixture-locked.pdf': locked.length,
     'fixture-photo.png': makePng(64, 48).length,
   }),

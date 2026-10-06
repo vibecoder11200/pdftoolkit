@@ -122,8 +122,14 @@ type KeyImportAlg = { name: 'ECDSA'; namedCurve?: string } | { name: 'RSASSA-PKC
 function importAlgFor(spki: pkijs.AlgorithmIdentifier): KeyImportAlg {
   if (spki.algorithmId === OID_EC) {
     const curve = spki.algorithmParams?.valueBlock?.toString();
-    const namedCurve = curve === OID_EC_P256 ? 'P-256' : curve === OID_EC_P384 ? 'P-384' : 'P-256';
-    return { name: 'ECDSA', namedCurve };
+    if (curve === OID_EC_P256) return { name: 'ECDSA', namedCurve: 'P-256' };
+    if (curve === OID_EC_P384) return { name: 'ECDSA', namedCurve: 'P-384' };
+    // WebCrypto supports P-521/secp256k1 imports inconsistently; fall through
+    // to importKey would surface as a generic DataError → misleading "invalid
+    // file" copy. Name the actual gap instead.
+    const err = new Error(`EC curve ${curve ?? '(unknown)'} not supported`);
+    err.name = 'CertUnsupportedCurve';
+    throw err;
   }
   return { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
 }
@@ -352,31 +358,50 @@ export async function signWithCertificate(
   const meta = keyMeta(certs[0]);
 
   const hexLen = placeholderHexLen(certs, meta);
-  const placeholderBytes = await makePlaceholderDoc(pdfBytes, hexLen);
+  const out = await makePlaceholderDoc(pdfBytes, hexLen);
 
-  let pdf = String.fromCharCode(...placeholderBytes);
-  const brPos = pdf.indexOf('/ByteRange');
-  const brEnd = pdf.indexOf(']', brPos) + 1;
+  const brPos = findAscii(out, '/ByteRange');
+  const brEnd = findAscii(out, ']', brPos) + 1;
   const brLen = brEnd - brPos;
-  const ctPos = pdf.indexOf('/Contents ', brEnd);
-  const phPos = pdf.indexOf('<', ctPos);
-  const phEnd = pdf.indexOf('>', phPos);
+  // Page dicts also carry /Contents — search the sig placeholder only AFTER
+  // the ByteRange array we just located.
+  const ctPos = findAscii(out, '/Contents ', brEnd);
+  const phPos = findAscii(out, '<', ctPos);
+  const phEnd = findAscii(out, '>', phPos);
   const phWith = phEnd + 1 - phPos;
   const phHexLen = phWith - 2;
-  const byteRange = [0, phPos, phPos + phWith, pdf.length - (phPos + phWith)];
+  const byteRange = [0, phPos, phPos + phWith, out.length - (phPos + phWith)];
   const actual = `/ByteRange [${byteRange.join(' ')}]`;
-  pdf = pdf.slice(0, brPos) + actual + ' '.repeat(Math.max(0, brLen - actual.length)) + pdf.slice(brEnd);
-  const holed = pdf.slice(0, byteRange[1]) + pdf.slice(byteRange[2]);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', latin1Bytes(holed)));
+  if (actual.length > brLen) throw new Error('ByteRange overflow');
+  writeAscii(out, brPos, actual + ' '.repeat(brLen - actual.length));
+
+  // SHA-256 over the file with the placeholder region removed — byte slices,
+  // no string round-trip (a 200MB PDF must not materialize as a JS string).
+  const holeLen = out.length - phWith;
+  const digestInput = new Uint8Array(holeLen);
+  digestInput.set(out.subarray(0, byteRange[1]), 0);
+  digestInput.set(out.subarray(byteRange[2]), byteRange[1]);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', digestInput));
   const cms = await buildCms({ certs, privateKey: key, digest });
   const hex = [...cms].map((x) => x.toString(16).padStart(2, '0')).join('');
   if (hex.length > phHexLen) {
     throw new Error(`CMS ${hex.length} hex > placeholder ${phHexLen}`);
   }
-  const padded = hex + '0'.repeat(phHexLen - hex.length);
-  return latin1Bytes(holed.slice(0, byteRange[1]) + `<${padded}>` + holed.slice(byteRange[1]));
+  writeAscii(out, phPos + 1, hex + '0'.repeat(phHexLen - hex.length));
+  return out;
 }
 
-function latin1Bytes(s: string): Uint8Array {
-  return new Uint8Array([...s].map((c) => c.charCodeAt(0) & 0xff));
+/** First index of an ASCII needle in a byte array, or -1. */
+function findAscii(hay: Uint8Array, needle: string, from = 0): number {
+  outer: for (let i = from; i <= hay.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (hay[i + j] !== needle.charCodeAt(j)) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function writeAscii(dest: Uint8Array, at: number, text: string): void {
+  for (let i = 0; i < text.length; i++) dest[at + i] = text.charCodeAt(i);
 }

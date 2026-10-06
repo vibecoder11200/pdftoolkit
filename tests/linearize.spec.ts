@@ -11,7 +11,7 @@ import { pageCountOf } from './helpers/text-assert';
 // pdf.js with the original page count and carry the /Linearized marker.
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
-const fixture1mb = () => new Uint8Array(readFileSync(join(fixturesDir, 'fixture-1mb.pdf')));
+const fixture1mb = () => new Uint8Array(readFileSync(join(fixturesDir, 'fixture-small.pdf')));
 
 const hasLinearizedMarker = (bytes: Uint8Array) =>
   new TextDecoder('latin1').decode(bytes).includes('/Linearized');
