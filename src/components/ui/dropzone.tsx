@@ -5,10 +5,12 @@ interface DropzoneProps {
   hint: string;
   accept: string;
   multiple?: boolean;
+  /** Extra classes on the surface (e.g. the large hero variant on home). */
+  className?: string;
   onFiles: (files: File[]) => void;
 }
 
-export function Dropzone({ title, hint, accept, multiple = true, onFiles }: DropzoneProps) {
+export function Dropzone({ title, hint, accept, multiple = true, className = '', onFiles }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const emit = useCallback(
@@ -20,7 +22,7 @@ export function Dropzone({ title, hint, accept, multiple = true, onFiles }: Drop
 
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-border-strong px-4 py-3 text-center text-[13.5px] text-text-muted"
+      className={`flex flex-wrap items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-border-strong px-4 py-3 text-center text-[13.5px] text-text-muted ${className}`}
       role="button"
       tabIndex={0}
       aria-label={title}

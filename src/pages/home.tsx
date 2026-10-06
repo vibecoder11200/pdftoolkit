@@ -1,14 +1,36 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Nav } from '../components/layout/nav';
 import { Footer } from '../components/layout/footer';
 import { HomeGrid } from '../components/layout/home-grid';
+import { GlobalDrop } from '../components/layout/global-drop';
+import { SuggestionSheet, type SheetState } from '../components/layout/suggestion-sheet';
 import type { ToolCategory } from '../components/layout/tool-card';
-import { Button } from '../components/ui/button';
+import { Dropzone } from '../components/ui/dropzone';
+import { buildSuggestions } from '../lib/suggest';
+import { clearPendingFiles, onPending } from '../lib/handoff';
+
+const HOME_ACCEPT = '.pdf,.jpg,.jpeg,.png';
 
 export function HomePage() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<'all' | ToolCategory>('all');
+  const [sheet, setSheet] = useState<SheetState | null>(null);
+
+  const handleFiles = useCallback(async (files: File[]) => {
+    const result = await buildSuggestions(files);
+    setSheet({ files, result });
+  }, []);
+
+  // Reactive (not mount-only): pending can appear while the user is already
+  // sitting on home — e.g. the PWA file handler in phase 6 — and the sheet
+  // must open whenever that happens (red-team #9).
+  useEffect(() => onPending((pending) => void handleFiles(pending.files)), [handleFiles]);
+
+  const closeSheet = useCallback(() => {
+    clearPendingFiles();
+    setSheet(null);
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl px-7 pb-24">
@@ -19,10 +41,13 @@ export function HomePage() {
             {t('hero.title')}
           </h1>
           <p className="mx-auto mt-3 max-w-[62ch] text-base text-text-muted">{t('hero.subtitle')}</p>
-          <div className="mt-5.5 flex flex-wrap justify-center gap-3">
-            <Button>{t('hero.cta_primary')}</Button>
-            <Button variant="secondary">{t('hero.cta_secondary')}</Button>
-          </div>
+          <Dropzone
+            title={t('home.hero_drop_title')}
+            hint={t('home.hero_drop_hint')}
+            accept={HOME_ACCEPT}
+            onFiles={(f) => void handleFiles(f)}
+            className="mx-auto mt-5.5 w-full max-w-2xl flex-col py-10"
+          />
           <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-text-muted">
             {[t('hero.badge_no_account'), t('hero.badge_offline'), t('hero.badge_opensource')].map(
               (b) => (
@@ -44,6 +69,8 @@ export function HomePage() {
         </section>
       </main>
       <Footer />
+      <GlobalDrop onFiles={(f) => void handleFiles(f)} />
+      {sheet ? <SuggestionSheet state={sheet} onClose={closeSheet} /> : null}
     </div>
   );
 }

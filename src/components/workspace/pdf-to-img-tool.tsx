@@ -69,7 +69,7 @@ export function PdfToImgTool() {
         if (genRef.current !== gen) return;
         setNumPages(0);
         setThumbs({});
-        setLoadErrorKey('pdf_to_images.error_load');
+        setLoadErrorKey('pdf-to-img.error_load');
       }
     })();
   }, [src]);
@@ -106,7 +106,7 @@ export function PdfToImgTool() {
   const run = async () => {
     setRunErrorKey(null);
     if (!src || numPages === 0) {
-      setRunErrorKey('pdf_to_images.error_no_file');
+      setRunErrorKey('pdf-to-img.error_no_file');
       return;
     }
     setBusy(true);
@@ -119,7 +119,7 @@ export function PdfToImgTool() {
       for (let p = 1; p <= numPages; p += 1) {
         setProgress({
           value: Math.round(((p - 1) / numPages) * 100),
-          label: t('pdf_to_images.progress_working', { current: p, total: numPages }),
+          label: t('pdf-to-img.progress_working', { current: p, total: numPages }),
         });
         const canvas = document.createElement('canvas');
         await renderPageToCanvas(src.bytes, p, canvas, scale);
@@ -128,9 +128,9 @@ export function PdfToImgTool() {
         downloadBlob(blob, `${stem}-p${p}.${ext}`);
         await new Promise((r) => setTimeout(r, 150));
       }
-      setProgress({ value: 100, label: t('pdf_to_images.progress_done', { count: numPages }) });
+      setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
     } catch {
-      setRunErrorKey('pdf_to_images.error_save');
+      setRunErrorKey('pdf-to-img.error_save');
       setProgress(null);
     } finally {
       setBusy(false);
@@ -151,7 +151,7 @@ export function PdfToImgTool() {
 
   return (
     <WorkspaceShell
-      title={t('pdf_to_images.title')}
+      title={t('pdf-to-img.title')}
       meta={
         src
           ? lng === 'vi'
@@ -168,11 +168,11 @@ export function PdfToImgTool() {
       side={
         <>
           <fieldset>
-            <legend className="text-sm font-bold">{t('pdf_to_images.format_q')}</legend>
+            <legend className="text-sm font-bold">{t('pdf-to-img.format_q')}</legend>
             <div
               className="mt-2 flex flex-col gap-2"
               role="radiogroup"
-              aria-label={t('pdf_to_images.format_q')}
+              aria-label={t('pdf-to-img.format_q')}
             >
               {FORMATS.map((f) => (
                 <label
@@ -189,18 +189,18 @@ export function PdfToImgTool() {
                     onChange={() => setFormat(f)}
                     className="h-4 w-4 accent-accent"
                   />
-                  <span className="font-semibold">{t(`pdf_to_images.format_${f}`)}</span>
-                  <span className="text-xs text-text-muted">{t(`pdf_to_images.format_${f}_hint`)}</span>
+                  <span className="font-semibold">{t(`pdf-to-img.format_${f}`)}</span>
+                  <span className="text-xs text-text-muted">{t(`pdf-to-img.format_${f}_hint`)}</span>
                 </label>
               ))}
             </div>
           </fieldset>
           <fieldset>
-            <legend className="text-sm font-bold">{t('pdf_to_images.dpi_q')}</legend>
+            <legend className="text-sm font-bold">{t('pdf-to-img.dpi_q')}</legend>
             <div
               className="mt-2 grid grid-cols-2 gap-2"
               role="radiogroup"
-              aria-label={t('pdf_to_images.dpi_q')}
+              aria-label={t('pdf-to-img.dpi_q')}
             >
               {DPI_OPTIONS.map((d) => (
                 <label
@@ -221,13 +221,13 @@ export function PdfToImgTool() {
                 </label>
               ))}
             </div>
-            <p className="mt-1.5 text-xs text-text-muted">{t('pdf_to_images.dpi_hint')}</p>
+            <p className="mt-1.5 text-xs text-text-muted">{t('pdf-to-img.dpi_hint')}</p>
           </fieldset>
           <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy}>
-            {t('pdf_to_images.cta')}
+            {t('pdf-to-img.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-text-muted">{t('pdf_to_images.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('pdf-to-img.progress_idle')}</span>
           )}
         </>
       }
@@ -235,8 +235,8 @@ export function PdfToImgTool() {
       onReset={resetAll}
     >
       <Dropzone
-        title={t('pdf_to_images.dropzone_title')}
-        hint={t('pdf_to_images.dropzone_hint')}
+        title={t('pdf-to-img.dropzone_title')}
+        hint={t('pdf-to-img.dropzone_hint')}
         accept="application/pdf,.pdf"
         multiple={false}
         onFiles={(f) => {
@@ -249,9 +249,9 @@ export function PdfToImgTool() {
         <>
           <div className="mt-3.5 mb-2.5 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
             <span className="font-bold text-text-primary">
-              {t('pdf_to_images.page_count', { count: numPages })}
+              {t('pdf-to-img.page_count', { count: numPages })}
             </span>
-            <span>· {t('pdf_to_images.thumb_hint')}</span>
+            <span>· {t('pdf-to-img.thumb_hint')}</span>
           </div>
           <ThumbnailStrip
             pages={Array.from({ length: numPages }, (_, i) => i + 1).map((n) => ({
@@ -260,8 +260,8 @@ export function PdfToImgTool() {
               url: thumbs[n] ?? null,
               selected: true,
             }))}
-            fullscreenTitle={(n) => t('pdf_to_images.fs_title', { n })}
-            closeLabel={t('pdf_to_images.fs_close')}
+            fullscreenTitle={(n) => t('pdf-to-img.fs_title', { n })}
+            closeLabel={t('pdf-to-img.fs_close')}
             onToggle={() => {}}
           />
         </>

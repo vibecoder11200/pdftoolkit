@@ -57,6 +57,7 @@ junit.xml
 # --- Fixture PDF sinh tự động (giữ gen.mjs, bỏ pdf) ---
 # Fixture 1/10/100MB commit vào là phình repo; CI tự sinh bằng script.
 tests/fixtures/*.pdf
+tests/fixtures/*.png
 tests/fixtures/*.bin
 *.pdf.tmp
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -57,6 +58,11 @@ function thresholdKey(mode: CompressMode, pct: number): string {
 export function CompressTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff. Single-file tool: only the first pending file applies.
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
   const [mode, setMode] = useState<CompressMode>('vector');
   const [quality, setQuality] = useState<ImageQuality>('balanced');
   const [numPages, setNumPages] = useState(0);

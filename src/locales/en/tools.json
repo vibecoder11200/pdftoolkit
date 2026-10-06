@@ -1,14 +1,50 @@
 {
-  "merge": { "title": "Merge PDF", "desc": "Join multiple files into one, arranged in your own order." },
-  "split": { "title": "Split PDF", "desc": "Cut by page ranges into a new file or several files." },
-  "extract": { "title": "Extract pages", "desc": "Pick exactly the pages you need and export them." },
-  "remove": { "title": "Delete pages", "desc": "Drop extra pages and preview the result right away." },
-  "reorder": { "title": "Reorder pages", "desc": "Drag thumbnails to rearrange the page order." },
-  "rotate": { "title": "Rotate pages", "desc": "Rotate selected pages by 90, 180, or 270 degrees." },
-  "compress": { "title": "Compress PDF", "desc": "Smaller file size with text quality kept intact." },
-  "pdf_to_images": { "title": "PDF to images", "desc": "Export each page as a high-quality JPG or PNG." },
-  "images_to_pdf": { "title": "Images to PDF", "desc": "Combine images into one A4 PDF file." },
-  "protect": { "title": "Encrypt PDF", "desc": "Password-protect files with AES encryption." },
-  "metadata": { "title": "File info", "desc": "View and edit title, author, and keywords." },
-  "sign": { "title": "Sign document", "desc": "Draw, type, or upload a signature onto the page." }
+  "merge": {
+    "title": "Merge PDF",
+    "desc": "Join multiple files into one, arranged in your own order."
+  },
+  "split": {
+    "title": "Split PDF",
+    "desc": "Cut by page ranges into a new file or several files."
+  },
+  "extract": {
+    "title": "Extract pages",
+    "desc": "Pick exactly the pages you need and export them."
+  },
+  "remove": {
+    "title": "Delete pages",
+    "desc": "Drop extra pages and preview the result right away."
+  },
+  "reorder": {
+    "title": "Reorder pages",
+    "desc": "Drag thumbnails to rearrange the page order."
+  },
+  "rotate": {
+    "title": "Rotate pages",
+    "desc": "Rotate selected pages by 90, 180, or 270 degrees."
+  },
+  "compress": {
+    "title": "Compress PDF",
+    "desc": "Smaller file size with text quality kept intact."
+  },
+  "pdf-to-img": {
+    "title": "PDF to images",
+    "desc": "Export each page as a high-quality JPG or PNG."
+  },
+  "img-to-pdf": {
+    "title": "Images to PDF",
+    "desc": "Combine images into one A4 PDF file."
+  },
+  "encrypt": {
+    "title": "Encrypt PDF",
+    "desc": "Password-protect files with AES encryption."
+  },
+  "metadata": {
+    "title": "File info",
+    "desc": "View and edit title, author, and keywords."
+  },
+  "sign": {
+    "title": "Sign document",
+    "desc": "Draw, type, or upload a signature onto the page."
+  }
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PDFDocument, PageSizes } from 'pdf-lib';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
+import { takePendingFiles } from '../../lib/handoff';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -86,21 +87,30 @@ export function ImgToPdfTool() {
     const accepted: File[] = [];
     for (const file of incoming) {
       if (file.size > MAX_FILE_BYTES) {
-        setError({ key: 'images_to_pdf.err_too_large', values: { name: file.name } });
+        setError({ key: 'img-to-pdf.err_too_large', values: { name: file.name } });
         continue;
       }
       if (isHeic(file)) {
-        setError({ key: 'images_to_pdf.err_heic', values: { name: file.name } });
+        setError({ key: 'img-to-pdf.err_heic', values: { name: file.name } });
         continue;
       }
       if (!isSupportedImage(file)) {
-        setError({ key: 'images_to_pdf.err_not_image', values: { name: file.name } });
+        setError({ key: 'img-to-pdf.err_not_image', values: { name: file.name } });
         continue;
       }
       accepted.push(file);
     }
     if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
   };
+
+  // Home-sheet handoff. addFiles re-validates (jpeg/png, size) the same way
+  // the dropzone path does; one-shot take keeps StrictMode's double effect
+  // from adding files twice. addFiles only touches state setters, so the
+  // mount-once closure stays correct.
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) addFiles(taken.files);
+  }, []);
 
   const removeAt = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -115,7 +125,7 @@ export function ImgToPdfTool() {
   const run = async () => {
     setError(null);
     if (files.length === 0) {
-      setError({ key: 'images_to_pdf.err_no_file' });
+      setError({ key: 'img-to-pdf.err_no_file' });
       return;
     }
     setBusy(true);
@@ -126,7 +136,7 @@ export function ImgToPdfTool() {
         const file = files[i];
         setProgress({
           value: Math.round((i / files.length) * 100),
-          label: t('images_to_pdf.progress_working', { current: i + 1, total: files.length }),
+          label: t('img-to-pdf.progress_working', { current: i + 1, total: files.length }),
         });
         const bitmap = await decodeOriented(file);
         try {
@@ -149,11 +159,11 @@ export function ImgToPdfTool() {
         }
       }
       const out = await doc.save();
-      setProgress({ value: 100, label: t('images_to_pdf.progress_done', { count: files.length }) });
+      setProgress({ value: 100, label: t('img-to-pdf.progress_done', { count: files.length }) });
       downloadBytes(out, 'images.pdf');
     } catch (e) {
       setError({
-        key: 'images_to_pdf.err_failed',
+        key: 'img-to-pdf.err_failed',
         values: { message: e instanceof Error ? e.message : String(e) },
       });
       setProgress(null);
@@ -166,10 +176,10 @@ export function ImgToPdfTool() {
 
   return (
     <WorkspaceShell
-      title={t('images_to_pdf.title')}
+      title={t('img-to-pdf.title')}
       meta={
         files.length > 0
-          ? t('images_to_pdf.file_count', {
+          ? t('img-to-pdf.file_count', {
               count: files.length,
               size: formatBytes(totalBytes, locale),
             })
@@ -184,10 +194,10 @@ export function ImgToPdfTool() {
       side={
         <>
           <Button onClick={() => void run()} disabled={files.length === 0 || busy}>
-            {t('images_to_pdf.cta')}
+            {t('img-to-pdf.cta')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-text-muted">{t('images_to_pdf.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('img-to-pdf.progress_idle')}</span>
           )}
         </>
       }
@@ -195,8 +205,8 @@ export function ImgToPdfTool() {
       onReset={resetAll}
     >
       <Dropzone
-        title={t('images_to_pdf.dropzone_title')}
-        hint={t('images_to_pdf.dropzone_hint')}
+        title={t('img-to-pdf.dropzone_title')}
+        hint={t('img-to-pdf.dropzone_hint')}
         accept={ACCEPT}
         onFiles={(f) => addFiles(f)}
       />

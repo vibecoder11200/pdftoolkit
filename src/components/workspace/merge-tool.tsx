@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
@@ -29,6 +30,12 @@ function newUuid(fi: number, p: number, gen: number): string {
 export function MergeTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, removeAt, clear } = useDropFiles();
+  // Files handed off from the home suggestion sheet. takePendingFiles is
+  // one-shot, so StrictMode's double-invoked effect adds nothing twice.
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken) void add(taken.files);
+  }, [add]);
   const [pages, setPages] = useState<PageEntry[]>([]);
   const [pageCounts, setPageCounts] = useState<number[]>([]);
   const [deselected, setDeselected] = useState<Set<string>>(new Set());

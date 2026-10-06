@@ -12,8 +12,6 @@
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",
     "subtitle": "Merge, split, compress, convert, and sign PDFs right in your browser. Processed 100% on your device. No account, no limits, free.",
-    "cta_primary": "Choose a file to start",
-    "cta_secondary": "Explore all 12 tools",
     "badge_no_account": "No account needed",
     "badge_offline": "Works offline too",
     "badge_opensource": "Open-source MIT"
@@ -257,7 +255,7 @@
     "err_encode": "Could not recompress images. Try again.",
     "err_failed": "Compress failed: {{message}}"
   },
-  "pdf_to_images": {
+  "pdf-to-img": {
     "title": "PDF to images",
     "dropzone_title": "Drag your PDF here",
     "dropzone_hint": "or click to browse · one file under 200 MB",
@@ -280,7 +278,7 @@
     "error_no_file": "Choose a PDF first.",
     "error_save": "Could not render pages. Try again."
   },
-  "images_to_pdf": {
+  "img-to-pdf": {
     "title": "Images to PDF",
     "dropzone_title": "Drag your images here",
     "dropzone_hint": "or click to browse · JPG or PNG, each under 200 MB",
@@ -318,7 +316,7 @@
     "err_not_pdf": "File {{name}} is not a PDF.",
     "err_heic": "HEIC/HEIF files are not accepted. Export to JPG/PNG first."
   },
-  "protect": {
+  "encrypt": {
     "title": "Encrypt PDF",
     "tab_encrypt": "Encrypt",
     "tab_decrypt": "Decrypt",
@@ -353,5 +351,23 @@
     "err_too_large": "File {{name}} is over 200 MB.",
     "err_not_pdf": "File {{name}} is not a PDF.",
     "err_heic": "HEIC/HEIF files are not accepted. Export to JPG/PNG first."
+  },
+  "home": {
+    "drop_here": "Drop files to see suggestions",
+    "hero_drop_title": "Drag a PDF or images here",
+    "hero_drop_hint": "or click to browse · PDF/JPG/PNG, each under 200 MB",
+    "sheet_title": "Suggestions for {{count}} file(s)",
+    "files_line": "{{count}} file(s) · {{size}}",
+    "all_tools": "Every tool for this file",
+    "sheet_close": "Close",
+    "reason_merge": "Combine the PDFs into a single file",
+    "reason_compress": "Shrink the PDF, text stays selectable",
+    "reason_img_to_pdf": "Combine the images into one A4 PDF",
+    "reason_decrypt": "This file is password-locked — unlock it with the password",
+    "reject_not-pdf": "not a PDF (renaming the extension does not make it one)",
+    "reject_unsupported": "unsupported format",
+    "reject_heic-refused": "HEIC/HEIF — export to JPG/PNG first",
+    "reject_too-large": "over 200 MB",
+    "reject_corrupt": "damaged or unreadable"
   }
 }

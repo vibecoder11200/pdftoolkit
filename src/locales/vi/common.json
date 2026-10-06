@@ -12,8 +12,6 @@
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",
     "subtitle": "Gộp, tách, nén, chuyển đổi và ký PDF ngay trên trình duyệt. Xử lý 100% trên thiết bị của bạn. Không tài khoản, không giới hạn, miễn phí.",
-    "cta_primary": "Chọn file để bắt đầu",
-    "cta_secondary": "Khám phá 12 công cụ",
     "badge_no_account": "Không cần tài khoản",
     "badge_offline": "Chạy cả khi mất mạng",
     "badge_opensource": "Mã nguồn mở MIT"
@@ -257,7 +255,7 @@
     "err_encode": "Không nén ảnh được. Hãy thử lại.",
     "err_failed": "Nén thất bại: {{message}}"
   },
-  "pdf_to_images": {
+  "pdf-to-img": {
     "title": "PDF sang ảnh",
     "dropzone_title": "Kéo file PDF vào đây",
     "dropzone_hint": "hoặc bấm để chọn · 1 file duy nhất, dưới 200 MB",
@@ -280,7 +278,7 @@
     "error_no_file": "Hãy chọn file PDF trước.",
     "error_save": "Không xuất ảnh được. Hãy thử lại."
   },
-  "images_to_pdf": {
+  "img-to-pdf": {
     "title": "Ảnh sang PDF",
     "dropzone_title": "Kéo ảnh vào đây",
     "dropzone_hint": "hoặc bấm để chọn · JPG hoặc PNG, mỗi file dưới 200 MB",
@@ -318,7 +316,7 @@
     "err_not_pdf": "File {{name}} không phải PDF.",
     "err_heic": "Không nhận file HEIC/HEIF. Hãy xuất sang JPG/PNG trước."
   },
-  "protect": {
+  "encrypt": {
     "title": "Mã hóa PDF",
     "tab_encrypt": "Mã hóa",
     "tab_decrypt": "Giải mã",
@@ -353,5 +351,23 @@
     "err_too_large": "File {{name}} vượt 200 MB.",
     "err_not_pdf": "File {{name}} không phải PDF.",
     "err_heic": "Không nhận file HEIC/HEIF. Hãy xuất sang JPG/PNG trước."
+  },
+  "home": {
+    "drop_here": "Thả file để xem gợi ý",
+    "hero_drop_title": "Kéo PDF hoặc ảnh vào đây",
+    "hero_drop_hint": "hoặc bấm để chọn · PDF/JPG/PNG, mỗi file dưới 200 MB",
+    "sheet_title": "Gợi ý cho {{count}} file",
+    "files_line": "{{count}} file · {{size}}",
+    "all_tools": "Mọi công cụ cho file này",
+    "sheet_close": "Đóng",
+    "reason_merge": "Gộp các file PDF thành một file duy nhất",
+    "reason_compress": "Giảm dung lượng PDF, chữ vẫn giữ nguyên",
+    "reason_img_to_pdf": "Gom các ảnh thành một file PDF khổ A4",
+    "reason_decrypt": "File đang khóa mật khẩu — mở khóa bằng mật khẩu",
+    "reject_not-pdf": "không phải PDF (đổi đuôi file không đọc được)",
+    "reject_unsupported": "định dạng không hỗ trợ",
+    "reject_heic-refused": "HEIC/HEIF — hãy xuất sang JPG/PNG trước",
+    "reject_too-large": "vượt 200 MB",
+    "reject_corrupt": "hỏng hoặc không đọc được"
   }
 }

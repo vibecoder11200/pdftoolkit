@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -11,7 +12,7 @@ import { WorkspaceShell } from './workspace-shell';
 type ProtectMode = 'encrypt' | 'decrypt';
 
 // Worker must never hang the UI: every engine call races against this timeout.
-// The value is surfaced in the `protect.err_timeout` locale copy (60 seconds).
+// The value is surfaced in the `encrypt.err_timeout` locale copy (60 seconds).
 const WORKER_TIMEOUT_MS = 60_000;
 const TIMEOUT_SENTINEL = 'protect-timeout';
 
@@ -39,6 +40,14 @@ export function EncryptTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
   const [mode, setMode] = useState<ProtectMode>('encrypt');
+  // Home-sheet handoff: a locked PDF lands here in decrypt mode. Single-file
+  // tool; one-shot take keeps StrictMode's double effect harmless.
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (!taken?.files.length) return;
+    if (taken.meta?.mode) setMode(taken.meta.mode);
+    void add([taken.files[0]]);
+  }, [add]);
   // Passwords live in state only while the user types / the worker runs and
   // are wiped in the `finally` of every run plus on reset (never kept after done).
   const [userPass, setUserPass] = useState('');
@@ -80,7 +89,7 @@ export function EncryptTool() {
     setRunError(null);
     setSucceeded(false);
     if (!src) {
-      setRunError({ key: 'protect.err_no_file' });
+      setRunError({ key: 'encrypt.err_no_file' });
       return;
     }
     setBusy(true);
@@ -94,36 +103,36 @@ export function EncryptTool() {
         // user/owner passwords — no granular permission flags — so the owner
         // password field below is the full permissions control available.
         if (!userPass) {
-          setRunError({ key: 'protect.err_no_password' });
+          setRunError({ key: 'encrypt.err_no_password' });
           return;
         }
-        setProgress({ value: 20, label: t('protect.progress_encrypting') });
+        setProgress({ value: 20, label: t('encrypt.progress_encrypting') });
         const owner = ownerPass || userPass;
         const out = await withWorkerTimeout(engine.encryptPdf(src.bytes, userPass, owner, bits));
-        setProgress({ value: 100, label: t('protect.progress_done') });
+        setProgress({ value: 100, label: t('encrypt.progress_done') });
         downloadBytes(out, outputName(src.file.name, 'encrypt'));
         setSucceeded(true);
       } else {
         if (!decryptPass) {
-          setRunError({ key: 'protect.err_no_password' });
+          setRunError({ key: 'encrypt.err_no_password' });
           return;
         }
-        setProgress({ value: 20, label: t('protect.progress_decrypting') });
+        setProgress({ value: 20, label: t('encrypt.progress_decrypting') });
         const out = await withWorkerTimeout(engine.decryptPdf(src.bytes, decryptPass));
-        setProgress({ value: 100, label: t('protect.progress_done') });
+        setProgress({ value: 100, label: t('encrypt.progress_done') });
         downloadBytes(out, outputName(src.file.name, 'decrypt'));
         setSucceeded(true);
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (message === TIMEOUT_SENTINEL) {
-        setRunError({ key: 'protect.err_timeout' });
+        setRunError({ key: 'encrypt.err_timeout' });
       } else if (mode === 'decrypt') {
         // Wrong password is the overwhelmingly common decrypt failure
         // (qpdf exits non-zero / pdf-lib reload rejects); surface it clearly.
-        setRunError({ key: 'protect.err_wrong_password' });
+        setRunError({ key: 'encrypt.err_wrong_password' });
       } else {
-        setRunError({ key: 'protect.err_failed', values: { message } });
+        setRunError({ key: 'encrypt.err_failed', values: { message } });
       }
       setProgress(null);
     } finally {
@@ -138,9 +147,9 @@ export function EncryptTool() {
     const idx = fileError.indexOf(':');
     const code = idx === -1 ? fileError : fileError.slice(0, idx);
     const name = idx === -1 ? '' : fileError.slice(idx + 1);
-    if (code === 'too-large') return { key: 'protect.err_too_large', values: { name } };
-    if (code === 'not-pdf') return { key: 'protect.err_not_pdf', values: { name } };
-    if (code === 'heic-refused') return { key: 'protect.err_heic', values: { name } };
+    if (code === 'too-large') return { key: 'encrypt.err_too_large', values: { name } };
+    if (code === 'not-pdf') return { key: 'encrypt.err_not_pdf', values: { name } };
+    if (code === 'heic-refused') return { key: 'encrypt.err_heic', values: { name } };
     return null;
   })();
 
@@ -155,7 +164,7 @@ export function EncryptTool() {
 
   return (
     <WorkspaceShell
-      title={t('protect.title')}
+      title={t('encrypt.title')}
       meta={src ? `${src.file.name} · ${formatBytes(src.file.size, locale)}` : undefined}
       steps={[
         { label: '1', state: src ? 'done' : 'now' },
@@ -166,17 +175,17 @@ export function EncryptTool() {
       side={
         <>
           <Button onClick={() => void run()} disabled={!canRun}>
-            {mode === 'encrypt' ? t('protect.cta_encrypt') : t('protect.cta_decrypt')}
+            {mode === 'encrypt' ? t('encrypt.cta_encrypt') : t('encrypt.cta_decrypt')}
           </Button>
           {progress ? null : (
-            <span className="text-[13px] text-text-muted">{t('protect.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('encrypt.progress_idle')}</span>
           )}
         </>
       }
       progress={progress}
       onReset={resetAll}
     >
-      <div className="flex gap-2" role="tablist" aria-label={t('protect.title')}>
+      <div className="flex gap-2" role="tablist" aria-label={t('encrypt.title')}>
         {(['encrypt', 'decrypt'] as ProtectMode[]).map((m) => (
           <button
             key={m}
@@ -190,15 +199,15 @@ export function EncryptTool() {
                 : 'border-border-strong bg-surface-card text-text-muted hover:bg-surface-hover'
             }`}
           >
-            {t(m === 'encrypt' ? 'protect.tab_encrypt' : 'protect.tab_decrypt')}
+            {t(m === 'encrypt' ? 'encrypt.tab_encrypt' : 'encrypt.tab_decrypt')}
           </button>
         ))}
       </div>
 
       <div className="mt-3.5">
         <Dropzone
-          title={t('protect.dropzone_title')}
-          hint={t('protect.dropzone_hint')}
+          title={t('encrypt.dropzone_title')}
+          hint={t('encrypt.dropzone_hint')}
           accept="application/pdf,.pdf"
           multiple={false}
           onFiles={(f) => {
@@ -228,41 +237,41 @@ export function EncryptTool() {
             className="mt-4 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
             role="note"
           >
-            <strong className="block text-warning">{t('protect.warn_title')}</strong>
-            <span className="text-warning">{t('protect.warn_forgot')}</span>
+            <strong className="block text-warning">{t('encrypt.warn_title')}</strong>
+            <span className="text-warning">{t('encrypt.warn_forgot')}</span>
           </div>
 
           <div className="mt-4 flex flex-col gap-3">
             <label className="block text-sm">
-              <span className="mb-1 block font-bold">{t('protect.user_pass_label')}</span>
+              <span className="mb-1 block font-bold">{t('encrypt.user_pass_label')}</span>
               <input
                 type="password"
                 autoComplete="new-password"
                 value={userPass}
                 onChange={(e) => setUserPass(e.target.value)}
-                placeholder={t('protect.user_pass_placeholder')}
+                placeholder={t('encrypt.user_pass_placeholder')}
                 className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-bold">{t('protect.owner_pass_label')}</span>
+              <span className="mb-1 block font-bold">{t('encrypt.owner_pass_label')}</span>
               <input
                 type="password"
                 autoComplete="new-password"
                 value={ownerPass}
                 onChange={(e) => setOwnerPass(e.target.value)}
-                placeholder={t('protect.owner_pass_placeholder')}
+                placeholder={t('encrypt.owner_pass_placeholder')}
                 className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
               />
               <span className="mt-1 block text-[13px] text-text-muted">
-                {t('protect.owner_pass_hint')}
+                {t('encrypt.owner_pass_hint')}
               </span>
             </label>
           </div>
 
           <fieldset className="mt-4">
-            <legend className="text-sm font-bold">{t('protect.bits_label')}</legend>
-            <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('protect.bits_label')}>
+            <legend className="text-sm font-bold">{t('encrypt.bits_label')}</legend>
+            <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('encrypt.bits_label')}>
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
                   bits === 256 ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
@@ -277,8 +286,8 @@ export function EncryptTool() {
                   className="mt-1 h-4 w-4 accent-accent"
                 />
                 <span>
-                  <span className="block font-semibold">{t('protect.bits_256')}</span>
-                  <span className="block text-[13px] text-text-muted">{t('protect.bits_256_hint')}</span>
+                  <span className="block font-semibold">{t('encrypt.bits_256')}</span>
+                  <span className="block text-[13px] text-text-muted">{t('encrypt.bits_256_hint')}</span>
                 </span>
               </label>
               <label
@@ -295,24 +304,24 @@ export function EncryptTool() {
                   className="mt-1 h-4 w-4 accent-accent"
                 />
                 <span>
-                  <span className="block font-semibold">{t('protect.bits_128')}</span>
-                  <span className="block text-[13px] text-text-muted">{t('protect.bits_128_hint')}</span>
+                  <span className="block font-semibold">{t('encrypt.bits_128')}</span>
+                  <span className="block text-[13px] text-text-muted">{t('encrypt.bits_128_hint')}</span>
                 </span>
               </label>
             </div>
-            <p className="mt-2 text-[13px] text-text-muted">{t('protect.bits_note')}</p>
+            <p className="mt-2 text-[13px] text-text-muted">{t('encrypt.bits_note')}</p>
           </fieldset>
         </>
       ) : (
         <div className="mt-4">
           <label className="block text-sm">
-            <span className="mb-1 block font-bold">{t('protect.decrypt_pass_label')}</span>
+            <span className="mb-1 block font-bold">{t('encrypt.decrypt_pass_label')}</span>
             <input
               type="password"
               autoComplete="current-password"
               value={decryptPass}
               onChange={(e) => setDecryptPass(e.target.value)}
-              placeholder={t('protect.decrypt_pass_placeholder')}
+              placeholder={t('encrypt.decrypt_pass_placeholder')}
               className="min-h-11 w-full rounded-lg border border-border-strong px-3.5 text-sm"
             />
           </label>
