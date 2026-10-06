@@ -3,6 +3,10 @@ import * as lib from '../engine/pdf-lib';
 import { compressVectorPack, decryptPdf, encryptPdf, linearizePdf, qpdfCheck } from '../engine/qpdf';
 import { zipStore } from '../lib/zip';
 
+// pkijs/asn1js stay OUT of the worker's boot path: the cert module loads on
+// first cert call, keeping loadPdf startup as fast as before phase 5.
+import type { CertKeyInfo } from '../engine/p12';
+
 export interface WorkerApi {
   loadPdf(bytes: Uint8Array): Promise<{ info: import('../engine/pdf-lib').PdfInfo }>;
   mergePdfs(parts: Uint8Array[]): Promise<Uint8Array>;
@@ -18,6 +22,14 @@ export interface WorkerApi {
   decryptPdf(bytes: Uint8Array, password: string): Promise<Uint8Array>;
   qpdfCheck(bytes: Uint8Array): Promise<void>;
   zipStore(entries: { name: string; bytes: Uint8Array }[]): Promise<Uint8Array>;
+  /**
+   * Real-cert signing (v0.3.0 phase 5). The P12 is parsed HERE: the private
+   * key never leaves the worker. The password crosses comlink by structured
+   * clone — accepted (documented in docs/ENGINE-API.md), the UI wipes its
+   * copy after use.
+   */
+  inspectCertificateKey(p12: Uint8Array, password: string): Promise<CertKeyInfo>;
+  signWithCertificate(pdfBytes: Uint8Array, p12: Uint8Array, password: string): Promise<Uint8Array>;
 }
 
 const api: WorkerApi = {
@@ -35,6 +47,10 @@ const api: WorkerApi = {
   decryptPdf: (bytes, password) => decryptPdf(bytes, password),
   qpdfCheck: (bytes) => qpdfCheck(bytes),
   zipStore: async (entries) => zipStore(entries),
+  inspectCertificateKey: (p12, password) =>
+    import('../engine/p12').then((m) => m.inspectCertificateKey(p12, password)),
+  signWithCertificate: (pdfBytes, p12, password) =>
+    import('../engine/p12').then((m) => m.signWithCertificate(pdfBytes, p12, password)),
 };
 
 expose(api);

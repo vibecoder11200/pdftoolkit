@@ -3,6 +3,7 @@ import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -97,6 +98,65 @@ function makePng(width, height) {
   ]);
 }
 writeFileSync(join(here, 'fixture-photo.png'), makePng(64, 48));
+
+// PKCS#12 bundles for the real-cert signing tests (phase 5). openssl CLI is
+// required (present on dev machines + ubuntu CI runners); when missing, the
+// cert specs skip via a fixture-existence check instead of failing npm test.
+import { readFileSync } from 'node:fs';
+const CERT_PASSWORD = 'cert-pass';
+const subj = (cn) => ['-subj', `/CN=${cn}/O=pdftoolkit/C=VN`];
+const fx = (f) => join(here, f);
+function openssl(...args) {
+  const r = spawnSync(
+    'openssl',
+    args.map((a) => (typeof a === 'string' && (a.startsWith('cert-') || a.startsWith('fixture-')) ? fx(a) : a)),
+    { encoding: 'buffer' },
+  );
+  if (r.status !== 0) {
+    throw new Error(`openssl ${args[0]} exit ${r.status}: ${r.stderr?.toString()}`);
+  }
+}
+function genKey(keyFile, kind) {
+  if (kind.type === 'ec') {
+    openssl('ecparam', '-name', kind.curve, '-genkey', '-noout', '-out', keyFile);
+  } else {
+    openssl('genrsa', '-out', keyFile, kind.bits);
+  }
+}
+function certFrom(keyFile, cn, crtFile) {
+  openssl('req', '-x509', '-new', '-key', keyFile, ...subj(cn), '-days', '365', '-nodes', '-out', crtFile);
+}
+function p12Export(outFile, keyFile, inPem) {
+  openssl('pkcs12', '-export', '-out', outFile, '-inkey', keyFile, '-in', inPem, '-passout', `pass:${CERT_PASSWORD}`);
+}
+try {
+  // Simple self-signed: RSA-2048 and EC P-256.
+  for (const [name, kind] of [
+    ['cert-rsa', { type: 'rsa', bits: 2048 }],
+    ['cert-ec', { type: 'ec', curve: 'prime256v1' }],
+  ]) {
+    genKey(`${name}.key`, kind);
+    certFrom(`${name}.key`, `${name} Test`, `${name}.crt`);
+    p12Export(`fixture-${name}.p12`, `${name}.key`, `${name}.crt`);
+  }
+  // 3-cert chain: root → intermediate → leaf (RSA).
+  {
+    const n = 'cert-chain';
+    genKey(`${n}-root.key`, { type: 'rsa', bits: 3072 });
+    certFrom(`${n}-root.key`, `${n} Root`, `${n}-root.crt`);
+    openssl('req', '-newkey', 'rsa:3072', '-keyout', `${n}-inter.key`, '-out', `${n}-inter.csr`, '-nodes', ...subj(`${n} Intermediate`));
+    openssl('x509', '-req', '-in', `${n}-inter.csr`, '-CA', `${n}-root.crt`, '-CAkey', `${n}-root.key`, '-CAcreateserial', '-out', `${n}-inter.crt`, '-days', '365');
+    genKey(`${n}-leaf.key`, { type: 'rsa', bits: 2048 });
+    openssl('req', '-new', '-key', `${n}-leaf.key`, '-out', `${n}-leaf.csr`, '-nodes', ...subj(`${n} Chained Leaf`));
+    openssl('x509', '-req', '-in', `${n}-leaf.csr`, '-CA', `${n}-inter.crt`, '-CAkey', `${n}-inter.key`, '-CAcreateserial', '-out', `${n}-leaf.crt`, '-days', '365');
+    const full = readFileSync(fx(`${n}-leaf.crt`), 'utf8') + '\n' + readFileSync(fx(`${n}-inter.crt`), 'utf8') + '\n' + readFileSync(fx(`${n}-root.crt`), 'utf8');
+    writeFileSync(fx(`${n}-full.pem`), full);
+    p12Export(`fixture-${n}.p12`, `${n}-leaf.key`, `${n}-full.pem`);
+  }
+  console.log(JSON.stringify({ P12: 'fixtures generated (openssl)' }));
+} catch (e) {
+  console.warn(`[gen.mjs] P12 fixtures SKIPPED (${e.message.split('\n')[0]}) — cert specs will self-skip`);
+}
 
 console.log(
   JSON.stringify({

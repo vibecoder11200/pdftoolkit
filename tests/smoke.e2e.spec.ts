@@ -75,6 +75,32 @@ test('digital self-sign downloads a signed PDF (browser bundle path)', async ({ 
   expect(download.suggestedFilename()).toMatch(/-signed\.pdf$/);
 });
 
+test('real certificate (.p12) signing: inspect, wrong-password retry, then sign', async ({
+  page,
+}) => {
+  await page.goto('./tools/sign');
+  await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');
+  await page.getByRole('heading', { name: 'Ký tài liệu' }).waitFor();
+  // Select by accessible name — positional checkbox indexing races the
+  // thumbnail strip (page checkboxes render asynchronously).
+  await page.getByRole('checkbox', { name: /Ký bằng chứng thư thật/ }).check();
+  await page.setInputFiles('[data-testid="cert-file-input"]', 'tests/fixtures/fixture-cert-rsa.p12');
+  // Wrong password first: mapped message, file kept — a retry, not a dead end.
+  await page.fill('[data-testid="cert-password"]', 'WRONG');
+  await page.getByRole('button', { name: 'Đọc chứng thư' }).click();
+  await expect(page.getByText('Sai mật khẩu chứng thư')).toBeVisible({ timeout: 15_000 });
+  await page.fill('[data-testid="cert-password"]', 'cert-pass');
+  await page.getByRole('button', { name: 'Đọc chứng thư' }).click();
+  await expect(page.getByText('cert-rsa Test').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Đơn vị cấp: cert-rsa Test/)).toBeVisible();
+  // Ack, then sign and download.
+  await page.getByRole('checkbox', { name: /Tôi hiểu chữ ký này dùng chứng thư thật/ }).check();
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Đặt ký và tải xuống' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/-signed\.pdf$/);
+});
+
 test('dropping two PDFs suggests Merge and hands files off via checkPdfFile', async ({ page }) => {
   await page.goto('./');
   await dropOnWindow(page, [

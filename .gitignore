@@ -59,6 +59,13 @@ junit.xml
 tests/fixtures/*.pdf
 tests/fixtures/*.png
 tests/fixtures/*.bin
+# PKCS#12 fixtures + openssl intermediates (phase 5): reproducible via gen.mjs.
+tests/fixtures/*.p12
+tests/fixtures/*.key
+tests/fixtures/*.crt
+tests/fixtures/*.pem
+tests/fixtures/*.csr
+tests/fixtures/*.srl
 *.pdf.tmp
 
 # --- Env / secrets (CHỈ commit .env.example) ---

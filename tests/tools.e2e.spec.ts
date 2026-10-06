@@ -52,6 +52,9 @@ test('split: range 1-1 in separate mode produces exactly one file', async ({ pag
   await loadFixture(page, FIXTURE);
   const ranges = page.getByPlaceholder('1-3,5,8-10');
   await expect(ranges).toBeVisible({ timeout: 30_000 });
+  // The run gate needs numPages > 0 — wait for the parsed-page meta, not just
+  // the input (clicking during loadPdf reads as err_unreadable, no download).
+  await expect(page.getByText(/2 trang/).first()).toBeVisible({ timeout: 30_000 });
   await ranges.fill('1-1');
   const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
   await page.getByRole('button', { name: 'Tách và tải xuống' }).click();

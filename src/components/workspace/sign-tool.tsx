@@ -11,6 +11,7 @@ import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
+import { SignCertPanel, mapCertError, type CertCredentials } from './sign-cert-panel';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
 
@@ -99,6 +100,13 @@ export function SignTool() {
   const [spotMode, setSpotMode] = useState<SpotMode>('picked');
   const [digital, setDigital] = useState(false);
   const [digitalAck, setDigitalAck] = useState(false);
+  const [cert, setCert] = useState(false);
+  const [certAck, setCertAck] = useState(false);
+  const certCredentialsRef = useRef<CertCredentials | null>(null);
+  const certWipeRef = useRef<{ all: () => void; password: () => void }>({
+    all: () => undefined,
+    password: () => undefined,
+  });
   const [loadSeq, setLoadSeq] = useState(0);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<RunError | null>(null);
@@ -372,7 +380,7 @@ export function SignTool() {
       setRunError({ key: 'sign.err_no_file' });
       return;
     }
-    if (!sig && !digital) {
+    if (!sig && !digital && !cert) {
       setRunError({ key: 'sign.err_no_signature' });
       return;
     }
@@ -382,6 +390,15 @@ export function SignTool() {
     }
     if (digital && !digitalAck) {
       setRunError({ key: 'sign.err_ack_missing' });
+      return;
+    }
+    if (cert && !certAck) {
+      setRunError({ key: 'sign.err_ack_missing' });
+      return;
+    }
+    const certCreds = cert ? certCredentialsRef.current : null;
+    if (cert && !certCreds?.file) {
+      setRunError({ key: 'sign.cert_err_no_file' });
       return;
     }
     setBusy(true);
@@ -429,7 +446,23 @@ export function SignTool() {
       }
       setProgress({ value: 85, label: t('sign.progress_working') });
       let out: Uint8Array;
-      if (digital) {
+      if (cert && certCreds) {
+        // Real certificate: the P12 is parsed in the worker (key never leaves);
+        // password crosses once via comlink (docs/ENGINE-API.md).
+        const p12 = new Uint8Array(await certCreds.file.arrayBuffer());
+        const placed = sig ? await doc.save({ useObjectStreams: false }) : src.bytes.slice();
+        try {
+          out = await engine.signWithCertificate(placed, p12, certCreds.password);
+        } catch (e) {
+          if ((e as Error)?.name === 'CertBadPassword') {
+            certWipeRef.current.password(); // F7: keep the file for retry
+          } else {
+            certWipeRef.current.all();
+          }
+          throw e;
+        }
+        certWipeRef.current.all();
+      } else if (digital) {
         const { addSelfSignature } = await import('../../lib/sign');
         try {
           out = await addSelfSignature(doc);
@@ -451,6 +484,11 @@ export function SignTool() {
         setProgress(null); // picker cancelled — not an error
       }
     } catch (e) {
+      if (cert && typeof (e as Error)?.name === 'string' && (e as Error).name.startsWith('Cert')) {
+        setRunError(mapCertError(e));
+        setProgress(null);
+        return;
+      }
       setRunError({
         key: 'sign.err_failed',
         values: { message: e instanceof Error ? e.message : String(e) },
@@ -469,6 +507,9 @@ export function SignTool() {
     setSpotMode('picked');
     setDigital(false);
     setDigitalAck(false);
+    setCert(false);
+    setCertAck(false);
+    certWipeRef.current.all();
     setProgress(null);
     setRunError(null);
     setSucceeded(false);
@@ -516,14 +557,26 @@ export function SignTool() {
         <>
           <Button
             onClick={() => void run()}
-            disabled={!src || (!sig && !digital) || (digital && !digitalAck) || busy}
+            disabled={
+              !src ||
+              (!sig && !digital && !cert) ||
+              (digital && !digitalAck) ||
+              (cert && !certAck) ||
+              busy
+            }
           >
             {t('sign.cta')}
           </Button>
           {canSaveElsewhere() ? (
             <Button
               variant="secondary"
-              disabled={!src || (!sig && !digital) || (digital && !digitalAck) || busy}
+              disabled={
+                !src ||
+                (!sig && !digital && !cert) ||
+                (digital && !digitalAck) ||
+                (cert && !certAck) ||
+                busy
+              }
               onClick={() => void run('pick')}
             >
               {t('save_elsewhere')}
@@ -558,6 +611,20 @@ export function SignTool() {
               <span className="text-warning">{t('sign.digital_ack')}</span>
             </label>
           ) : null}
+          <SignCertPanel
+            enabled={cert}
+            onEnabledChange={setCert}
+            onExclusive={() => {
+              setDigital(false);
+              setDigitalAck(false);
+            }}
+            ack={certAck}
+            onAckChange={setCertAck}
+            disabled={busy || !src}
+            credentialsRef={certCredentialsRef}
+            onError={setRunError}
+            onWipeRef={certWipeRef}
+          />
           <label className="block text-sm">
             <span className="mb-1 block font-bold text-text-primary">{t('sign.size_label')}</span>
             <input
