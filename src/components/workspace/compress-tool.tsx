@@ -82,7 +82,11 @@ export function CompressTool() {
       }
       if (outcome.files.length > 0) void add(outcome.files.slice(0, 1));
       setBatchNote(
-        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+        outcome.skippedEmpty > 0
+          ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty })
+          : outcome.files.length === 0
+            ? t('home.folder_empty')
+            : null,
       );
     })();
   };

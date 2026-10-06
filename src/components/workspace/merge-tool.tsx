@@ -49,7 +49,11 @@ export function MergeTool() {
       }
       if (outcome.files.length > 0) void add(outcome.files);
       setBatchNote(
-        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+        outcome.skippedEmpty > 0
+          ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty })
+          : outcome.files.length === 0
+            ? t('home.folder_empty')
+            : null,
       );
     })();
   };

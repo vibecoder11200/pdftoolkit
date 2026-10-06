@@ -47,9 +47,11 @@ describe('buildSuggestions — tier 1', () => {
     expect(r.rejected).toEqual([]);
   });
 
-  it('two PDFs → merge first, then compress; no all-tools grid', async () => {
+  it('two PDFs → merge only; no all-tools grid', async () => {
     const r = await buildSuggestions([pdfFile('a.pdf'), pdfFile('b.pdf')], { loadPdfInfo: okLoader });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['merge', 'compress']);
+    // compress is single-file — ranking it for a multi-PDF set made the sheet
+    // route N files into a tool that silently keeps only the first.
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['merge']);
     expect(r.showAllTools).toBe(false);
   });
 
@@ -119,7 +121,7 @@ describe('buildSuggestions — tier 2 (worker parse, injectable)', () => {
   it('tier-2 is skipped past the file cap — no locked detection', async () => {
     const four = [pdfFile('1.pdf'), pdfFile('2.pdf'), pdfFile('3.pdf'), pdfFile('4.pdf')];
     const r = await buildSuggestions(four, { loadPdfInfo: lockedLoader });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['merge', 'compress']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['merge']);
     expect(r.suggestions[0].mode).toBeUndefined();
   });
 

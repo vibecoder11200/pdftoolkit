@@ -158,6 +158,50 @@ test('PWA file handler: launchQueue hands a PDF to the reactive sheet', async ({
   await expect(thumbs.first()).toBeVisible({ timeout: 30_000 });
 });
 
+test('launch while on a tool page: banner offers Home, action opens the sheet', async ({ page }) => {
+  const bytes = Array.from(readFixture('fixture-1mb.pdf'));
+  await page.addInitScript((payload) => {
+    const file = new File([new Uint8Array(payload)], 'parked.pdf', { type: 'application/pdf' });
+    // Deliver the launch only after the app has booted on the tool page.
+    let consumer: ((p: { files: { getFile: () => Promise<File> }[] }) => void) | null = null;
+    Object.defineProperty(window, 'launchQueue', {
+      value: {
+        setConsumer: (cb: (p: { files: { getFile: () => Promise<File> }[] }) => void) => {
+          consumer = cb;
+        },
+      },
+    });
+    setTimeout(() => consumer?.({ files: [{ getFile: async () => file }] }), 1500);
+  }, bytes);
+  await page.goto('./tools/split');
+  await expect(page.getByPlaceholder('1-3,5,8-10')).toBeVisible({ timeout: 30_000 });
+  const banner = page.getByRole('status').filter({ hasText: 'Đã nhận 1 file' });
+  await expect(banner).toBeVisible({ timeout: 15_000 });
+  // The P0 fix under test: parked files replay to the home sheet on arrival.
+  await banner.getByRole('button', { name: 'Mở Home' }).click();
+  const sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  // The sheet lists counts, not valid filenames — 1 parked file shows as "1 file".
+  await expect(sheet.getByText(/^1 file ·/)).toBeVisible();
+});
+
+test('all-tools grid: a single-file tool explains itself instead of truncating', async ({ page }) => {
+  await page.goto('./');
+  // 1 valid PDF keeps the all-tools grid visible; the two fakes push the
+  // dropped batch to 3 files — exactly the setup where a single-file tool
+  // would have silently kept only the first.
+  await dropOnWindow(page, [
+    { name: 'a.pdf', mime: 'application/pdf', bytes: readFixture('fixture-1mb.pdf') },
+    { name: 'fake1.pdf', mime: 'application/pdf', bytes: new TextEncoder().encode('not a pdf') },
+    { name: 'fake2.pdf', mime: 'application/pdf', bytes: new TextEncoder().encode('not a pdf') },
+  ]);
+  const sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  await sheet.getByRole('button', { name: /^Tách PDF/ }).click();
+  await expect(sheet.getByText('chỉ nhận 1 file')).toBeVisible();
+  await expect(page).toHaveURL(/\/pdftoolkit\/?$/); // never navigated away
+});
+
 test('pdf-to-img on a 2-page PDF downloads one zip (not per-image files)', async ({ page }) => {
   await page.goto('./tools/pdf-to-img');
   await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-1mb.pdf');

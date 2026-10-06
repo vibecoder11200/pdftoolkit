@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Dialog } from '../ui/dialog';
@@ -19,6 +20,7 @@ export interface SheetState {
 export function SuggestionSheet({ state, onClose }: { state: SheetState; onClose: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [singleFileNote, setSingleFileNote] = useState<string | null>(null);
   const totalSize = formatBytes(state.files.reduce((sum, f) => sum + f.size, 0));
 
   const go = (slug: string, mode?: Suggestion['mode']) => {
@@ -59,17 +61,37 @@ export function SuggestionSheet({ state, onClose }: { state: SheetState; onClose
       {state.result.showAllTools ? (
         <div className="mt-4">
           <h3 className="text-xs font-bold tracking-[0.08em] text-text-muted uppercase">{t('home.all_tools')}</h3>
+          {singleFileNote ? (
+            <p className="mt-2 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-[13px]" role="status">
+              {singleFileNote}
+            </p>
+          ) : null}
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {TOOLS.map((tool) => (
-              <button
-                key={tool.slug}
-                type="button"
-                onClick={() => go(tool.slug)}
-                className="flex min-h-10 items-center gap-2 rounded-lg border border-border-default px-3 py-2 text-left text-[13px] font-semibold hover:border-accent"
-              >
-                {t(`tools:${tool.slug}.title`)}
-              </button>
-            ))}
+            {TOOLS.map((tool) => {
+              // Ranked suggestions above are curated (e.g. compress legitimately
+              // takes the PDF out of a pdf+image set). This grid is the uncurated
+              // path — a single-file tool would silently drop files 2..N, so it
+              // explains itself instead of navigating.
+              const blocked = state.files.length > 1 && !tool.multiFile;
+              return (
+                <button
+                  key={tool.slug}
+                  type="button"
+                  aria-label={blocked ? t('home.sheet_single_file_aria', { tool: t(`tools:${tool.slug}.title`) }) : undefined}
+                  onClick={() => {
+                    if (blocked) {
+                      setSingleFileNote(t('home.sheet_single_file_note', { tool: t(`tools:${tool.slug}.title`) }));
+                      return;
+                    }
+                    go(tool.slug);
+                  }}
+                  className="flex min-h-10 items-center gap-2 rounded-lg border border-border-default px-3 py-2 text-left text-[13px] font-semibold hover:border-accent"
+                >
+                  {t(`tools:${tool.slug}.title`)}
+                  {blocked ? <span className="ml-auto rounded-full border border-border-strong px-1.5 text-[11px] font-normal text-text-muted">1</span> : null}
+                </button>
+              );
+            })}
           </div>
         </div>
       ) : null}

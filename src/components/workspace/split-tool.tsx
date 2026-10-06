@@ -291,7 +291,7 @@ export function SplitTool() {
             </span>
             <button
               type="button"
-              aria-label={`Remove ${file.file.name}`}
+              aria-label={t('a11y.remove_file', { name: file.file.name })}
               className="min-h-10 min-w-10 text-text-muted hover:text-danger"
               onClick={() => removeAt(0)}
             >

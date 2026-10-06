@@ -225,7 +225,7 @@ export function RotateTool() {
                   ref={(el) => observe(`p${p}`, el)}
                   role="checkbox"
                   aria-checked={isSelected}
-                  aria-label={`Page ${p}`}
+                  aria-label={t('a11y.page_n', { n: p })}
                   tabIndex={0}
                   onClick={() => toggle(p)}
                   onKeyDown={(e) => {

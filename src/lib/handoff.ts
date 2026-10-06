@@ -8,9 +8,11 @@ export interface PendingHandoff {
 }
 
 type Listener = (pending: PendingHandoff) => void;
+type ClearedListener = () => void;
 
 let pending: PendingHandoff | null = null;
 const listeners = new Set<Listener>();
+const clearedListeners = new Set<ClearedListener>();
 
 export function setPendingFiles(files: File[], meta?: PendingHandoff['meta']): void {
   pending = { files, meta };
@@ -32,7 +34,10 @@ export function appendPendingFiles(files: File[], meta?: PendingHandoff['meta'])
  */
 export function takePendingFiles(): PendingHandoff | null {
   const taken = pending;
-  pending = null;
+  if (pending) {
+    pending = null;
+    notifyCleared();
+  }
   return taken;
 }
 
@@ -60,5 +65,21 @@ export function onPending(fn: Listener): () => void {
 
 /** Drop without consuming (sheet close / navigation cancel). */
 export function clearPendingFiles(): void {
-  pending = null;
+  if (pending) {
+    pending = null;
+    notifyCleared();
+  }
+}
+
+/**
+ * Fires when the handoff empties (taken by a tool or dismissed) — the launch
+ * banner listens so it stops advertising files that are no longer parked.
+ */
+export function onCleared(fn: ClearedListener): () => void {
+  clearedListeners.add(fn);
+  return () => clearedListeners.delete(fn);
+}
+
+function notifyCleared(): void {
+  for (const listener of clearedListeners) listener();
 }

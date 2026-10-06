@@ -156,8 +156,11 @@ export async function buildSuggestions(
     suggestions.push({ slug: 'encrypt', mode: 'decrypt', reasonKey: 'home.reason_decrypt' });
   }
   if (tier2Usable.length >= 2) {
+    // Merge only: compress is single-file, so ranking it for a multi-PDF set
+    // made the sheet route N files into a tool that silently keeps just the
+    // first (which one is ambiguous anyway). Single-PDF sets still rank
+    // compress below — there the target is unambiguous.
     suggestions.push({ slug: 'merge', reasonKey: 'home.reason_merge' });
-    suggestions.push({ slug: 'compress', reasonKey: 'home.reason_compress' });
   } else if (tier2Usable.length === 1) {
     suggestions.push({ slug: 'compress', reasonKey: 'home.reason_compress' });
     if (!locked && images.length === 0) showAllTools = true;

@@ -18,7 +18,9 @@
     "retry": "Retry",
     "progress": "Progress",
     "loading": "Working...",
-    "keyboard_move_hint": "Alt + ←/→ to move the focused page"
+    "keyboard_move_hint": "Alt + ←/→ to move the focused page",
+    "page_n": "Page {{n}}",
+    "page_moved": "Moved page {{page}} to position {{position}}"
   },
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",
@@ -393,9 +395,13 @@
     "pick_folder": "or pick a whole folder…",
     "batch_too_large": "Total size {{size}} exceeds the 500 MB batch budget. Pick fewer files or compress first.",
     "batch_skipped_empty": "Skipped {{count}} empty (0-byte) file(s).",
-    "launch_banner_text": "Received {{count}} file(s) from the OS — open Home to process.",
     "launch_banner_action": "Open Home",
-    "launch_banner_dismiss": "Dismiss"
+    "launch_banner_dismiss": "Dismiss",
+    "sheet_single_file_note": "“{{tool}}” takes a single file — drop exactly one file, or use Merge / Images to PDF.",
+    "sheet_single_file_aria": "{{tool}} — single file only",
+    "folder_empty": "No matching files found in the selected folder.",
+    "launch_banner_text_one": "Received {{count}} file from the OS — open Home to process.",
+    "launch_banner_text_other": "Received {{count}} files from the OS — open Home to process."
   },
   "steps": {
     "pick": "Pick files",

@@ -11,14 +11,16 @@
     "menu": "Menu",
     "menu_close": "Đóng menu",
     "close": "Đóng",
-    "remove_file": "Bỏ {{name}}",
+    "remove_file": "Xóa {{name}}",
     "new_files": "Nạp file khác",
     "reselect": "Chọn lại toàn bộ",
     "reset": "Đặt lại",
     "retry": "Thử lại",
     "progress": "Tiến trình",
     "loading": "Đang xử lý...",
-    "keyboard_move_hint": "Alt + ←/→ để di chuyển trang đang focus"
+    "keyboard_move_hint": "Alt + ←/→ để di chuyển trang đang focus",
+    "page_n": "Trang {{n}}",
+    "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
   },
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",
@@ -393,9 +395,13 @@
     "pick_folder": "hoặc chọn cả thư mục…",
     "batch_too_large": "Tổng dung lượng {{size}} vượt quá 500 MB cho một lần nạp. Hãy chọn ít file hơn hoặc nén trước.",
     "batch_skipped_empty": "Đã bỏ qua {{count}} file rỗng (0 byte).",
-    "launch_banner_text": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
     "launch_banner_action": "Mở Home",
-    "launch_banner_dismiss": "Bỏ qua"
+    "launch_banner_dismiss": "Bỏ qua",
+    "sheet_single_file_note": "“{{tool}}” chỉ nhận 1 file — hãy thả đúng 1 file hoặc chọn Gộp / Ảnh sang PDF.",
+    "sheet_single_file_aria": "{{tool}} — chỉ nhận 1 file",
+    "folder_empty": "Không tìm thấy file phù hợp trong thư mục đã chọn.",
+    "launch_banner_text_one": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
+    "launch_banner_text_other": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý."
   },
   "steps": {
     "pick": "Chọn file",

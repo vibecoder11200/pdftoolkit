@@ -79,7 +79,11 @@ export function ImgToPdfTool() {
       }
       if (outcome.files.length > 0) addFiles(outcome.files);
       setBatchNote(
-        outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
+        outcome.skippedEmpty > 0
+          ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty })
+          : outcome.files.length === 0
+            ? t('home.folder_empty')
+            : null,
       );
     })();
   };
@@ -260,7 +264,7 @@ export function ImgToPdfTool() {
               </span>
               <button
                 type="button"
-                aria-label={`Remove ${f.name}`}
+                aria-label={t('a11y.remove_file', { name: f.name })}
                 className="min-h-10 min-w-10 text-text-muted hover:text-danger"
                 onClick={() => removeAt(i)}
               >

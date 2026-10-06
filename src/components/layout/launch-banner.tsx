@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { clearPendingFiles, appendPendingFiles, pendingFileCount } from '../../lib/handoff';
+import {
+  clearPendingFiles,
+  appendPendingFiles,
+  pendingFileCount,
+  onCleared,
+} from '../../lib/handoff';
 import { initLaunchQueue, routeForLaunch } from '../../lib/launch-queue';
 
 /*
@@ -34,9 +39,14 @@ export function LaunchBanner() {
     [],
   );
 
+  // A tool consuming (or the user dismissing) the parked files must retract
+  // the offer — otherwise the banner keeps advertising an empty handoff.
+  useEffect(() => onCleared(() => setCount(0)), []);
+
   if (count === 0) return null;
   return (
     <section
+      role="status"
       aria-live="polite"
       className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-xl flex-wrap items-center gap-2.5 rounded-lg border border-border-strong bg-surface-card px-4 py-3 shadow-lg"
     >

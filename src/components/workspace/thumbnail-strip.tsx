@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog } from '../ui/dialog';
 import { CheckIcon, ExpandIcon } from '../ui/icons';
 
@@ -31,9 +32,16 @@ export function ThumbnailStrip({
   register,
 }: ThumbnailStripProps) {
   const [fs, setFs] = useState<number | null>(null);
+  const { t } = useTranslation();
+  // Screen-reader announcement for keyboard moves — cells are role=checkbox,
+  // which conveys nothing about reordering on its own.
+  const [movedAnnouncement, setMovedAnnouncement] = useState<string | null>(null);
 
   return (
     <>
+      <span aria-live="polite" className="sr-only">
+        {movedAnnouncement}
+      </span>
       {keyboardMoveHint && onMove ? (
         <p className="mb-2 text-[12.5px] text-text-muted">{keyboardMoveHint}</p>
       ) : null}
@@ -44,7 +52,7 @@ export function ThumbnailStrip({
             ref={register ? (el) => register(p.key, el) : undefined}
             role="checkbox"
             aria-checked={p.selected}
-            aria-label={`Page ${p.pageNumber}`}
+            aria-label={t('a11y.page_n', { n: p.pageNumber })}
             tabIndex={0}
             draggable={Boolean(onMove)}
             onClick={() => onToggle(p.pageNumber, idx)}
@@ -61,6 +69,9 @@ export function ThumbnailStrip({
                 const target = e.key === 'ArrowLeft' ? idx - 1 : idx + 1;
                 if (target < 0 || target >= pages.length) return;
                 onMove?.(p.pageNumber, pages[target].pageNumber);
+                setMovedAnnouncement(
+                  t('a11y.page_moved', { page: p.pageNumber, position: target + 1 }),
+                );
               }
             }}
             onDragStart={(e) => e.dataTransfer.setData('text/plain', String(p.pageNumber))}
