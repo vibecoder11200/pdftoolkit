@@ -250,6 +250,18 @@ test('offline reload is served entirely from the precache', async ({ page, conte
   }
 });
 
+test('footer chip shows the package version + 7-char commit hash; no update banner when nothing waits', async ({
+  page,
+}) => {
+  const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
+  await page.goto('./');
+  const chip = page.getByTestId('footer-version');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText(new RegExp(`^v${version} \\u00b7 [0-9a-f]{7}$`));
+  await expect(page.getByRole('status').filter({ hasText: 'phiên bản mới' })).toHaveCount(0);
+  await expect(page.getByTestId('update-dot')).toHaveCount(0);
+});
+
 test('axe: no serious/critical violations on home, merge, and 4 swept tools', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();

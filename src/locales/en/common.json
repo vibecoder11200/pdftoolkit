@@ -125,8 +125,16 @@
     "err_ack_missing": "Acknowledge the self-signed certificate scope before signing."
   },
   "footer": {
-    "note": "PDF Toolkit · MIT · no telemetry · no runtime CDN",
-    "replay_tour": "Quick tour"
+    "replay_tour": "Quick tour",
+    "github_aria": "Source code on GitHub (opens a new tab)",
+    "version_aria": "Version {{version}} with commit hash"
+  },
+  "update": {
+    "available": "A new version of the app is available.",
+    "available_short": "New version",
+    "reload": "Update now",
+    "later": "Later",
+    "dot_aria": "A new version is available — click to update and reload"
   },
   "reorder": {
     "title": "Reorder pages",

@@ -125,8 +125,16 @@
     "err_ack_missing": "Hãy xác nhận bạn hiểu phạm vi chữ ký số tự tạo trước khi ký."
   },
   "footer": {
-    "note": "PDF Toolkit · MIT · không telemetry · không CDN runtime",
-    "replay_tour": "Hướng dẫn nhanh"
+    "replay_tour": "Hướng dẫn nhanh",
+    "github_aria": "Mã nguồn trên GitHub (mở tab mới)",
+    "version_aria": "Phiên bản {{version}} kèm mã commit"
+  },
+  "update": {
+    "available": "Đã có phiên bản mới của ứng dụng.",
+    "available_short": "Có bản mới",
+    "reload": "Cập nhật ngay",
+    "later": "Để sau",
+    "dot_aria": "Có phiên bản mới — bấm để cập nhật và tải lại trang"
   },
   "reorder": {
     "title": "Sắp xếp lại trang",

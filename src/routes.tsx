@@ -3,6 +3,8 @@ import { createBrowserRouter, Outlet } from 'react-router-dom';
 import { HomePage } from './pages/home';
 import { ComingSoonPage } from './pages/tool-placeholder';
 import { LaunchBanner } from './components/layout/launch-banner';
+import { UpdateBanner } from './components/layout/update-banner';
+import { AppUpdateProvider } from './hooks/use-app-update';
 import { MergeToolPage } from './pages/merge';
 import { SplitToolPage } from './pages/split';
 import { ExtractToolPage } from './pages/extract';
@@ -59,14 +61,17 @@ const toolRoutes = [
     ),
 }));
 
-// LaunchBanner lives at the root so an OS "open with" launch can surface it
-// above any route without remounting page components.
+// LaunchBanner + UpdateBanner live at the root so an OS "open with" launch or
+// a waiting service worker update can surface above any route without
+// remounting page components. AppUpdateProvider wraps everything: the per-page
+// Footer reads hasWaiting from the same single registration context.
 function RootLayout() {
   return (
-    <>
+    <AppUpdateProvider>
       <LaunchBanner />
+      <UpdateBanner />
       <Outlet />
-    </>
+    </AppUpdateProvider>
   );
 }
 
