@@ -104,7 +104,8 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
   SPA fallback, and the `SKIP_WAITING` message listener (`registerType:
   'prompt'` depends on it; `use-app-update.tsx` sends the message). Two gates
   guard the manifest: `scripts/precache-diff.mjs` (diff `{url, revision}` vs
-  `plans/precache-baseline-phase5.sw.js` after changing precache config) and
+  `plans/precache-baseline.sw.js` — local-only; refresh it when the diff shows
+  only intentional deltas) and
   `tests/sw-precache.spec.ts` (qpdf.wasm + font sha256 pins in `dist/sw.js`).
   In 6b the share-target fetch handler was added to the same file, and its
   client-side listener MUST stay on `navigator.serviceWorker` (never `window`

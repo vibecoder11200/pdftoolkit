@@ -10,6 +10,7 @@ import { Dropzone } from '../components/ui/dropzone';
 import { Tour } from '../components/layout/tour';
 import { buildSuggestions } from '../lib/suggest';
 import { clearPendingFiles, onPending } from '../lib/handoff';
+import { initShareTarget } from '../lib/share-target';
 
 const HOME_ACCEPT = '.pdf,.jpg,.jpeg,.png';
 
@@ -27,6 +28,10 @@ export function HomePage() {
   // sitting on home — e.g. the PWA file handler in phase 6 — and the sheet
   // must open whenever that happens (red-team #9).
   useEffect(() => onPending((pending) => void handleFiles(pending.files)), [handleFiles]);
+
+  // Android share target always 303s here — home is the only landing page,
+  // so the handshake listener is mounted exactly once per session (idempotent).
+  useEffect(() => initShareTarget(), []);
 
   const closeSheet = useCallback(() => {
     clearPendingFiles();

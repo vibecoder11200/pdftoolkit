@@ -152,6 +152,14 @@ export default defineConfig({
         // session alive; the launch-queue consumer routes files from there.
         file_handlers: [{ action: './', accept: { 'application/pdf': ['.pdf'] } }],
         launch_handler: { client_mode: 'focus-existing' },
+        // Android share sheet → SW intercepts the POST to ./share-target
+        // (src/sw.ts) and 303s home with the files in tow (phase 6b).
+        share_target: {
+          action: './share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: { files: [{ name: 'files', accept: ['application/pdf', '.pdf'] }] },
+        },
         lang: 'vi',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
