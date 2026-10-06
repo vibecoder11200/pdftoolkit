@@ -13,22 +13,37 @@ interface HintProps {
  * Inline guidance note. Dismissal is sessionStorage-scoped (comes back next
  * session) — these carry safety-relevant copy (password loss, untrusted
  * signatures), so unlike a tooltip they must reappear for a fresh session.
+ * Storage access is guarded: privacy modes throw on sessionStorage and there
+ * is no error boundary — a thrown initializer would white-screen the page.
  */
+function safeGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(key: string): void {
+  try {
+    sessionStorage.setItem(key, '1');
+  } catch {
+    /* ignore — hint just reappears next render */
+  }
+}
+
 export function Hint({ variant = 'info', dismissKey, children }: HintProps) {
   const { t } = useTranslation();
-  const [dismissed, setDismissed] = useState(
-    () => sessionStorage.getItem(dismissKey) === '1',
-  );
+  const [dismissed, setDismissed] = useState(() => safeGet(dismissKey) === '1');
   if (dismissed) return null;
   const dismiss = () => {
-    sessionStorage.setItem(dismissKey, '1');
+    safeSet(dismissKey);
     setDismissed(true);
   };
   const warning = variant === 'warning';
   return (
     <div
       role="note"
-      aria-live="polite"
       className={`flex items-start gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] ${
         warning
           ? 'border-warning bg-warning-soft text-warning'

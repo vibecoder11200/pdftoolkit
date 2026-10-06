@@ -18,6 +18,14 @@ export function setPendingFiles(files: File[], meta?: PendingHandoff['meta']): v
 }
 
 /**
+ * A second OS launch (or drop) while files are parked must not silently
+ * destroy the first batch — append instead of replace.
+ */
+export function appendPendingFiles(files: File[], meta?: PendingHandoff['meta']): void {
+  setPendingFiles(pending ? [...pending.files, ...files] : files, meta ?? pending?.meta);
+}
+
+/**
  * One-shot: the first take wins, later takes return null. This is what makes
  * StrictMode's double-invoked effects safe — the second take is a no-op
  * instead of a second `add()`.
@@ -32,9 +40,21 @@ export function hasPendingFiles(): boolean {
   return pending !== null;
 }
 
-/** Reactive hook for the home sheet: fires whenever pending appears. */
+/** Total parked file count (the launch banner reports this). */
+export function pendingFileCount(): number {
+  return pending?.files.length ?? 0;
+}
+
+/**
+ * Reactive hook for the home sheet: fires on set AND replays the current
+ * handoff to new subscribers. The replay is what makes the launch banner's
+ * "open Home" action work — files parked while Home was unmounted would
+ * otherwise sit invisible in the handoff. Safe because every consumer path
+ * either consumes (take) or clears the pending handoff.
+ */
 export function onPending(fn: Listener): () => void {
   listeners.add(fn);
+  if (pending) fn(pending);
   return () => listeners.delete(fn);
 }
 

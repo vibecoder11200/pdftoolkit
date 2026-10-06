@@ -38,6 +38,6 @@ describe('linearizePdf', () => {
 
   it('rejects non-PDF garbage instead of "linearizing" it', async () => {
     const garbage = new TextEncoder().encode('definitely not a pdf');
-    await expect(linearizePdf(garbage)).rejects.toThrow(/qpdf linearize exit/);
+    await expect(linearizePdf(garbage)).rejects.toThrow(/qpdf exit/);
   });
 });

@@ -48,14 +48,29 @@ function tmp(ext: string): string {
   return `/tmp/pdftoolkit-${Date.now()}-${seq}.${ext}`;
 }
 
-async function runQpdfFile(input: Uint8Array, args: (inP: string, outP: string) => string[]): Promise<Uint8Array> {
+interface RunQpdfOptions {
+  /** Extra exit codes that still count as success (linearize tolerates 3 = warnings). */
+  acceptableExit?: (code: number | undefined) => boolean;
+  /** Called with the raw exit code before reading output (warning logging). */
+  onExit?: (code: number | undefined) => void;
+}
+
+async function runQpdfFile(
+  input: Uint8Array,
+  args: (inP: string, outP: string) => string[],
+  options: RunQpdfOptions = {},
+): Promise<Uint8Array> {
   const mod = await qpdf();
   const inP = tmp('in.pdf');
   const outP = tmp('out.pdf');
-  mod.FS.writeFile(inP, input);
+  // Inside the try: a throwing writeFile (near-OOM) must not leak the tmp
+  // name into the worker-lifetime MEMFS.
   try {
+    mod.FS.writeFile(inP, input);
     const code = mod.callMain(args(inP, outP));
-    if (code !== 0 && code !== undefined) throw new Error(`qpdf exit ${code}`);
+    const acceptable = options.acceptableExit ?? ((c: number | undefined) => c === 0 || c === undefined);
+    if (!acceptable(code)) throw new Error(`qpdf exit ${code}`);
+    options.onExit?.(code);
     return mod.FS.readFile(outP).slice();
   } finally {
     try { mod.FS.unlink(inP); } catch { /* noop */ }
@@ -97,23 +112,14 @@ export function isLinearizeAcceptableExit(code: number | undefined): boolean {
 }
 
 export async function linearizePdf(input: Uint8Array): Promise<Uint8Array> {
-  const mod = await qpdf();
-  const inP = tmp('in.pdf');
-  const outP = tmp('out.pdf');
-  mod.FS.writeFile(inP, input);
-  try {
-    const code = mod.callMain(['--linearize', '--', inP, outP]);
-    if (!isLinearizeAcceptableExit(code)) {
-      throw new Error(`qpdf linearize exit ${code}`);
-    }
-    if (code === 3) console.warn('[linearize] qpdf exited 3 (warnings) — output kept');
-    const out = mod.FS.readFile(outP).slice();
-    if (out.byteLength === 0) throw new Error('qpdf linearize produced no output');
-    return out;
-  } finally {
-    try { mod.FS.unlink(inP); } catch { /* noop */ }
-    try { mod.FS.unlink(outP); } catch { /* noop */ }
-  }
+  const out = await runQpdfFile(input, (i, o) => ['--linearize', '--', i, o], {
+    acceptableExit: isLinearizeAcceptableExit,
+    onExit: (code) => {
+      if (code === 3) console.warn('[linearize] qpdf exited 3 (warnings) — output kept');
+    },
+  });
+  if (out.byteLength === 0) throw new Error('qpdf linearize produced no output');
+  return out;
 }
 
 export async function encryptPdf(

@@ -44,6 +44,15 @@ export function crc32(bytes: Uint8Array): number {
 
 const encoder = new TextEncoder();
 
+/** Clamps `value` so its UTF-8 encoding fits `maxBytes` (multibyte-safe cut). */
+function clampUtf8(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  if (encoder.encode(value).length <= maxBytes) return value;
+  let cut = value.length;
+  while (cut > 1 && encoder.encode(value.slice(0, cut)).length > maxBytes) cut--;
+  return value.slice(0, cut);
+}
+
 /*
  * Strips path separators and C0/C1 control characters, caps the UTF-8
  * encoding at 255 bytes, and falls back to "file" when nothing survives.
@@ -53,10 +62,7 @@ const encoder = new TextEncoder();
 export function sanitizeEntryName(raw: string): string {
   const cleaned = raw.replace(/[\\/]+/g, ' ').replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim();
   const base = cleaned.length > 0 ? cleaned : 'file';
-  if (encoder.encode(base).length <= 255) return base;
-  let cut = base.length;
-  while (cut > 1 && encoder.encode(base.slice(0, cut)).length > 255) cut--;
-  return base.slice(0, cut);
+  return clampUtf8(base, 255);
 }
 
 // Little-endian writers — DataView keeps the layout explicit.
@@ -67,10 +73,11 @@ function u32(view: DataView, offset: number, value: number): void {
   view.setUint32(offset, value >>> 0, true);
 }
 
-// DOS date/time (2-second resolution, years since 1980).
+// DOS date/time (2-second resolution, years since 1980). Year clamps at
+// 1980 — a pre-1980 system clock would wrap to a negative (garbage) date.
 function dosDateTime(d: Date): { date: number; time: number } {
   return {
-    date: ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
+    date: (Math.max(0, d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
     time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
   };
 }
@@ -86,6 +93,10 @@ export interface ZipEntry {
  * the phase-6 caller uses that to fall back to per-image downloads.
  */
 export function zipStore(entries: ZipEntry[]): Uint8Array {
+  if (entries.length > 65535) {
+    // EOCD entry counts are u16 — wrap would silently corrupt the archive.
+    throw new Error(`zipStore supports at most 65535 entries (got ${entries.length})`);
+  }
   let total = 0;
   for (const e of entries) {
     total += e.bytes.byteLength;
@@ -95,15 +106,26 @@ export function zipStore(entries: ZipEntry[]): Uint8Array {
   const { date, time } = dosDateTime(new Date());
   const cleaned = entries.map((e) => ({ name: sanitizeEntryName(e.name), bytes: e.bytes }));
 
-  // Collision suffixes: "stem-p1.png" twice -> "stem-p1-1.png".
-  const seen = new Map<string, number>();
+  // Collision suffixes against FINAL names, tracked in a Set: "stem-p1.png"
+  // twice -> "stem-p1-1.png", and a user file already called "stem-p1-1.png"
+  // never collides with a generated suffix. The stem is re-clamped so the
+  // suffixed name stays within the 255-byte filesystem cap.
+  const seen = new Set<string>();
   const names = cleaned.map(({ name }) => {
+    if (!seen.has(name)) {
+      seen.add(name);
+      return name;
+    }
     const dot = name.lastIndexOf('.');
-    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const rawStem = dot > 0 ? name.slice(0, dot) : name;
     const ext = dot > 0 ? name.slice(dot) : '';
-    const count = seen.get(name) ?? 0;
-    seen.set(name, count + 1);
-    return count === 0 ? name : `${stem}-${count}${ext}`;
+    for (let n = 1; ; n += 1) {
+      const candidate = `${clampUtf8(rawStem, 255 - ext.length - `-${n}`.length)}-${n}${ext}`;
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        return candidate;
+      }
+    }
   });
 
   const localSize = names.reduce(

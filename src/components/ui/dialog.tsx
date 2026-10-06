@@ -8,12 +8,17 @@ interface DialogProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /**
+   * Extra classes on the fixed backdrop. The tour passes `bg-transparent`
+   * so its spotlight ring (rendered beneath) is the only dimmer.
+   */
+  backdropClass?: string;
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open, onClose, title, children }: DialogProps) {
+export function Dialog({ open, onClose, title, children, backdropClass = '' }: DialogProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   // Latest-closure indirection so the lifecycle effect can depend on `open`
@@ -59,7 +64,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
     <div
       ref={containerRef}
       tabIndex={-1}
-      className="fixed inset-0 z-[100] grid place-items-center bg-surface-overlay/85 p-4 outline-none"
+      className={`fixed inset-0 z-[100] grid place-items-center bg-surface-overlay/85 p-4 outline-none ${backdropClass}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCloseRef.current();
       }}

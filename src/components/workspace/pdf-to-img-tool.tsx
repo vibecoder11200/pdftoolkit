@@ -39,6 +39,14 @@ function downloadBlob(blob: Blob, filename: string): void {
   }
 }
 
+/** Thumb-state updater: installs `next`, revoking the replaced object URLs. */
+function replaceThumbs(next: Record<number, string>) {
+  return (prev: Record<number, string>): Record<number, string> => {
+    for (const url of Object.values(prev)) URL.revokeObjectURL(url);
+    return next;
+  };
+}
+
 export function PdfToImgTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
@@ -67,7 +75,7 @@ export function PdfToImgTool() {
     setLoadErrorKey(null);
     if (!src) {
       setNumPages(0);
-      setThumbs({});
+      setThumbs(replaceThumbs({}));
       return;
     }
     void (async () => {
@@ -78,7 +86,7 @@ export function PdfToImgTool() {
       } catch {
         if (genRef.current !== gen) return;
         setNumPages(0);
-        setThumbs({});
+        setThumbs(replaceThumbs({}));
         setLoadErrorKey('pdf-to-img.error_load');
       }
     })();
@@ -103,10 +111,7 @@ export function PdfToImgTool() {
         }
       }
       if (!abort.signal.aborted) {
-        setThumbs((prev) => {
-          for (const u of Object.values(prev)) URL.revokeObjectURL(u);
-          return next;
-        });
+        setThumbs(replaceThumbs(next));
       }
     };
     if (src && numPages > 0) void renderAll();
@@ -175,7 +180,7 @@ export function PdfToImgTool() {
   const resetAll = () => {
     clear();
     setNumPages(0);
-    setThumbs({});
+    setThumbs(replaceThumbs({}));
     setProgress(null);
     setRunErrorKey(null);
     setLoadErrorKey(null);

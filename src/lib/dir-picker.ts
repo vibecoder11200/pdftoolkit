@@ -69,8 +69,28 @@ export async function pickDirectory(extensions: string[]): Promise<DirPickOutcom
   input.style.display = 'none';
   document.body.appendChild(input);
   const selection = await new Promise<FileList | null>((resolve) => {
-    input.addEventListener('change', () => resolve(input.files), { once: true });
-    input.addEventListener('cancel', () => resolve(null), { once: true });
+    let settled = false;
+    const done = (value: FileList | null) => {
+      if (settled) return;
+      settled = true;
+      input.removeEventListener('change', onChange);
+      input.removeEventListener('cancel', onCancel);
+      window.removeEventListener('focus', onFocus);
+      resolve(value);
+    };
+    const onChange = () => done(input.files);
+    const onCancel = () => done(null);
+    // `cancel` is missing on older browsers (iOS Safari < 16.4): the window
+    // regains focus when the picker closes either way, so treat a refocus
+    // with no selection as cancel. The delay lets a fast `change` win.
+    const onFocus = () => {
+      setTimeout(() => {
+        if (!input.files || input.files.length === 0) done(null);
+      }, 300);
+    };
+    input.addEventListener('change', onChange);
+    input.addEventListener('cancel', onCancel);
+    window.addEventListener('focus', onFocus);
     input.click();
   });
   input.remove();

@@ -12,6 +12,9 @@ export function Footer() {
     } catch {
       /* storage unavailable */
     }
+    // The mounted Tour checks nothing on its own — the event reaches it when
+    // the footer is on the same page; the flag covers the cross-page case.
+    window.dispatchEvent(new Event('pdftoolkit:tour-replay'));
     if (location.pathname !== '/') navigate('/');
   };
   return (

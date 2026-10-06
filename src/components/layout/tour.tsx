@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { hasPendingFiles } from '../../lib/handoff';
+import { hasPendingFiles, onPending } from '../../lib/handoff';
 import { Dialog } from '../ui/dialog';
 
 const TOUR_DONE_KEY = 'pdftoolkit-tour-done';
@@ -58,6 +58,21 @@ export function Tour() {
   const { t } = useTranslation();
   const [step, setStep] = useState<number | null>(null);
   const [rect, setRect] = useState<Rect | null>(null);
+  const stepRef = useRef<number | null>(null);
+  stepRef.current = step;
+
+  const finish = () => {
+    try {
+      localStorage.setItem(TOUR_DONE_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    setStep(null);
+  };
+  // Latest-ref so the onPending subscription never resubscribes — every
+  // subscribe replays the current handoff, which would re-close the tour.
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
 
   useEffect(() => {
     let done = false;
@@ -77,6 +92,25 @@ export function Tour() {
     setStep(0);
   }, []);
 
+  // Footer "Quick tour" fires this event when already on home (the flag it
+  // also writes only covers the cross-page navigation case).
+  useEffect(() => {
+    const onReplay = () => setStep(0);
+    window.addEventListener('pdftoolkit:tour-replay', onReplay);
+    return () => window.removeEventListener('pdftoolkit:tour-replay', onReplay);
+  }, []);
+
+  // Files arriving mid-tour (window drop, OS launch) open the suggestion
+  // sheet on top of the tour — close instead of stacking two modals. The
+  // visit counts as done so the tour does not re-nag.
+  useEffect(
+    () =>
+      onPending(() => {
+        if (stepRef.current !== null) finishRef.current();
+      }),
+    [],
+  );
+
   const current = step !== null ? STEPS[step] : null;
 
   useLayoutEffect(() => {
@@ -88,15 +122,6 @@ export function Tour() {
     }
     setRect(null);
   }, [current]);
-
-  const finish = () => {
-    try {
-      localStorage.setItem(TOUR_DONE_KEY, '1');
-    } catch {
-      /* ignore */
-    }
-    setStep(null);
-  };
 
   useEffect(() => {
     if (step === null) return;
@@ -128,7 +153,9 @@ export function Tour() {
       ) : (
         <div aria-hidden className="pointer-events-none fixed inset-0 z-[90] bg-surface-overlay" />
       )}
-      <Dialog open onClose={finish} title={t(`tour.${current.key}_title`)}>
+      {/* Transparent backdrop: the spotlight ring beneath is the dimmer —
+          the default 85% backdrop would re-dim the highlighted target. */}
+      <Dialog open onClose={finish} title={t(`tour.${current.key}_title`)} backdropClass="bg-transparent">
         <p className="text-[13.5px] text-text-muted">{t(`tour.${current.key}_body`)}</p>
         <div className="mt-4 flex items-center gap-2">
           <span className="text-xs text-text-muted tabular-nums">

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import i18n from '../src/i18n';
+import { clearPendingFiles, setPendingFiles } from '../src/lib/handoff';
 import { Tour } from '../src/components/layout/tour';
 
 let container: HTMLElement;
@@ -68,6 +69,29 @@ describe('Tour gating', () => {
     await renderTour();
     expect(dialog()).not.toBeNull();
     expect(localStorage.getItem('pdftoolkit-tour-replay')).toBeNull();
+  });
+
+  it('replay event opens the tour on an already-mounted, already-done home', async () => {
+    // Footer "Quick tour" clicked while home is already up: the mount gate
+    // ran long ago, so the window event is what reopens the tour.
+    localStorage.setItem('pdftoolkit-tour-done', '1');
+    await renderTour();
+    expect(dialog()).toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event('pdftoolkit:tour-replay'));
+    });
+    expect(dialog()).not.toBeNull();
+  });
+
+  it('closes (and persists done) when files arrive mid-tour', async () => {
+    await renderTour();
+    expect(dialog()).not.toBeNull();
+    await act(async () => {
+      setPendingFiles([new File(['x'], 'mid-tour.pdf', { type: 'application/pdf' })]);
+    });
+    expect(dialog()).toBeNull();
+    expect(localStorage.getItem('pdftoolkit-tour-done')).toBe('1');
+    clearPendingFiles();
   });
 });
 

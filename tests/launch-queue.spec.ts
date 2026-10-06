@@ -34,6 +34,17 @@ describe('initLaunchQueue', () => {
     expect(got[0][0].name).toBe('handled.pdf');
   });
 
+  it('ignores an empty launch (no files param)', async () => {
+    let consumer: Consumer | null = null;
+    withLaunchQueue({ setConsumer: (cb: Consumer) => (consumer = cb) });
+    const got: File[][] = [];
+    initLaunchQueue((files) => got.push(files));
+    consumer!({});
+    consumer!({ files: [] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(got).toHaveLength(0);
+  });
+
   it('is a silent no-op without launchQueue (Safari/Firefox)', () => {
     expect(() => initLaunchQueue(() => undefined)).not.toThrow();
   });

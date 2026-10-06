@@ -77,6 +77,45 @@ describe('zipStore entry-name collisions', () => {
     expect(Buffer.from(files['stem-p1-1.png'])).toEqual(Buffer.from(bytesOf('bb')));
   });
 
+  it('dedupes against FINAL names — collide-after-suffix cannot shadow an entry', () => {
+    // A user file already named like a generated suffix must keep its name;
+    // the second duplicate moves on to the next free suffix (review P1).
+    const zip = zipStore([
+      { name: 'stem-p1-1.png', bytes: bytesOf('original-suffixed') },
+      { name: 'stem-p1.png', bytes: bytesOf('first') },
+      { name: 'stem-p1.png', bytes: bytesOf('second') },
+    ]);
+    const files = unzipSync(zip);
+    expect(Object.keys(files).sort()).toEqual([
+      'stem-p1-1.png',
+      'stem-p1-2.png',
+      'stem-p1.png',
+    ]);
+    expect(Buffer.from(files['stem-p1-1.png'])).toEqual(Buffer.from(bytesOf('original-suffixed')));
+    expect(Buffer.from(files['stem-p1-2.png'])).toEqual(Buffer.from(bytesOf('second')));
+  });
+
+  it('keeps suffixed names within the 255-byte filesystem cap', () => {
+    const long = 'ả'.repeat(120); // 360 UTF-8 bytes pre-sanitize → 255 after clamp
+    const zip = zipStore([
+      { name: long, bytes: bytesOf('a') },
+      { name: long, bytes: bytesOf('b') },
+    ]);
+    const files = unzipSync(zip);
+    for (const name of Object.keys(files)) {
+      expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(255);
+    }
+    expect(Object.keys(files)).toHaveLength(2);
+  });
+
+  it('refuses more than 65535 entries (u16 EOCD counts)', () => {
+    const many = Array.from({ length: 65536 }, (_, i) => ({
+      name: `f${i}.txt`,
+      bytes: new Uint8Array(0),
+    }));
+    expect(() => zipStore(many)).toThrow(/65535/);
+  });
+
   it('treats extension-less and sanitized names uniformly', () => {
     const zip = zipStore([
       { name: 'report', bytes: bytesOf('1') },

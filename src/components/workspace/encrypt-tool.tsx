@@ -197,7 +197,7 @@ export function EncryptTool() {
             onClick={() => switchMode(m)}
             className={`inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border px-4 text-sm font-semibold ${
               mode === m
-                ? 'border-accent bg-accent-soft text-accent'
+                ? 'border-accent bg-accent-soft text-text-primary'
                 : 'border-border-strong bg-surface-card text-text-muted hover:bg-surface-hover'
             }`}
           >

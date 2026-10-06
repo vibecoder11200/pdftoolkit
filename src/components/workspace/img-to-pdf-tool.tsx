@@ -77,7 +77,7 @@ export function ImgToPdfTool() {
         setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, locale) }));
         return;
       }
-      if (outcome.files.length > 0) addFiles(outcome.files);;
+      if (outcome.files.length > 0) addFiles(outcome.files);
       setBatchNote(
         outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
       );

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { clearPendingFiles, setPendingFiles } from '../../lib/handoff';
+import { clearPendingFiles, appendPendingFiles, pendingFileCount } from '../../lib/handoff';
 import { initLaunchQueue, routeForLaunch } from '../../lib/launch-queue';
 
 /*
@@ -27,8 +27,9 @@ export function LaunchBanner() {
   useEffect(
     () =>
       initLaunchQueue((files) => {
-        setPendingFiles(files);
-        if (routeForLaunch(pathnameRef.current) === 'tool') setCount(files.length);
+        // focus-existing delivers repeated launches — append, never replace.
+        appendPendingFiles(files);
+        if (routeForLaunch(pathnameRef.current) === 'tool') setCount(pendingFileCount());
       }),
     [],
   );

@@ -55,9 +55,11 @@ export function ThumbnailStrip({
                 return;
               }
               if (keyboardMoveHint && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                // Prevent FIRST: Alt+Arrow is browser Back/Forward — letting the
+                // default through at the boundary would navigate off the tool.
+                e.preventDefault();
                 const target = e.key === 'ArrowLeft' ? idx - 1 : idx + 1;
                 if (target < 0 || target >= pages.length) return;
-                e.preventDefault();
                 onMove?.(p.pageNumber, pages[target].pageNumber);
               }
             }}

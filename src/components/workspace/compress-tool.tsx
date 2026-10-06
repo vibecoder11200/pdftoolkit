@@ -58,9 +58,7 @@ function thresholdKey(mode: CompressMode, pct: number): string {
   if (mode === 'vector') {
     return pct < VECTOR_THRESHOLD_PCT ? 'compress.result_low_vector' : 'compress.result_ok_vector';
   }
-  if (mode === 'linearize') {
-    return pct < 0 ? 'compress.result_larger' : 'compress.result_ok_linearize';
-  }
+  if (mode === 'linearize') return 'compress.result_ok_linearize';
   return pct < IMAGE_THRESHOLD_PCT ? 'compress.result_low_image' : 'compress.result_ok_image';
 }
 
@@ -82,7 +80,7 @@ export function CompressTool() {
         setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, locale) }));
         return;
       }
-      if (outcome.files.length > 0) void add(outcome.files.slice(0, 1));;
+      if (outcome.files.length > 0) void add(outcome.files.slice(0, 1));
       setBatchNote(
         outcome.skippedEmpty > 0 ? t('home.batch_skipped_empty', { count: outcome.skippedEmpty }) : null,
       );

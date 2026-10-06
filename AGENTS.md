@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **pdftoolkit** (491 symbols, 1250 relationships, 38 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relationships, 63 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -70,13 +70,14 @@ This project is indexed by GitNexus as **pdftoolkit** (491 symbols, 1250 relatio
 
 ## 3. Two test runners share `tests/`
 
-- `npm test` (vitest, node-side): `engine.spec.ts`, `matrix.spec.ts`,
-  `thumbnails.spec.tsx`. `tests/smoke.spec.ts` is excluded in `vite.config.ts`.
-- `npm run test:e2e` (Playwright, chromium): `testMatch` is only
-  `**/smoke.spec.ts`.
-- New node-side spec: just add the file. New browser-side spec: update BOTH
-  `playwright.config.ts` (`testMatch`) and `vite.config.ts` (vitest `exclude`)
-  — otherwise each runner picks up the other's specs and both suites go red.
+- `npm test` (vitest, node-side): everything EXCEPT `tests/*.e2e.spec.ts`
+  (excluded in `vite.config.ts`). Plain `foo.spec.ts(x)` files are vitest.
+- `npm run test:e2e` (Playwright, chromium): `testMatch` is
+  `**/*.e2e.spec.ts` — browser specs MUST be named `foo.e2e.spec.ts`.
+- New node-side spec: just add the file. New browser-side spec: name it
+  `*.e2e.spec.ts` (the suffix is what keeps the runners apart — since phase 4
+  there is no per-file config edit; getting the name wrong lands the spec in
+  the wrong runner or in neither).
 - `npm test` needs fixtures first: `node tests/fixtures/gen.mjs` (fixtures are
   gitignored).
 - The 100MB tier is opt-in: `node tests/fixtures/gen.mjs --large` then
