@@ -95,8 +95,14 @@ export default defineConfig({
     },
     VitePWA({
       registerType: 'prompt', // deploy B of the phase-2 two-step bridge: the banner cohort is now on app-new
-      strategies: 'generateSW',
-      workbox: {
+      // Phase 6a: custom SW (src/sw.ts) so the share-target fetch handler can
+      // live in the same worker (phase 6b). The runtime routes in sw.ts mirror
+      // what generateSW emitted before — scripts/precache-diff.mjs gates the
+      // {url, revision} manifest against the phase-5 baseline on every build.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
         // Fonts are build-emitted (not in public/), so they must be globbed
         // here — includeAssets only sees publicDir. Favicon set, PWA icons
         // and the webmanifest are precached too: an offline cold start (SW
@@ -113,7 +119,6 @@ export default defineConfig({
           'manifest.webmanifest',
         ],
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
-        navigateFallbackDenylist: [/^\/api/],
         // Pin the content hash of stable-filename assets (qpdf.wasm, fonts)
         // so a swapped binary can never silently serve from an old precache
         // entry (see qpdfWasmRevision / fontRevisions).

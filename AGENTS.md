@@ -96,6 +96,19 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
   in `manifestTransforms`. Those revisions are recomputed from package
   contents in `vite.config.ts` at build time — keep that code when editing
   the config.
+- The service worker is a custom `src/sw.ts` built via `injectManifest`
+  (phase 6a, migrated from `generateSW`). `src/sw.ts` MUST keep:
+  `precacheAndRoute(self.__WB_MANIFEST)` (the injection point — the build
+  replaces it), `cleanupOutdatedCaches()`, the
+  `NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: [/^\/api/] })`
+  SPA fallback, and the `SKIP_WAITING` message listener (`registerType:
+  'prompt'` depends on it; `use-app-update.tsx` sends the message). Two gates
+  guard the manifest: `scripts/precache-diff.mjs` (diff `{url, revision}` vs
+  `plans/precache-baseline-phase5.sw.js` after changing precache config) and
+  `tests/sw-precache.spec.ts` (qpdf.wasm + font sha256 pins in `dist/sw.js`).
+  In 6b the share-target fetch handler was added to the same file, and its
+  client-side listener MUST stay on `navigator.serviceWorker` (never `window`
+  — same-origin messages on the github.io shared origin are spoofable).
 - The pdf.js and pdfsigner chunks must stay lazy:
   `src/hooks/use-thumbnails.ts` loads the renderer via dynamic import. Do not
   convert it to a static import (~400KB+ would move into the entry bundle).
