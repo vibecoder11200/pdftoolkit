@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-interface DropzoneProps {
+type DropzoneProps = {
   title: string;
   hint: string;
   accept: string;
@@ -15,7 +15,7 @@ interface DropzoneProps {
   /** Extra actions under the hint (e.g. folder pick). Clicks stay local. */
   footer?: ReactNode;
   onFiles: (files: File[]) => void;
-}
+} & Record<string, unknown>;
 
 export function Dropzone({
   title,
@@ -27,6 +27,7 @@ export function Dropzone({
   compact = false,
   footer,
   onFiles,
+  ...rest
 }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragDepth, setDragDepth] = useState(0);
@@ -52,6 +53,7 @@ export function Dropzone({
       role="button"
       tabIndex={0}
       aria-label={title}
+      {...rest}
       onClick={() => inputRef.current?.click()}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

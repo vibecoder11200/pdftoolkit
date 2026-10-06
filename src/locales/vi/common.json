@@ -120,7 +120,8 @@
     "err_ack_missing": "Hãy xác nhận bạn hiểu phạm vi chữ ký số tự tạo trước khi ký."
   },
   "footer": {
-    "note": "PDF Toolkit · MIT · không telemetry · không CDN runtime"
+    "note": "PDF Toolkit · MIT · không telemetry · không CDN runtime",
+    "replay_tour": "Hướng dẫn nhanh"
   },
   "reorder": {
     "title": "Sắp xếp lại trang",
@@ -268,7 +269,8 @@
     "mode_linearize": "Tối ưu cho web (linearize)",
     "mode_linearize_hint": "Sắp xếp lại cấu trúc file để trang đầu hiện nhanh khi mở qua mạng. Không nén.",
     "progress_working_linearize": "Đang tối ưu cho web...",
-    "result_ok_linearize": "Đã tối ưu cho web — trang đầu hiển thị sớm khi mở online."
+    "result_ok_linearize": "Đã tối ưu cho web — trang đầu hiển thị sớm khi mở online.",
+    "modes_hint": "Gọn vector giữ nguyên chữ — hợp file nhiều văn bản. Nén ảnh hợp file nhiều scan/ảnh. Tối ưu cho web không nén — chỉ giúp trang đầu hiện nhanh khi mở online."
   },
   "pdf-to-img": {
     "title": "PDF sang ảnh",
@@ -416,5 +418,18 @@
     "title": "Công cụ đổi định dạng đang phát triển",
     "hint": "Chuyển đổi PDF sang các định dạng khác sẽ có trong bản cập nhật tiếp theo. Các công cụ còn lại đều dùng được bình thường.",
     "badge": "Sớm ra mắt"
+  },
+  "tour": {
+    "welcome_title": "Chào mừng đến PDF Toolkit!",
+    "welcome_body": "Mọi thao tác đều chạy ngay trên máy bạn — file không bao giờ rời khỏi thiết bị. Xem nhanh 3 gợi ý trong ~30 giây.",
+    "dropzone_title": "Thả file vào đây",
+    "dropzone_body": "Kéo PDF hoặc ảnh vào khung này (hoặc thả vào bất cứ đâu trên trang) để bắt đầu.",
+    "theme_title": "Sáng / Tối / Theo hệ thống",
+    "theme_body": "Đổi giao diện bất cứ lúc nào ở nút này — lựa chọn được ghi nhớ giữa các lần truy cập.",
+    "grid_title": "12 công cụ, một nơi",
+    "grid_body": "Gộp, tách, nén, chuyển đổi, ký số... Cuộn xuống và chọn công cụ bạn cần.",
+    "skip": "Bỏ qua",
+    "next": "Tiếp",
+    "finish": "Bắt đầu dùng"
   }
 }

@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { markToolVisited } from '../layout/tour';
 import { Progress } from '../ui/progress';
 import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
 import { CheckIcon, RefreshIcon, ResetIcon } from '../ui/icons';
@@ -37,6 +38,9 @@ export function WorkspaceShell({
   onNewFiles,
 }: WorkspaceShellProps) {
   const { t } = useTranslation();
+  useEffect(() => {
+    markToolVisited();
+  }, []);
   return (
     <div className="mt-3.5 overflow-hidden rounded-2xl border border-border-default bg-surface-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-default px-5.5 py-4">

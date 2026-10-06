@@ -120,7 +120,8 @@
     "err_ack_missing": "Acknowledge the self-signed certificate scope before signing."
   },
   "footer": {
-    "note": "PDF Toolkit · MIT · no telemetry · no runtime CDN"
+    "note": "PDF Toolkit · MIT · no telemetry · no runtime CDN",
+    "replay_tour": "Quick tour"
   },
   "reorder": {
     "title": "Reorder pages",
@@ -268,7 +269,8 @@
     "mode_linearize": "Optimize for web (linearize)",
     "mode_linearize_hint": "Restructures the file so the first page renders quickly when opened online. No compression.",
     "progress_working_linearize": "Optimizing for web...",
-    "result_ok_linearize": "Web-optimized — the first page now renders fast when streamed."
+    "result_ok_linearize": "Web-optimized — the first page now renders fast when streamed.",
+    "modes_hint": "Vector pack keeps text intact — best for text-heavy files. Image recompress suits scans and photo-heavy files. Web-optimizer does not compress — it just makes the first page render fast when streamed."
   },
   "pdf-to-img": {
     "title": "PDF to images",
@@ -416,5 +418,18 @@
     "title": "Convert tool is in development",
     "hint": "PDF conversion to other formats ships in an upcoming update. Every other tool works as usual.",
     "badge": "Coming soon"
+  },
+  "tour": {
+    "welcome_title": "Welcome to PDF Toolkit!",
+    "welcome_body": "Everything runs on your device — files never leave your machine. Three quick tips, about 30 seconds.",
+    "dropzone_title": "Drop files here",
+    "dropzone_body": "Drag a PDF or images into this frame (or anywhere on the page) to get started.",
+    "theme_title": "Light / Dark / System",
+    "theme_body": "Switch the theme anytime with this control — your choice persists across visits.",
+    "grid_title": "12 tools, one place",
+    "grid_body": "Merge, split, compress, convert, sign... Scroll down and pick the tool you need.",
+    "skip": "Skip",
+    "next": "Next",
+    "finish": "Start using it"
   }
 }

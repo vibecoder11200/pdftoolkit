@@ -169,6 +169,43 @@ test('pdf-to-img on a 2-page PDF downloads one zip (not per-image files)', async
   expect(download.suggestedFilename()).toBe('fixture-1mb-images.zip');
 });
 
+test('first-visit tour shows once and skip persists across reload', async ({ page }) => {
+  // The tour hides from automation (navigator.webdriver); opt in explicitly.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { value: false, configurable: true });
+  });
+  await page.goto('./');
+  const tourDialog = page.getByRole('dialog');
+  await expect(tourDialog).toBeVisible({ timeout: 10_000 });
+  await tourDialog.getByRole('button', { name: 'Bỏ qua' }).click();
+  await expect(tourDialog).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('offline reload is served entirely from the precache', async ({ page, context }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();
+  await page.waitForFunction(
+    async () => {
+      if (!navigator.serviceWorker) return false;
+      const reg = await navigator.serviceWorker.ready;
+      return Boolean(reg.active);
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+  await context.setOffline(true);
+  try {
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' })).toBeVisible({
+      timeout: 15_000,
+    });
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
 test('axe: no serious/critical violations on home, merge, and 4 swept tools', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();

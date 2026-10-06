@@ -6,6 +6,7 @@ import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
@@ -276,7 +277,7 @@ export function PdfToImgTool() {
             </Button>
           ) : null}
           {numPages > 1 ? (
-            <span className="text-[13px] text-text-muted">{t('pdf-to-img.zip_hint')}</span>
+            <Hint variant="info" dismissKey="hint-pdf-to-img-zip">{t('pdf-to-img.zip_hint')}</Hint>
           ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('pdf-to-img.progress_idle')}</span>

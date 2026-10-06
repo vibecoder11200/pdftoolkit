@@ -8,6 +8,7 @@ import { MAX_FILE_BYTES } from '../../lib/file-accept';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon, XIcon } from '../ui/icons';
@@ -713,11 +714,13 @@ export function SignTool() {
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]" role="note">
-        <strong className="block text-warning">{t('sign.disclaimer_title')}</strong>
-        <span className="block text-warning">{t('sign.disclaimer')}</span>
-        <span className="mt-1.5 block text-warning">{t('sign.single_note')}</span>
-        <span className="mt-1.5 block text-warning">{t('sign.scope_note')}</span>
+      <div className="mt-4">
+        <Hint variant="warning" dismissKey="hint-sign-scope">
+          <strong className="block">{t('sign.disclaimer_title')}</strong>
+          <span className="block">{t('sign.disclaimer')}</span>
+          <span className="mt-1.5 block">{t('sign.single_note')}</span>
+          <span className="mt-1.5 block">{t('sign.scope_note')}</span>
+        </Hint>
       </div>
 
       <fieldset className="mt-4">

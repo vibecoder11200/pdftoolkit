@@ -22,7 +22,7 @@ export function HomeGrid({ filter, onFilter }: { filter: Filter; onFilter: (f: F
   ];
 
   return (
-    <div>
+    <div data-tour="tool-grid">
       <div className="sticky top-13 z-20 flex flex-wrap gap-2.5 bg-surface-page/90 py-4 backdrop-blur" role="group" aria-label={t('filters.all')}>
         {FILTERS.map((f) => (
           <button

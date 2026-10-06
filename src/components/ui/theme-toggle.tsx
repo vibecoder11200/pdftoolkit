@@ -79,6 +79,7 @@ export function ThemeToggle() {
   return (
     <div
       className="flex overflow-hidden rounded-lg border border-border-strong"
+      data-tour="theme-toggle"
       role="group"
       aria-label={t('topbar.theme_toggle')}
     >

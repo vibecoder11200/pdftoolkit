@@ -7,6 +7,7 @@ import { GlobalDrop } from '../components/layout/global-drop';
 import { SuggestionSheet, type SheetState } from '../components/layout/suggestion-sheet';
 import type { ToolCategory } from '../components/layout/tool-card';
 import { Dropzone } from '../components/ui/dropzone';
+import { Tour } from '../components/layout/tour';
 import { buildSuggestions } from '../lib/suggest';
 import { clearPendingFiles, onPending } from '../lib/handoff';
 
@@ -42,12 +43,14 @@ export function HomePage() {
           </h1>
           <p className="mx-auto mt-3 max-w-[62ch] text-base text-text-muted">{t('hero.subtitle')}</p>
           <Dropzone
+            data-tour="hero-dropzone"
             title={t('home.hero_drop_title')}
             hint={t('home.hero_drop_hint')}
             accept={HOME_ACCEPT}
             onFiles={(f) => void handleFiles(f)}
             className="mx-auto mt-5.5 w-full max-w-2xl flex-col py-10"
           />
+          <Tour />
           <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-text-muted">
             {[t('hero.badge_no_account'), t('hero.badge_offline'), t('hero.badge_opensource')].map(
               (b) => (

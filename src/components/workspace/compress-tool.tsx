@@ -7,6 +7,7 @@ import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { Hint } from '../ui/hint';
 import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
@@ -304,6 +305,9 @@ export function CompressTool() {
           </span>
         </div>
       ) : null}
+      <div className="mt-4">
+        <Hint variant="info" dismissKey="hint-compress-modes">{t('compress.modes_hint')}</Hint>
+      </div>
       <fieldset className="mt-4">
         <legend className="text-sm font-bold">{t('compress.mode_q')}</legend>
         <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={t('compress.mode_q')}>

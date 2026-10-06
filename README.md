@@ -36,6 +36,7 @@ Requires Node 24.
 ```bash
 npm install
 node tests/fixtures/gen.mjs      # generate test PDF fixtures (gitignored)
+node scripts/gen-icons.mjs       # regenerate favicon/app icons from src/assets/logo.svg geometry
 npm run dev                      # dev server
 npm run build                    # typecheck + production build to dist/
 npm test                         # engine + matrix suites (vitest)

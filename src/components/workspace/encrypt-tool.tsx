@@ -6,6 +6,7 @@ import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
+import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon } from '../ui/icons';
@@ -234,12 +235,11 @@ export function EncryptTool() {
 
       {mode === 'encrypt' ? (
         <>
-          <div
-            className="mt-4 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
-            role="note"
-          >
-            <strong className="block text-warning">{t('encrypt.warn_title')}</strong>
-            <span className="text-warning">{t('encrypt.warn_forgot')}</span>
+          <div className="mt-4">
+            <Hint variant="warning" dismissKey="hint-encrypt-lost">
+              <strong className="block">{t('encrypt.warn_title')}</strong>
+              <span>{t('encrypt.warn_forgot')}</span>
+            </Hint>
           </div>
 
           <div className="mt-4 flex flex-col gap-3">
