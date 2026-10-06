@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, downloadBytes } from '../../lib/download';
 import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 
@@ -270,14 +271,11 @@ export function PdfToImgTool() {
           <Button onClick={() => void run('auto')} disabled={!src || numPages === 0 || busy}>
             {t('pdf-to-img.cta')}
           </Button>
-          {canSaveElsewhere() && numPages > 1 ? (
-            <Button
-              variant="secondary"
+          {numPages > 1 ? (
+            <SaveElsewhereButton
               onClick={() => void run('auto', 'pick')}
               disabled={!src || numPages === 0 || busy}
-            >
-              {t('save_elsewhere')}
-            </Button>
+            />
           ) : null}
           {numPages > 1 ? (
             <Button

@@ -4,10 +4,11 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 
 type Angle = 90 | 180 | 270;
@@ -174,11 +175,10 @@ export function RotateTool() {
           <Button onClick={() => void run()} disabled={!source || selected.size === 0}>
             {t('rotate.cta')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button variant="secondary" disabled={!source || selected.size === 0} onClick={() => void run('pick')}>
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton
+            disabled={!source || selected.size === 0}
+            onClick={() => void run('pick')}
+          />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('rotate.progress_idle')}</span>
           )}

@@ -5,11 +5,12 @@ import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { SignCertPanel, mapCertError, type CertCredentials } from './sign-cert-panel';
 import { FileIcon, XIcon } from '../ui/icons';
@@ -487,7 +488,7 @@ export function SignTool() {
         setProgress(null); // picker cancelled — not an error
       }
     } catch (e) {
-      if (cert && typeof (e as Error)?.name === 'string' && (e as Error).name.startsWith('Cert')) {
+      if (cert && (e as Error)?.name?.startsWith('Cert')) {
         setRunError(mapCertError(e));
         setProgress(null);
         return;
@@ -537,6 +538,8 @@ export function SignTool() {
 
   const currentSpots = spots.filter((s) => s.page === currentPage);
   const sizePct = Math.round((selected?.wFrac ?? defaultWFrac) * 100);
+  const runDisabled =
+    !src || (!sig && !digital && !cert) || (digital && !digitalAck) || (cert && !certAck) || busy;
 
   return (
     <WorkspaceShell
@@ -558,33 +561,10 @@ export function SignTool() {
       error={error}
       side={
         <>
-          <Button
-            onClick={() => void run()}
-            disabled={
-              !src ||
-              (!sig && !digital && !cert) ||
-              (digital && !digitalAck) ||
-              (cert && !certAck) ||
-              busy
-            }
-          >
+          <Button onClick={() => void run()} disabled={runDisabled}>
             {t('sign.cta')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button
-              variant="secondary"
-              disabled={
-                !src ||
-                (!sig && !digital && !cert) ||
-                (digital && !digitalAck) ||
-                (cert && !certAck) ||
-                busy
-              }
-              onClick={() => void run('pick')}
-            >
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton disabled={runDisabled} onClick={() => void run('pick')} />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('sign.progress_idle')}</span>
           )}

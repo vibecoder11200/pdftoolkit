@@ -60,16 +60,14 @@ function cnOf(name: pkijs.RelativeDistinguishedNames): string {
 }
 
 async function parseBags(p12Bytes: Uint8Array, password: Uint8Array) {
-  let schema: asn1js.BaseBlock;
+  let pfx: pkijs.PFX;
   try {
-    // Garbage fails HERE (or in the PFX schema check below) — that is the
+    // Garbage fails HERE (fromBER or the PFX schema check) — that is the
     // "file invalid" branch, distinct from the MAC failure under parse().
-    schema = asn1js.fromBER(p12Bytes).result;
-    new pkijs.PFX({ schema });
+    pfx = new pkijs.PFX({ schema: asn1js.fromBER(p12Bytes).result });
   } catch {
     throw new CertInvalidError('(ASN.1 parse failed)');
   }
-  const pfx = new pkijs.PFX({ schema });
   try {
     // checkIntegrity verifies the MAC with the password — the canonical
     // wrong-password signal (a corrupt file fails earlier, in fromBER).
@@ -151,7 +149,7 @@ export async function inspectCertificateKey(
   const issuerCn = cnOf(leaf.issuer);
   const selfSigned = issuerCn === cnOf(leaf.subject);
   const missingIntermediate = !selfSigned && !certs.some((c) => cnOf(c.subject) === issuerCn);
-  const { keyType, keyBits } = keyMeta(certs[0]);
+  const { keyType, keyBits } = keyMeta(leaf);
   return {
     cn: cnOf(leaf.subject),
     issuerCn,

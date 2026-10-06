@@ -5,11 +5,12 @@ import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
@@ -159,11 +160,7 @@ export function MergeTool() {
           <Button onClick={() => void run()} disabled={kept.length === 0}>
             {t('merge.cta')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button variant="secondary" disabled={kept.length === 0} onClick={() => void run('pick')}>
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton disabled={kept.length === 0} onClick={() => void run('pick')} />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('merge.progress_idle')}</span>
           )}

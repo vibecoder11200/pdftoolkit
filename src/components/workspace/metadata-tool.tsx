@@ -4,10 +4,11 @@ import { PDFDocument } from 'pdf-lib';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { sniffPdfMagic } from '../../lib/file-accept';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { Input } from '../ui/input';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon } from '../ui/icons';
@@ -201,15 +202,10 @@ export function MetadataTool() {
           <Button onClick={() => void save()} disabled={!src || busy || loadErrorKey !== null}>
             {t('metadata.cta')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button
-              variant="secondary"
-              disabled={!src || busy || loadErrorKey !== null}
-              onClick={() => void save('pick')}
-            >
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton
+            disabled={!src || busy || loadErrorKey !== null}
+            onClick={() => void save('pick')}
+          />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('metadata.progress_idle')}</span>
           )}

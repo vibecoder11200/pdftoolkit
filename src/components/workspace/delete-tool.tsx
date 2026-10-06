@@ -4,10 +4,11 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, type DownloadDest } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 
@@ -109,17 +110,12 @@ export function DeleteTool() {
     }
   };
 
-  const save = () => {
-    if (!bytes) return;
-    downloadBytes(bytes, fileName ? fileName.replace(/\.pdf$/i, '-removed.pdf') : 'removed.pdf');
-  };
-
-  const saveToPicker = () => {
+  const deliver = (dest: DownloadDest) => {
     if (!bytes) return;
     void deliverBytes(
       bytes,
       fileName ? fileName.replace(/\.pdf$/i, '-removed.pdf') : 'removed.pdf',
-      'pick',
+      dest,
     );
   };
 
@@ -145,18 +141,10 @@ export function DeleteTool() {
           <Button onClick={() => void applyDelete()} disabled={!bytes || toRemove.length === 0 || keptCount < 1}>
             {t('remove.cta_delete')}
           </Button>
-          <Button
-            variant="secondary"
-            onClick={save}
-            disabled={!bytes}
-          >
+          <Button variant="secondary" onClick={() => deliver('download')} disabled={!bytes}>
             {t('remove.cta_save')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button variant="secondary" onClick={saveToPicker} disabled={!bytes}>
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton disabled={!bytes} onClick={() => deliver('pick')} />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('remove.progress_idle')}</span>
           )}

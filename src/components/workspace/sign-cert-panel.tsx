@@ -80,8 +80,7 @@ export function SignCertPanel({
       return;
     }
     // New bundle invalidates everything the previous one produced.
-    credentialsRef.current = null;
-    if (passInputRef.current) passInputRef.current.value = '';
+    wipePassword();
     setMeta(null);
     setFile(f);
   };
@@ -237,6 +236,6 @@ export function mapCertError(e: unknown): CertUiError {
   if (name === 'CertTooLarge') return { key: 'sign.cert_too_large' };
   if (name === 'CertUnsupportedCurve') return { key: 'sign.cert_unsupported_curve' };
   if (name === 'CertAlreadySigned') return { key: 'sign.err_already_signed' };
-  if (name === 'CertInvalid') return { key: 'sign.cert_invalid' };
+  // CertInvalid and anything unmapped share the generic copy.
   return { key: 'sign.cert_invalid' };
 }

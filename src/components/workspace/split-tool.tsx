@@ -4,11 +4,12 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { parseRanges } from '../../lib/ranges';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
@@ -257,10 +258,8 @@ export function SplitTool() {
           <Button onClick={() => void run()} disabled={!file || busy}>
             {t('split.cta')}
           </Button>
-          {canSaveElsewhere() && mode === 'combined' ? (
-            <Button variant="secondary" disabled={!file || busy} onClick={() => void run('pick')}>
-              {t('save_elsewhere')}
-            </Button>
+          {mode === 'combined' ? (
+            <SaveElsewhereButton disabled={!file || busy} onClick={() => void run('pick')} />
           ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('split.progress_idle')}</span>

@@ -4,12 +4,13 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon } from '../ui/icons';
 
@@ -432,14 +433,9 @@ export function CompressTool() {
             <Button onClick={() => downloadBytes(result.bytes, result.filename)}>
               {t('compress.download_cta')}
             </Button>
-            {canSaveElsewhere() ? (
-              <Button
-                variant="secondary"
-                onClick={() => void deliverBytes(result.bytes, result.filename, 'pick')}
-              >
-                {t('save_elsewhere')}
-              </Button>
-            ) : null}
+            <SaveElsewhereButton
+              onClick={() => void deliverBytes(result.bytes, result.filename, 'pick')}
+            />
           </div>
         </section>
       ) : null}

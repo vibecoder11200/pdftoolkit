@@ -1,8 +1,11 @@
-import { saveFilePicker, type SavePickerType } from './fs-save';
+import { canPickFile, saveFilePicker, type SavePickerType } from './fs-save';
+
+function toBlob(bytes: Uint8Array, mime: string): Blob {
+  return new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime });
+}
 
 export function downloadBytes(bytes: Uint8Array, filename: string, mime = 'application/pdf'): void {
-  const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime });
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(toBlob(bytes, mime));
   try {
     const a = document.createElement('a');
     a.href = url;
@@ -26,14 +29,14 @@ export async function downloadBytesWithPicker(
   filename: string,
   mime = 'application/pdf',
 ): Promise<boolean> {
-  return saveFilePicker(
-    new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime }),
-    { fileName: filename, types: pickerTypesFor(mime, filename) },
-  );
+  return saveFilePicker(toBlob(bytes, mime), {
+    fileName: filename,
+    types: pickerTypesFor(mime, filename),
+  });
 }
 
 export function canSaveElsewhere(): boolean {
-  return typeof window !== 'undefined' && 'showSaveFilePicker' in window;
+  return canPickFile();
 }
 
 export type DownloadDest = 'download' | 'pick';

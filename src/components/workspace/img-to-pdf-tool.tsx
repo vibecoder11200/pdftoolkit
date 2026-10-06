@@ -4,11 +4,12 @@ import { PDFDocument, PageSizes } from 'pdf-lib';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { XIcon } from '../ui/icons';
 
@@ -221,11 +222,10 @@ export function ImgToPdfTool() {
           <Button onClick={() => void run()} disabled={files.length === 0 || busy}>
             {t('img-to-pdf.cta')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button variant="secondary" disabled={files.length === 0 || busy} onClick={() => void run('pick')}>
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton
+            disabled={files.length === 0 || busy}
+            onClick={() => void run('pick')}
+          />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('img-to-pdf.progress_idle')}</span>
           )}

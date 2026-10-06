@@ -106,6 +106,11 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
   const applyUpdate = useCallback(() => {
     if (reloadStartedRef.current) return;
+    const reloadFallback = () => {
+      if (reloadStartedRef.current) return;
+      reloadStartedRef.current = true;
+      window.location.reload();
+    };
     void navigator.serviceWorker
       ?.getRegistration()
       .then((reg) => {
@@ -120,15 +125,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
         // Fallback (red-team F2): the waiting worker vanished — another tab
         // took the update, so updateServiceWorker would be a dead button.
         // A plain reload re-requests the shell and lands on the new precache.
-        reloadStartedRef.current = true;
-        window.location.reload();
+        reloadFallback();
       })
-      .catch(() => {
-        if (!reloadStartedRef.current) {
-          reloadStartedRef.current = true;
-          window.location.reload();
-        }
-      });
+      .catch(reloadFallback);
   }, [updateServiceWorker]);
 
   const dismiss = useCallback(() => {

@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { canSaveElsewhere, deliverBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
+import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon } from '../ui/icons';
 
@@ -185,11 +186,7 @@ export function EncryptTool() {
           <Button onClick={() => void run()} disabled={!canRun}>
             {mode === 'encrypt' ? t('encrypt.cta_encrypt') : t('encrypt.cta_decrypt')}
           </Button>
-          {canSaveElsewhere() ? (
-            <Button variant="secondary" disabled={!canRun} onClick={() => void run('pick')}>
-              {t('save_elsewhere')}
-            </Button>
-          ) : null}
+          <SaveElsewhereButton disabled={!canRun} onClick={() => void run('pick')} />
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('encrypt.progress_idle')}</span>
           )}
