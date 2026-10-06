@@ -94,7 +94,7 @@ export default defineConfig({
       },
     },
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt', // deploy B of the phase-2 two-step bridge: the banner cohort is now on app-new
       strategies: 'generateSW',
       workbox: {
         // Fonts are build-emitted (not in public/), so they must be globbed
