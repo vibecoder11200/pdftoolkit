@@ -5,7 +5,7 @@ import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { ErrorBanner } from '../ui/error-banner';
@@ -105,7 +105,7 @@ export function MergeTool() {
   const kept = pages.filter((p) => !deselected.has(p.uuid));
   const totalBytes = files.reduce((a, f) => a + f.file.size, 0);
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     if (kept.length === 0 || files.length === 0) return;
     try {
@@ -115,8 +115,11 @@ export function MergeTool() {
       );
       const parts = files.map((f) => f.bytes);
       const out = await engine.mergeSelected(parts, picks);
-      setProgress({ value: 100, label: t('merge.progress_done') });
-      downloadBytes(out, 'merged.pdf');
+      if (await deliverBytes(out, 'merged.pdf', dest)) {
+        setProgress({ value: 100, label: t('merge.progress_done') });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
       setProgress(null);
@@ -156,6 +159,11 @@ export function MergeTool() {
           <Button onClick={() => void run()} disabled={kept.length === 0}>
             {t('merge.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" disabled={kept.length === 0} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('merge.progress_idle')}</span>
           )}

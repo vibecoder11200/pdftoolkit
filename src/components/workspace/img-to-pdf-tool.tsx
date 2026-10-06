@@ -4,7 +4,7 @@ import { PDFDocument, PageSizes } from 'pdf-lib';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { ErrorBanner } from '../ui/error-banner';
@@ -144,7 +144,7 @@ export function ImgToPdfTool() {
     setError(null);
   };
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setError(null);
     if (files.length === 0) {
       setError({ key: 'img-to-pdf.err_no_file' });
@@ -181,8 +181,11 @@ export function ImgToPdfTool() {
         }
       }
       const out = await doc.save();
-      setProgress({ value: 100, label: t('img-to-pdf.progress_done', { count: files.length }) });
-      downloadBytes(out, 'images.pdf');
+      if (await deliverBytes(out, 'images.pdf', dest)) {
+        setProgress({ value: 100, label: t('img-to-pdf.progress_done', { count: files.length }) });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch (e) {
       setError({
         key: 'img-to-pdf.err_failed',
@@ -218,6 +221,11 @@ export function ImgToPdfTool() {
           <Button onClick={() => void run()} disabled={files.length === 0 || busy}>
             {t('img-to-pdf.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" disabled={files.length === 0 || busy} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('img-to-pdf.progress_idle')}</span>
           )}

@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
@@ -114,6 +114,15 @@ export function DeleteTool() {
     downloadBytes(bytes, fileName ? fileName.replace(/\.pdf$/i, '-removed.pdf') : 'removed.pdf');
   };
 
+  const saveToPicker = () => {
+    if (!bytes) return;
+    void deliverBytes(
+      bytes,
+      fileName ? fileName.replace(/\.pdf$/i, '-removed.pdf') : 'removed.pdf',
+      'pick',
+    );
+  };
+
   return (
     <WorkspaceShell
       title={t('remove.title')}
@@ -143,6 +152,11 @@ export function DeleteTool() {
           >
             {t('remove.cta_save')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" onClick={saveToPicker} disabled={!bytes}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('remove.progress_idle')}</span>
           )}

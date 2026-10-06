@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
@@ -81,7 +81,7 @@ export function ExtractTool() {
     setSelected(new Set());
   };
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunErrorKey(null);
     if (!src || numPages === 0) {
       setRunErrorKey('extract.error_no_file');
@@ -95,8 +95,11 @@ export function ExtractTool() {
       const targets = [...selected].sort((a, b) => a - b);
       setProgress({ value: 20, label: t('extract.progress_working', { count: targets.length }) });
       const out = await engine.extractPages(src.bytes, targets);
-      setProgress({ value: 100, label: t('extract.progress_done') });
-      downloadBytes(out, 'extracted.pdf');
+      if (await deliverBytes(out, 'extracted.pdf', dest)) {
+        setProgress({ value: 100, label: t('extract.progress_done') });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch {
       setRunErrorKey('extract.error_save');
       setProgress(null);
@@ -139,6 +142,11 @@ export function ExtractTool() {
           <Button onClick={() => void run()} disabled={!src || selected.size === 0}>
             {t('extract.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" disabled={!src || selected.size === 0} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           <Button variant="secondary" onClick={selectAll} disabled={!src || numPages === 0}>
             {t('extract.select_all')}
           </Button>

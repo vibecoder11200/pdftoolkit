@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
 import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -23,21 +23,6 @@ const THUMB_CAP = 60;
 function baseName(fileName: string): string {
   const stripped = fileName.replace(/\.pdf$/i, '');
   return stripped.trim() === '' ? 'pdf' : stripped;
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }
 }
 
 /** Thumb-state updater: installs `next`, revoking the replaced object URLs. */
@@ -140,7 +125,7 @@ export function PdfToImgTool() {
     return images;
   };
 
-  const run = async (kind: 'auto' | 'single' = 'auto') => {
+  const run = async (kind: 'auto' | 'single' = 'auto', dest: 'download' | 'pick' = 'download') => {
     setRunErrorKey(null);
     setZipOverflow(false);
     if (!src || numPages === 0) {
@@ -157,7 +142,16 @@ export function PdfToImgTool() {
         setProgress({ value: 95, label: t('pdf-to-img.progress_zip') });
         try {
           const zip = await engine.zipStore(images);
-          downloadBytes(zip, `${baseName(src.file.name)}-images.zip`, 'application/zip');
+          const saved = await deliverBytes(
+            zip,
+            `${baseName(src.file.name)}-images.zip`,
+            dest,
+            'application/zip',
+          );
+          if (!saved) {
+            setProgress(null); // picker cancelled — back to idle, not an error
+            return;
+          }
           setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
           return;
         } catch (e) {
@@ -166,8 +160,10 @@ export function PdfToImgTool() {
           setZipOverflow(true);
         }
       }
+      const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+      // Per-image fallback is multi-output: no picker loop, plain downloads.
       for (const image of images) {
-        downloadBlob(new Blob([image.bytes.slice().buffer as ArrayBuffer]), image.name);
+        downloadBytes(image.bytes, image.name, mime);
         await new Promise((r) => setTimeout(r, 150));
       }
       setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
@@ -274,6 +270,15 @@ export function PdfToImgTool() {
           <Button onClick={() => void run('auto')} disabled={!src || numPages === 0 || busy}>
             {t('pdf-to-img.cta')}
           </Button>
+          {canSaveElsewhere() && numPages > 1 ? (
+            <Button
+              variant="secondary"
+              onClick={() => void run('auto', 'pick')}
+              disabled={!src || numPages === 0 || busy}
+            >
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {numPages > 1 ? (
             <Button
               variant="secondary"

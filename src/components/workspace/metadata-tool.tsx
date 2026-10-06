@@ -4,7 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { sniffPdfMagic } from '../../lib/file-accept';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
@@ -117,7 +117,7 @@ export function MetadataTool() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const save = async () => {
+  const save = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     if (!src) {
       setRunError({ key: 'metadata.error_no_file' });
@@ -136,8 +136,11 @@ export function MetadataTool() {
       // Preserve the original CreationDate (acceptance: save must not shift it).
       if (creationDate) doc.setCreationDate(creationDate);
       const out = await doc.save();
-      setProgress({ value: 100, label: t('metadata.progress_done') });
-      downloadBytes(out, outputName(src.file.name));
+      if (await deliverBytes(out, outputName(src.file.name), dest)) {
+        setProgress({ value: 100, label: t('metadata.progress_done') });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch (e) {
       setRunError({
         key: 'metadata.error_save',
@@ -198,6 +201,15 @@ export function MetadataTool() {
           <Button onClick={() => void save()} disabled={!src || busy || loadErrorKey !== null}>
             {t('metadata.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button
+              variant="secondary"
+              disabled={!src || busy || loadErrorKey !== null}
+              onClick={() => void save('pick')}
+            >
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('metadata.progress_idle')}</span>
           )}

@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { parseRanges } from '../../lib/ranges';
 import { Dropzone } from '../ui/dropzone';
@@ -132,7 +132,7 @@ export function SplitTool() {
     setRunError(null);
   };
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     if (!file) {
       setRunError(t('split.no_file'));
@@ -155,8 +155,11 @@ export function SplitTool() {
         const combined = parsedNow.ranges.flat();
         setProgress({ value: 20, label: t('split.progress_working', { count: combined.length }) });
         const outs = await engine.splitRanges(file.bytes, [combined]);
-        setProgress({ value: 100, label: t('split.progress_done') });
-        if (outs[0]) downloadBytes(outs[0], `${stem}-split.pdf`);
+        if (await deliverBytes(outs[0], `${stem}-split.pdf`, dest)) {
+          setProgress({ value: 100, label: t('split.progress_done') });
+        } else {
+          setProgress(null); // picker cancelled — not an error
+        }
       } else {
         setProgress({
           value: 20,
@@ -164,6 +167,7 @@ export function SplitTool() {
         });
         const outs = await engine.splitRanges(file.bytes, parsedNow.ranges);
         setProgress({ value: 100, label: t('split.progress_done') });
+        // Multi-file mode stays plain download — one picker per file is hostile.
         outs.forEach((out, i) => downloadBytes(out, `${stem}-part${i + 1}.pdf`));
       }
     } catch (e) {
@@ -253,6 +257,11 @@ export function SplitTool() {
           <Button onClick={() => void run()} disabled={!file || busy}>
             {t('split.cta')}
           </Button>
+          {canSaveElsewhere() && mode === 'combined' ? (
+            <Button variant="secondary" disabled={!file || busy} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('split.progress_idle')}</span>
           )}

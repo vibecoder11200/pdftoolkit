@@ -422,6 +422,7 @@
     "configure": "Tùy chỉnh",
     "download": "Tải xuống"
   },
+  "save_elsewhere": "Chọn nơi lưu",
   "units": {
     "files_one": "{{count}} file",
     "files_other": "{{count}} file",

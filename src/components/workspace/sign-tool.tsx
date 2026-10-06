@@ -5,7 +5,7 @@ import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -365,7 +365,7 @@ export function SignTool() {
   };
 
   // ---- run: embedPng + drawImage --------------------------------------------
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     setSucceeded(false);
     if (!src) {
@@ -444,9 +444,12 @@ export function SignTool() {
       } else {
         out = await doc.save();
       }
-      setProgress({ value: 100, label: t('sign.progress_done') });
-      downloadBytes(out, outputName(src.file.name));
-      setSucceeded(true);
+      if (await deliverBytes(out, outputName(src.file.name), dest)) {
+        setProgress({ value: 100, label: t('sign.progress_done') });
+        setSucceeded(true);
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch (e) {
       setRunError({
         key: 'sign.err_failed',
@@ -517,6 +520,15 @@ export function SignTool() {
           >
             {t('sign.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button
+              variant="secondary"
+              disabled={!src || (!sig && !digital) || (digital && !digitalAck) || busy}
+              onClick={() => void run('pick')}
+            >
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('sign.progress_idle')}</span>
           )}

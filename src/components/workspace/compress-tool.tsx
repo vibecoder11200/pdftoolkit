@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -428,10 +428,18 @@ export function CompressTool() {
               pct: Math.abs(result.savedPct).toFixed(1),
             })}
           </p>
-          <div className="mt-2.5">
+          <div className="mt-2.5 flex flex-wrap gap-2">
             <Button onClick={() => downloadBytes(result.bytes, result.filename)}>
               {t('compress.download_cta')}
             </Button>
+            {canSaveElsewhere() ? (
+              <Button
+                variant="secondary"
+                onClick={() => void deliverBytes(result.bytes, result.filename, 'pick')}
+              >
+                {t('save_elsewhere')}
+              </Button>
+            ) : null}
           </div>
         </section>
       ) : null}

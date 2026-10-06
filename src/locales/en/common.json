@@ -422,6 +422,7 @@
     "configure": "Configure",
     "download": "Download"
   },
+  "save_elsewhere": "Save to…",
   "units": {
     "files_one": "{{count}} file",
     "files_other": "{{count}} files",

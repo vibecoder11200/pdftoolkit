@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
@@ -94,7 +94,7 @@ export function RotateTool() {
     });
   };
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     if (!source) {
       setRunError(t('rotate.err_no_file'));
@@ -108,8 +108,11 @@ export function RotateTool() {
     try {
       setProgress({ value: 20, label: t('rotate.progress_working', { count: targets.length }) });
       const out = await engine.rotatePages(source.bytes, targets, angle);
-      setProgress({ value: 100, label: t('rotate.progress_done') });
-      downloadBytes(out, 'rotated.pdf');
+      if (await deliverBytes(out, 'rotated.pdf', dest)) {
+        setProgress({ value: 100, label: t('rotate.progress_done') });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setRunError(t('rotate.err_failed', { message }));
@@ -171,6 +174,11 @@ export function RotateTool() {
           <Button onClick={() => void run()} disabled={!source || selected.size === 0}>
             {t('rotate.cta')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" disabled={!source || selected.size === 0} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('rotate.progress_idle')}</span>
           )}

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
-import { downloadBytes } from '../../lib/download';
+import { canSaveElsewhere, deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -87,7 +87,7 @@ export function EncryptTool() {
     setSucceeded(false);
   };
 
-  const run = async () => {
+  const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     setSucceeded(false);
     if (!src) {
@@ -111,9 +111,12 @@ export function EncryptTool() {
         setProgress({ value: 20, label: t('encrypt.progress_encrypting') });
         const owner = ownerPass || userPass;
         const out = await withWorkerTimeout(engine.encryptPdf(src.bytes, userPass, owner, bits));
-        setProgress({ value: 100, label: t('encrypt.progress_done') });
-        downloadBytes(out, outputName(src.file.name, 'encrypt'));
-        setSucceeded(true);
+        if (await deliverBytes(out, outputName(src.file.name, 'encrypt'), dest)) {
+          setProgress({ value: 100, label: t('encrypt.progress_done') });
+          setSucceeded(true);
+        } else {
+          setProgress(null); // picker cancelled — not an error
+        }
       } else {
         if (!decryptPass) {
           setRunError({ key: 'encrypt.err_no_password' });
@@ -121,9 +124,12 @@ export function EncryptTool() {
         }
         setProgress({ value: 20, label: t('encrypt.progress_decrypting') });
         const out = await withWorkerTimeout(engine.decryptPdf(src.bytes, decryptPass));
-        setProgress({ value: 100, label: t('encrypt.progress_done') });
-        downloadBytes(out, outputName(src.file.name, 'decrypt'));
-        setSucceeded(true);
+        if (await deliverBytes(out, outputName(src.file.name, 'decrypt'), dest)) {
+          setProgress({ value: 100, label: t('encrypt.progress_done') });
+          setSucceeded(true);
+        } else {
+          setProgress(null); // picker cancelled — not an error
+        }
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -179,6 +185,11 @@ export function EncryptTool() {
           <Button onClick={() => void run()} disabled={!canRun}>
             {mode === 'encrypt' ? t('encrypt.cta_encrypt') : t('encrypt.cta_decrypt')}
           </Button>
+          {canSaveElsewhere() ? (
+            <Button variant="secondary" disabled={!canRun} onClick={() => void run('pick')}>
+              {t('save_elsewhere')}
+            </Button>
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('encrypt.progress_idle')}</span>
           )}
