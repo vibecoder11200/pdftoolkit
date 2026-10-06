@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -39,6 +40,12 @@ function downloadBlob(blob: Blob, filename: string): void {
 export function PdfToImgTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   const [numPages, setNumPages] = useState(0);
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [format, setFormat] = useState<ImageFormat>('jpg');

@@ -17,7 +17,8 @@
     "reset": "Reset",
     "retry": "Retry",
     "progress": "Progress",
-    "loading": "Working..."
+    "loading": "Working...",
+    "keyboard_move_hint": "Alt + ←/→ to move the focused page"
   },
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",

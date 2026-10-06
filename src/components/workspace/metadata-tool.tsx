@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PDFDocument } from 'pdf-lib';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { sniffPdfMagic } from '../../lib/file-accept';
 import { downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
@@ -51,6 +52,12 @@ function outputName(original: string): string {
 export function MetadataTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   const [form, setForm] = useState<MetadataForm>(EMPTY_FORM);
   // Snapshot of the original CreationDate so save() can restore it byte-identically.
   const [creationDate, setCreationDate] = useState<Date | null>(null);

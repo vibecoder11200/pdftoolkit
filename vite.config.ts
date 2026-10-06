@@ -129,7 +129,7 @@ export default defineConfig({
         start_url: '/pdftoolkit/',
         display: 'standalone',
         background_color: '#f8f8fc',
-        theme_color: '#4f46e5',
+        theme_color: '#0078c6',
         lang: 'vi',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -151,8 +151,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 1500,
   },
   test: {
-    // smoke.spec.ts is a Playwright e2e spec (preview server); keep vitest on
+    // *.e2e.spec.ts are Playwright specs (preview server); keep vitest on
     // the node-side engine/matrix suites only.
-    exclude: [...configDefaults.exclude, 'tests/smoke.spec.ts'],
+    exclude: [...configDefaults.exclude, 'tests/*.e2e.spec.ts'],
   },
 });

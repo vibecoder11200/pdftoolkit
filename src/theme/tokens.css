@@ -36,6 +36,8 @@
   --accent: oklch(55% 0.16 243);
   --accent-hover: oklch(50% 0.16 243);
   --accent-soft: oklch(95% 0.03 243);
+  /* in-app brand tile (Logo): same as accent in light, deepened for dark */
+  --logo-tile: var(--accent);
   --danger: oklch(55% 0.21 27);
   --danger-soft: oklch(96% 0.018 27);
   /* 47% (not 55%): --success doubles as text on --success-soft (privacy
@@ -82,6 +84,7 @@
   --accent: oklch(72% 0.125 243);
   --accent-hover: oklch(77% 0.115 243);
   --accent-soft: oklch(28% 0.055 243);
+  --logo-tile: oklch(30% 0.1 265);
   --danger: oklch(70% 0.17 25);
   --danger-soft: oklch(27% 0.06 25);
   --success: oklch(72% 0.13 160);

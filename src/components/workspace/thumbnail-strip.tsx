@@ -15,6 +15,8 @@ interface ThumbnailStripProps {
   closeLabel: string;
   onToggle: (pageNumber: number, index: number) => void;
   onMove?: (from: number, to: number) => void;
+  /** When set (with onMove): Alt+←/→ moves the focused cell, hint renders above the grid. */
+  keyboardMoveHint?: string;
   /** Lazy-render hook: registers each cell so it renders when visible. */
   register?: (key: string, el: HTMLElement | null) => (() => void) | void;
 }
@@ -25,12 +27,16 @@ export function ThumbnailStrip({
   closeLabel,
   onToggle,
   onMove,
+  keyboardMoveHint,
   register,
 }: ThumbnailStripProps) {
   const [fs, setFs] = useState<number | null>(null);
 
   return (
     <>
+      {keyboardMoveHint && onMove ? (
+        <p className="mb-2 text-[12.5px] text-text-muted">{keyboardMoveHint}</p>
+      ) : null}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
         {pages.map((p, idx) => (
           <div
@@ -46,6 +52,13 @@ export function ThumbnailStrip({
               if (e.key === ' ' || e.key === 'Enter') {
                 e.preventDefault();
                 onToggle(p.pageNumber, idx);
+                return;
+              }
+              if (keyboardMoveHint && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                const target = e.key === 'ArrowLeft' ? idx - 1 : idx + 1;
+                if (target < 0 || target >= pages.length) return;
+                e.preventDefault();
+                onMove?.(p.pageNumber, pages[target].pageNumber);
               }
             }}
             onDragStart={(e) => e.dataTransfer.setData('text/plain', String(p.pageNumber))}

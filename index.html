@@ -8,7 +8,9 @@
       content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
     />
     <meta name="description" content="Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn. Gộp, tách, nén, chuyển đổi và ký PDF ngay trên trình duyệt." />
-    <meta name="theme-color" content="#4f46e5" />
+    <!-- Browser chrome tint, scoped per scheme (values mirror tokens.css page/accent) -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0078c6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#090f14" />
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="%BASE_URL%favicon-32.png" sizes="32x32" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon-180.png" />

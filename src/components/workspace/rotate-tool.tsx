@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
@@ -16,6 +17,12 @@ const ANGLES: Angle[] = [90, 180, 270];
 export function RotateTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   const source = files[0] ?? null;
   const [numPages, setNumPages] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());

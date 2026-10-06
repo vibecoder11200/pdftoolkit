@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
@@ -13,6 +14,12 @@ import { ThumbnailStrip } from './thumbnail-strip';
 export function ReorderTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   // `order` is the full permutation: display position -> original 1-based page.
   const [order, setOrder] = useState<number[]>([]);
   const [numPages, setNumPages] = useState(0);
@@ -179,6 +186,7 @@ export function ReorderTool() {
             register={observe}
             onToggle={() => {}}
             onMove={(from, to) => move(from, to)}
+            keyboardMoveHint={t('a11y.keyboard_move_hint')}
           />
           <ol className="mt-3 flex flex-col gap-2" aria-label={t('reorder.title')}>
             {order.map((orig, idx) => (

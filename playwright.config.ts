@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   // Only the browser e2e suite; engine/matrix specs belong to vitest.
-  testMatch: '**/smoke.spec.ts',
+  testMatch: '**/*.e2e.spec.ts',
   timeout: 120_000,
   retries: process.env.CI ? 1 : 0,
   use: {

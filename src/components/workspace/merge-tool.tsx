@@ -211,6 +211,7 @@ export function MergeTool() {
               });
             }}
             onMove={(from, to) => movePage(from, to)}
+            keyboardMoveHint={t('a11y.keyboard_move_hint')}
           />
         </>
       ) : null}

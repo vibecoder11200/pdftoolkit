@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
@@ -23,6 +24,12 @@ function newKey(p: number, gen: number): string {
 export function DeleteTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [fileSize, setFileSize] = useState<number>(0);

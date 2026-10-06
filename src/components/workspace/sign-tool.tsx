@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
+import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { MAX_FILE_BYTES } from '../../lib/file-accept';
@@ -78,6 +79,12 @@ function outputName(original: string): string {
 export function SignTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
+
   const [tab, setTab] = useState<SignTab>('draw');
   const [typedName, setTypedName] = useState('');
   const [drawSig, setDrawSig] = useState<SigImage | null>(null);
@@ -575,7 +582,7 @@ export function SignTool() {
             onClick={() => setTab(m)}
             className={`inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border px-4 text-sm font-semibold ${
               tab === m
-                ? 'border-accent bg-accent-soft text-accent'
+                ? 'border-accent bg-accent-soft text-text-primary'
                 : 'border-border-strong bg-surface-card text-text-muted hover:bg-surface-hover'
             }`}
           >

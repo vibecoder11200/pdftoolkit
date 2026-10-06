@@ -17,7 +17,8 @@
     "reset": "Đặt lại",
     "retry": "Thử lại",
     "progress": "Tiến trình",
-    "loading": "Đang xử lý..."
+    "loading": "Đang xử lý...",
+    "keyboard_move_hint": "Alt + ←/→ để di chuyển trang đang focus"
   },
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",

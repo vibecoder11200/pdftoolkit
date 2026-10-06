@@ -51,11 +51,23 @@ export function ThemeToggle() {
     setTheme(stored);
     applyResolvedTheme(resolveTheme(stored, systemPrefersDark()));
     // OS scheme flips only matter while the user follows the system.
-    return watchSystemTheme((systemDark) => {
+    const unwatchSystem = watchSystemTheme((systemDark) => {
       if (readStoredTheme() === 'system') {
         applyResolvedTheme(resolveTheme('system', systemDark));
       }
     });
+    // Multi-tab sync: another tab wrote a new preference.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== 'pdftoolkit-theme') return;
+      const next = readStoredTheme();
+      setTheme(next);
+      applyResolvedTheme(resolveTheme(next, systemPrefersDark()));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      unwatchSystem();
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
   const pick = (next: Theme) => {

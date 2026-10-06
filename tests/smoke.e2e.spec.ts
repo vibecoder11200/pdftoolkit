@@ -138,10 +138,17 @@ test('mobile hamburger opens, navigates, and restores focus', async ({ page }) =
   await expect(page.locator('#mobile-nav-panel')).toBeHidden();
 });
 
-test('axe: no serious/critical violations on home and merge', async ({ page }) => {
+test('axe: no serious/critical violations on home, merge, and 4 swept tools', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();
-  for (const path of ['/', './tools/merge']) {
+  for (const path of [
+    '/',
+    './tools/merge',
+    './tools/rotate',
+    './tools/extract',
+    './tools/split',
+    './tools/compress',
+  ]) {
     await page.goto(path);
     const results = await new AxeBuilder({ page }).analyze();
     const bad = results.violations.filter(
