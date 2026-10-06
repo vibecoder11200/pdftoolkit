@@ -48,6 +48,11 @@ export function SuggestionSheet({ state, onClose }: { state: SheetState; onClose
             <span>
               <strong className="block text-sm font-bold">{t(`tools:${s.slug}.title`)}</strong>
               <span className="text-[13px] text-text-muted">{t(s.reasonKey)}</span>
+              {s.partial ? (
+                <span className="mt-0.5 block text-xs text-text-muted">
+                  {t('home.reason_compress_extra')}
+                </span>
+              ) : null}
             </span>
           </button>
         ))}

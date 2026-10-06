@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+// React 19 warns on act() outside a declared act environment — tests here
+// drive updates through act() deliberately.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -35,12 +38,15 @@ const renderTour = () =>
   });
 
 const dialog = () => container.querySelector('[role="dialog"]');
+// Select by testid + the numeric step counter, never by copy — the copy is
+// VI and belongs to the locale files, not to behavior assertions.
+const stepCounter = () => dialog()!.querySelector('.tabular-nums')!.textContent;
 
 describe('Tour gating', () => {
   it('mounts for a first visit (no flags set)', async () => {
     await renderTour();
     expect(dialog()).not.toBeNull();
-    expect(dialog()!.getAttribute('aria-label')).toContain('Chào mừng');
+    expect(stepCounter()).toBe('1/4');
   });
 
   it('does not mount when the done flag is set', async () => {
@@ -98,18 +104,14 @@ describe('Tour gating', () => {
 describe('Tour flow', () => {
   it('Next advances steps, finish persists done, re-render stays hidden', async () => {
     await renderTour();
-    const next = () => {
-      const btn = [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === 'Tiếp');
-      return btn!;
-    };
-    await act(async () => next().click());
-    expect(dialog()!.getAttribute('aria-label')).toContain('Thả file');
-    await act(async () => next().click());
-    await act(async () => next().click());
-    const finish = [...dialog()!.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Bắt đầu dùng',
-    )!;
-    await act(async () => finish.click());
+    const primary = () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="tour-primary"]')!;
+    await act(async () => primary().click());
+    expect(stepCounter()).toBe('2/4');
+    await act(async () => primary().click());
+    await act(async () => primary().click());
+    expect(stepCounter()).toBe('4/4');
+    await act(async () => primary().click());
     expect(dialog()).toBeNull();
     expect(localStorage.getItem('pdftoolkit-tour-done')).toBe('1');
     // Re-mount: done flag keeps the tour away.
@@ -120,7 +122,7 @@ describe('Tour flow', () => {
 
   it('Skip also persists the done flag', async () => {
     await renderTour();
-    const skip = [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === 'Bỏ qua')!;
+    const skip = container.querySelector<HTMLButtonElement>('[data-testid="tour-skip"]')!;
     await act(async () => skip.click());
     expect(dialog()).toBeNull();
     expect(localStorage.getItem('pdftoolkit-tour-done')).toBe('1');
@@ -142,7 +144,7 @@ describe('Tour flow', () => {
     try {
       await renderTour();
       const next = () =>
-        [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === 'Tiếp')!;
+        container.querySelector<HTMLButtonElement>('[data-testid="tour-primary"]')!;
       await act(async () => next().click());
       // The ring div carries the giant box-shadow overlay.
       const ring = [...container.querySelectorAll<HTMLElement>('[aria-hidden]')].find((el) =>

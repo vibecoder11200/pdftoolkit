@@ -164,6 +164,7 @@ export function Tour() {
           <span className="ml-auto flex gap-2">
             <button
               type="button"
+              data-testid="tour-skip"
               className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm"
               onClick={finish}
             >
@@ -171,6 +172,7 @@ export function Tour() {
             </button>
             <button
               type="button"
+              data-testid="tour-primary"
               className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
               onClick={() => (last ? finish() : setStep(step + 1))}
             >

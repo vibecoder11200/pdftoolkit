@@ -307,7 +307,8 @@ export function CompressTool() {
           </span>
         </div>
       ) : null}
-      <div className="mt-4">
+      <div className="mt-4 flex flex-col gap-2">
+        <Hint variant="info" dismissKey="hint-compress-size">{t('compress.size_recommend')}</Hint>
         <Hint variant="info" dismissKey="hint-compress-modes">{t('compress.modes_hint')}</Hint>
       </div>
       <fieldset className="mt-4">

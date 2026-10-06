@@ -22,6 +22,9 @@
     "page_n": "Page {{n}}",
     "page_moved": "Moved page {{page}} to position {{position}}"
   },
+  "dropzone": {
+    "single_taken": "Only one file is accepted — taking the first one."
+  },
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",
     "subtitle": "Merge, split, compress, convert, and sign PDFs right in your browser. Processed 100% on your device. No account, no limits, free.",
@@ -246,6 +249,7 @@
     "quality_small": "Smallest",
     "quality_small_hint": "Lightest file, images may look softer.",
     "cta": "Compress and compare",
+    "size_recommend": "Recommended: keep files ≤ 100 MB for faster, more reliable compression.",
     "progress_working_vector": "Packing vectors...",
     "progress_working_image": "Recompressing images, page {{done}}/{{total}}...",
     "progress_done": "Done. Compare sizes, then download.",
@@ -362,6 +366,7 @@
     "decrypt_pass_placeholder": "Enter the file password",
     "cta_encrypt": "Encrypt and download",
     "cta_decrypt": "Decrypt and download",
+    "size_recommend": "Recommended: keep files ≤ 100 MB for faster, more reliable encryption.",
     "progress_encrypting": "Encrypting...",
     "progress_decrypting": "Decrypting...",
     "progress_done": "Done. Your file has downloaded.",
@@ -385,6 +390,7 @@
     "sheet_close": "Close",
     "reason_merge": "Combine the PDFs into a single file",
     "reason_compress": "Shrink the PDF, text stays selectable",
+    "reason_compress_extra": "Only the PDF is loaded — the other files don't apply to this tool.",
     "reason_img_to_pdf": "Combine the images into one A4 PDF",
     "reason_decrypt": "This file is password-locked — unlock it with the password",
     "reject_not-pdf": "not a PDF (renaming the extension does not make it one)",

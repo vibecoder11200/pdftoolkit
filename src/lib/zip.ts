@@ -21,6 +21,16 @@ export class ZipSizeError extends Error {
   }
 }
 
+/**
+ * Detect a ZipSizeError that crossed the comlink worker boundary: structured
+ * clone keeps name/message but not the subclass prototype, so instanceof
+ * fails on the main thread for a genuine worker throw. Detection must stay
+ * name-based — see tests/zip-fallback.spec.ts.
+ */
+export function isZipSizeError(err: unknown): boolean {
+  return (err as { name?: string } | null | undefined)?.name === 'ZipSizeError';
+}
+
 // CRC-32 (IEEE 802.3), table-driven. Check vector: "123456789" -> 0xCBF43926.
 const CRC_TABLE: Uint32Array = (() => {
   const table = new Uint32Array(256);

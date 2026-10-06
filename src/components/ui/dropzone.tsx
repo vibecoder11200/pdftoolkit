@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 type DropzoneProps = {
   title: string;
@@ -29,15 +30,21 @@ export function Dropzone({
   onFiles,
   ...rest
 }: DropzoneProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragDepth, setDragDepth] = useState(0);
+  const [tookFirst, setTookFirst] = useState(false);
   const dragActive = dragDepth > 0;
 
   const emit = useCallback(
     (list: FileList | File[]) => {
-      onFiles(Array.from(list));
+      // Single-file tools used to take files[0] silently; surface that
+      // truncation instead of dropping files 2..N without a word.
+      const arr = Array.from(list);
+      setTookFirst(!multiple && arr.length > 1);
+      onFiles(multiple ? arr : arr.slice(0, 1));
     },
-    [onFiles],
+    [multiple, onFiles],
   );
 
   return (
@@ -80,6 +87,11 @@ export function Dropzone({
       ) : null}
       <strong className="text-text-primary">{title}</strong>
       <span>{hint}</span>
+      {tookFirst ? (
+        <span role="status" className="text-xs font-semibold text-warning">
+          {t('dropzone.single_taken')}
+        </span>
+      ) : null}
       <input
         ref={inputRef}
         type="file"

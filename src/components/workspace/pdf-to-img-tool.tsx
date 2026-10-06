@@ -4,6 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine } from '../../engine/client';
 import { downloadBytes } from '../../lib/download';
+import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -160,7 +161,8 @@ export function PdfToImgTool() {
           setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
           return;
         } catch (e) {
-          if ((e as Error).name !== 'ZipSizeError') throw e;
+          // comlink clones strip the ZipSizeError prototype — detect by name.
+          if (!isZipSizeError(e)) throw e;
           setZipOverflow(true);
         }
       }

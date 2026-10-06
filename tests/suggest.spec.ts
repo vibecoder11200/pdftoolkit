@@ -60,6 +60,14 @@ describe('buildSuggestions — tier 1', () => {
       loadPdfInfo: okLoader,
     });
     expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'img-to-pdf']);
+    // Compress is single-file: the mixed drop means only the PDF gets loaded,
+    // so the ranked row must say so instead of implying the whole set goes in.
+    expect(r.suggestions[0].partial).toBe(true);
+  });
+
+  it('lone PDF keeps the compress row unmarked (nothing is dropped)', async () => {
+    const r = await buildSuggestions([pdfFile('a.pdf')], { loadPdfInfo: okLoader });
+    expect(r.suggestions[0].partial).toBeUndefined();
   });
 
   it('images only → img-to-pdf top, no PDF suggestions', async () => {
@@ -108,6 +116,18 @@ describe('buildSuggestions — tier 2 (worker parse, injectable)', () => {
       reasonKey: 'home.reason_decrypt',
     });
     expect(r.showAllTools).toBe(false);
+  });
+
+  it('locked PDF beside other files marks the decrypt row partial', async () => {
+    const r = await buildSuggestions([pdfFile('locked.pdf'), bytesFile('photo.jpg', 'x', 'image/jpeg')], {
+      loadPdfInfo: lockedLoader,
+    });
+    expect(r.suggestions[0]).toEqual({
+      slug: 'encrypt',
+      mode: 'decrypt',
+      reasonKey: 'home.reason_decrypt',
+      partial: true,
+    });
   });
 
   it('corrupt PDF → unsupported row, remaining PDFs still suggest', async () => {

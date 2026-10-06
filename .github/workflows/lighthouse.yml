@@ -1,0 +1,69 @@
+# Lighthouse CI against the LIVE Pages deployment (not a preview build) —
+# runs after every successful production deploy of the `pages` workflow.
+#
+# WARN-ONLY by design for the v0.3.0 baseline (plan phase 1 slack): the job
+# records a11y/best-practices scores as an artifact but never fails, so a
+# first-run flake cannot block later phases. Once the baseline is green for a
+# few deploys, convert the `audit` step to `lhci assert` with
+# categories:accessibility >= 0.95 and categories:best-practices >= 0.90 and
+# drop `continue-on-error` to make regressions blocking.
+name: lighthouse
+
+on:
+  workflow_run:
+    workflows: [pages]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run Lighthouse (collect only — warn-only phase)
+        continue-on-error: true
+        run: |
+          npm i -g @lhci/cli@0.14.x
+          lhci autorun \
+            --collect.url=https://vibecoder11200.github.io/pdftoolkit/ \
+            --collect.numberOfRuns=1 \
+            --collect.settings.onlyCategories=performance,accessibility,best-practices
+      - name: Print category scores
+        if: always()
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const files = fs.existsSync('.lighthouseci')
+            ? fs.readdirSync('.lighthouseci').filter((f) => /^lhr-.*\.json$/.test(f))
+            : [];
+          for (const f of files) {
+            const lhr = JSON.parse(fs.readFileSync(`.lighthouseci/${f}`, 'utf8'));
+            const scores = Object.entries(lhr.categories)
+              .map(([k, v]) => `${k}=${Math.round(v.score * 100)}`)
+              .join(' ');
+            console.log(`Lighthouse ${f}: ${scores}`);
+          }
+          if (files.length === 0) {
+            console.log('No Lighthouse reports found — collect step failed; see its log.');
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-report
+          path: .lighthouseci/
+          retention-days: 30
+          if-no-files-found: ignore

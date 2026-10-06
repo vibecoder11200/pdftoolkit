@@ -236,6 +236,11 @@ export function EncryptTool() {
       {mode === 'encrypt' ? (
         <>
           <div className="mt-4">
+            <Hint variant="info" dismissKey="hint-encrypt-size">
+              {t('encrypt.size_recommend')}
+            </Hint>
+          </div>
+          <div className="mt-4">
             <Hint variant="warning" dismissKey="hint-encrypt-lost">
               <strong className="block">{t('encrypt.warn_title')}</strong>
               <span>{t('encrypt.warn_forgot')}</span>

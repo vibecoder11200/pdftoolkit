@@ -9,6 +9,9 @@ export interface Suggestion {
   /** Only set for locked PDFs: land on the encrypt tool in decrypt mode. */
   mode?: 'decrypt';
   reasonKey: string;
+  /** Single-file tool ranked for a multi-file drop: the sheet explains that
+   * only the PDF (not every dropped file) will be loaded. */
+  partial?: boolean;
 }
 
 export type RejectReason = 'not-pdf' | 'unsupported' | 'heic-refused' | 'too-large' | 'corrupt';
@@ -153,7 +156,12 @@ export async function buildSuggestions(
   }
 
   if (locked) {
-    suggestions.push({ slug: 'encrypt', mode: 'decrypt', reasonKey: 'home.reason_decrypt' });
+    suggestions.push({
+      slug: 'encrypt',
+      mode: 'decrypt',
+      reasonKey: 'home.reason_decrypt',
+      ...(files.length > 1 && { partial: true }),
+    });
   }
   if (tier2Usable.length >= 2) {
     // Merge only: compress is single-file, so ranking it for a multi-PDF set
@@ -162,7 +170,11 @@ export async function buildSuggestions(
     // compress below — there the target is unambiguous.
     suggestions.push({ slug: 'merge', reasonKey: 'home.reason_merge' });
   } else if (tier2Usable.length === 1) {
-    suggestions.push({ slug: 'compress', reasonKey: 'home.reason_compress' });
+    suggestions.push({
+      slug: 'compress',
+      reasonKey: 'home.reason_compress',
+      ...(files.length > 1 && { partial: true }),
+    });
     if (!locked && images.length === 0) showAllTools = true;
   }
 

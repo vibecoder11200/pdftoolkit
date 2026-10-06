@@ -22,6 +22,9 @@
     "page_n": "Trang {{n}}",
     "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
   },
+  "dropzone": {
+    "single_taken": "Chỉ nhận 1 file — đã lấy file đầu tiên."
+  },
   "hero": {
     "title": "Mọi công cụ PDF trong một nơi, file không rời khỏi máy bạn",
     "subtitle": "Gộp, tách, nén, chuyển đổi và ký PDF ngay trên trình duyệt. Xử lý 100% trên thiết bị của bạn. Không tài khoản, không giới hạn, miễn phí.",
@@ -246,6 +249,7 @@
     "quality_small": "Nhẹ nhất",
     "quality_small_hint": "File nhẹ nhất, ảnh có thể mờ hơn.",
     "cta": "Nén và so sánh",
+    "size_recommend": "Khuyến nghị: file ≤ 100 MB để nén nhanh và ổn định hơn.",
     "progress_working_vector": "Đang gọn vector...",
     "progress_working_image": "Đang nén ảnh {{done}}/{{total}} trang...",
     "progress_done": "Nén xong. So sánh dung lượng rồi tải xuống.",
@@ -362,6 +366,7 @@
     "decrypt_pass_placeholder": "Nhập mật khẩu của file",
     "cta_encrypt": "Mã hóa và tải xuống",
     "cta_decrypt": "Giải mã và tải xuống",
+    "size_recommend": "Khuyến nghị: file ≤ 100 MB để mã hóa/giải mã nhanh và ổn định hơn.",
     "progress_encrypting": "Đang mã hóa...",
     "progress_decrypting": "Đang giải mã...",
     "progress_done": "Hoàn tất. File đã tải xuống.",
@@ -385,6 +390,7 @@
     "sheet_close": "Đóng",
     "reason_merge": "Gộp các file PDF thành một file duy nhất",
     "reason_compress": "Giảm dung lượng PDF, chữ vẫn giữ nguyên",
+    "reason_compress_extra": "Chỉ file PDF được nạp — các file còn lại không dùng cho công cụ này.",
     "reason_img_to_pdf": "Gom các ảnh thành một file PDF khổ A4",
     "reason_decrypt": "File đang khóa mật khẩu — mở khóa bằng mật khẩu",
     "reject_not-pdf": "không phải PDF (đổi đuôi file không đọc được)",
