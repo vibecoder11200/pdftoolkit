@@ -49,7 +49,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   const reloadStartedRef = useRef(false);
   const cleanupChecksRef = useRef<() => void>(noop);
 
-  const { updateServiceWorker } = useRegisterSW({
+  // NOTE: the plugin's updateServiceWorker is deliberately NOT used (see
+  // applyUpdate) — only its event callbacks matter here.
+  useRegisterSW({
     onNeedRefresh() {
       setHasWaiting(true);
       if (!dismissedRef.current) setBannerVisible(true);
@@ -106,29 +108,47 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
   const applyUpdate = useCallback(() => {
     if (reloadStartedRef.current) return;
-    const reloadFallback = () => {
-      if (reloadStartedRef.current) return;
-      reloadStartedRef.current = true;
-      window.location.reload();
-    };
-    void navigator.serviceWorker
+    reloadStartedRef.current = true;
+    const sw = navigator.serviceWorker;
+    const reload = () => window.location.reload();
+    void sw
       ?.getRegistration()
       .then((reg) => {
-        if (reloadStartedRef.current) return;
-        if (reg?.waiting) {
-          // prompt flow: messageSkipWaiting arms the plugin's one-shot
-          // `controlling` → reload listener; it owns the reload from here.
-          reloadStartedRef.current = true;
-          void updateServiceWorker(true);
+        const waiting = reg?.waiting;
+        if (!waiting) {
+          // Nothing left to activate — another tab took the update (red-team
+          // F2). A plain reload still lands on the newest precache.
+          reload();
           return;
         }
-        // Fallback (red-team F2): the waiting worker vanished — another tab
-        // took the update, so updateServiceWorker would be a dead button.
-        // A plain reload re-requests the shell and lands on the new precache.
-        reloadFallback();
+        // Own the reload; do NOT route it through the plugin's
+        // updateServiceWorker (vite-plugin-pwa#789): its controlling→reload
+        // listener is armed only when the `waiting` event fires in-session
+        // (missed when the worker predates this page load), `controlling`
+        // never fires on an uncontrolled page (hard reload leaves the client
+        // controller-less and our SW claims no clients), and workbox's
+        // `event.isUpdate` is false when no SW controlled the page at
+        // register time. So: postMessage SKIP_WAITING directly and reload on
+        // the FIRST of controllerchange / activation / a stall timer.
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          sw.removeEventListener('controllerchange', finish);
+          window.clearTimeout(stall);
+          reload();
+        };
+        const onState = (e: Event) => {
+          if ((e.target as ServiceWorker).state === 'activated') finish();
+        };
+        const stall = window.setTimeout(finish, 10_000);
+        sw.addEventListener('controllerchange', finish);
+        waiting.addEventListener('statechange', onState);
+        if (waiting.state === 'activated') finish();
+        else waiting.postMessage({ type: 'SKIP_WAITING' });
       })
-      .catch(reloadFallback);
-  }, [updateServiceWorker]);
+      .catch(reload);
+  }, []);
 
   const dismiss = useCallback(() => {
     dismissedRef.current = true;

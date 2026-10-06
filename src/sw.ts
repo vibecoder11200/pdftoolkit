@@ -12,6 +12,7 @@
  */
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { clientsClaim } from 'workbox-core';
 import type { PrecacheEntry } from 'workbox-precaching';
 import { MAX_FILE_BYTES } from './lib/file-accept';
 
@@ -19,6 +20,12 @@ declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: PrecacheEntry[] 
 
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+// Parity with the generateSW template (which ships clientsClaim by default):
+// on activation, claim every open client. Without it a page left
+// controller-less by a hard reload never fires controllerchange when the
+// waiting worker activates, and the update banner's reload would depend on
+// its stall timer (vite-plugin-pwa#789).
+clientsClaim();
 
 // SPA navigation fallback (replaces generateSW's navigateFallback +
 // navigateFallbackDenylist): all navigation requests serve the precached

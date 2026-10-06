@@ -99,10 +99,17 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
 - The service worker is a custom `src/sw.ts` built via `injectManifest`
   (phase 6a, migrated from `generateSW`). `src/sw.ts` MUST keep:
   `precacheAndRoute(self.__WB_MANIFEST)` (the injection point — the build
-  replaces it), `cleanupOutdatedCaches()`, the
+  replaces it), `cleanupOutdatedCaches()`, `clientsClaim()` (generateSW
+  parity — without it a controller-less page, e.g. after a hard reload,
+  never gets controllerchange when the waiting worker activates), the
   `NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: [/^\/api/] })`
   SPA fallback, and the `SKIP_WAITING` message listener (`registerType:
-  'prompt'` depends on it; `use-app-update.tsx` sends the message). Two gates
+  'prompt'` depends on it; `use-app-update.tsx` sends the message). The
+  update banner owns its reload itself — postMessage SKIP_WAITING + reload
+  on controllerchange/activation/stall-timer — because the plugin's
+  `updateServiceWorker` reload path is unreliable exactly there
+  (vite-plugin-pwa#789); do not "simplify" it back to `updateServiceWorker`.
+  Two gates
   guard the manifest: `scripts/precache-diff.mjs` (diff `{url, revision}` vs
   `plans/precache-baseline.sw.js` — local-only; refresh it when the diff shows
   only intentional deltas) and
