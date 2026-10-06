@@ -42,9 +42,12 @@ export const engine = {
     getWorker().extractPages(owned(bytes) as Uint8Array, targets),
   compressVectorPack: (bytes: Uint8Array) =>
     getWorker().compressVectorPack(owned(bytes) as Uint8Array),
+  linearizePdf: (bytes: Uint8Array) => getWorker().linearizePdf(owned(bytes) as Uint8Array),
   encryptPdf: (bytes: Uint8Array, user: string, owner: string, bits?: 128 | 256) =>
     getWorker().encryptPdf(owned(bytes) as Uint8Array, user, owner, bits),
   decryptPdf: (bytes: Uint8Array, password: string) =>
     getWorker().decryptPdf(owned(bytes) as Uint8Array, password),
   qpdfCheck: (bytes: Uint8Array) => getWorker().qpdfCheck(owned(bytes) as Uint8Array),
+  zipStore: (entries: { name: string; bytes: Uint8Array }[]) =>
+    getWorker().zipStore(entries.map((e) => ({ name: e.name, bytes: owned(e.bytes) as Uint8Array }))),
 };

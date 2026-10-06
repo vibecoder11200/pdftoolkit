@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { env } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { unzipSync } from 'fflate';
 import {
   extractPages,
   loadPdf,
@@ -13,7 +14,14 @@ import {
   rotatePages,
   splitByRanges,
 } from '../src/engine/pdf-lib';
-import { compressVectorPack, decryptPdf, encryptPdf, qpdfCheck } from '../src/engine/qpdf';
+import {
+  compressVectorPack,
+  decryptPdf,
+  encryptPdf,
+  linearizePdf,
+  qpdfCheck,
+} from '../src/engine/qpdf';
+import { zipStore } from '../src/lib/zip';
 import { getTextOfFirstPage, pageCountOf } from './helpers/text-assert';
 
 // Phase 6 test matrix (PR tier): fixtures 1MB + 10MB x every P0 tool path
@@ -148,6 +156,28 @@ function defineMatrix(label: string, bytes: Uint8Array, expectedPages: number, t
       await qpdfCheck(packed);
       expect(await pageCountOf(packed)).toBe(expectedPages);
       expect(await getTextOfFirstPage(packed)).toContain('PDFTOOLKIT FIXTURE');
+    },
+    timeoutMs,
+  );
+
+  it(
+    `${tag}: linearizePdf marks fast-web-view and keeps pages`,
+    async () => {
+      const out = await linearizePdf(bytes);
+      expect(out.byteLength).toBeGreaterThan(0);
+      expect(new TextDecoder('latin1').decode(out.slice(0, 4096))).toContain('/Linearized');
+      expect(await pageCountOf(out)).toBe(expectedPages);
+    },
+    timeoutMs,
+  );
+
+  it(
+    `${tag}: zipStore packs renamed entries under the budget`,
+    async () => {
+      const zip = await zipStore([{ name: `page-${expectedPages}.png`, bytes }]);
+      const files = unzipSync(zip);
+      expect(Object.keys(files)).toEqual([`page-${expectedPages}.png`]);
+      expect(Buffer.from(files[`page-${expectedPages}.png`])).toEqual(Buffer.from(bytes));
     },
     timeoutMs,
   );

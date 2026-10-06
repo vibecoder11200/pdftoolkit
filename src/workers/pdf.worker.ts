@@ -1,6 +1,7 @@
 import { expose } from 'comlink';
 import * as lib from '../engine/pdf-lib';
-import { compressVectorPack, decryptPdf, encryptPdf, qpdfCheck } from '../engine/qpdf';
+import { compressVectorPack, decryptPdf, encryptPdf, linearizePdf, qpdfCheck } from '../engine/qpdf';
+import { zipStore } from '../lib/zip';
 
 export interface WorkerApi {
   loadPdf(bytes: Uint8Array): Promise<{ info: import('../engine/pdf-lib').PdfInfo }>;
@@ -12,9 +13,11 @@ export interface WorkerApi {
   splitRanges(bytes: Uint8Array, ranges: number[][]): Promise<Uint8Array[]>;
   extractPages(bytes: Uint8Array, targets: number[]): Promise<Uint8Array>;
   compressVectorPack(bytes: Uint8Array): Promise<Uint8Array>;
+  linearizePdf(bytes: Uint8Array): Promise<Uint8Array>;
   encryptPdf(bytes: Uint8Array, user: string, owner: string, bits?: 128 | 256): Promise<Uint8Array>;
   decryptPdf(bytes: Uint8Array, password: string): Promise<Uint8Array>;
   qpdfCheck(bytes: Uint8Array): Promise<void>;
+  zipStore(entries: { name: string; bytes: Uint8Array }[]): Promise<Uint8Array>;
 }
 
 const api: WorkerApi = {
@@ -27,9 +30,11 @@ const api: WorkerApi = {
   splitRanges: (bytes, ranges) => lib.splitByRanges(bytes, ranges),
   extractPages: (bytes, targets) => lib.extractPages(bytes, targets),
   compressVectorPack: (bytes) => compressVectorPack(bytes),
+  linearizePdf: (bytes) => linearizePdf(bytes),
   encryptPdf: (bytes, user, owner, bits) => encryptPdf(bytes, user, owner, bits),
   decryptPdf: (bytes, password) => decryptPdf(bytes, password),
   qpdfCheck: (bytes) => qpdfCheck(bytes),
+  zipStore: async (entries) => zipStore(entries),
 };
 
 expose(api);

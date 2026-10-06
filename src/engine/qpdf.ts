@@ -79,6 +79,43 @@ export async function compressVectorPack(input: Uint8Array): Promise<Uint8Array>
   return runQpdfFile(input, (i, o) => ['--object-streams=generate', '--', i, o]);
 }
 
+/*
+ * Linearizes for fast web view (first page renders before the whole file
+ * downloads). Exit-code semantics chosen here deliberately (red-team #14):
+ * qpdf exits 3 when it emitted warnings (repaired xref, recovered objects…)
+ * while still writing valid output. We accept 0 AND 3 for linearize — a
+ * repaired file is exactly the case users need linearization for — and log
+ * the warning rather than masking it globally with --warning-exit-0 (that
+ * flag would also silence real warnings for compress/encrypt).
+ *
+ * Exported for tests: the wasm build empirically escalates most repairable
+ * xref damage to exit 2, so the 0/3 boundary is unit-tested on this seam
+ * (tests/linearize.spec.ts) instead of through a synthetic warning file.
+ */
+export function isLinearizeAcceptableExit(code: number | undefined): boolean {
+  return code === 0 || code === 3 || code === undefined;
+}
+
+export async function linearizePdf(input: Uint8Array): Promise<Uint8Array> {
+  const mod = await qpdf();
+  const inP = tmp('in.pdf');
+  const outP = tmp('out.pdf');
+  mod.FS.writeFile(inP, input);
+  try {
+    const code = mod.callMain(['--linearize', '--', inP, outP]);
+    if (!isLinearizeAcceptableExit(code)) {
+      throw new Error(`qpdf linearize exit ${code}`);
+    }
+    if (code === 3) console.warn('[linearize] qpdf exited 3 (warnings) — output kept');
+    const out = mod.FS.readFile(outP).slice();
+    if (out.byteLength === 0) throw new Error('qpdf linearize produced no output');
+    return out;
+  } finally {
+    try { mod.FS.unlink(inP); } catch { /* noop */ }
+    try { mod.FS.unlink(outP); } catch { /* noop */ }
+  }
+}
+
 export async function encryptPdf(
   input: Uint8Array,
   userPass: string,
