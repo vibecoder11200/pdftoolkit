@@ -1,7 +1,7 @@
 {
   "name": "pdftoolkit",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.9-rc",
   "type": "module",
   "description": "PDF Toolkit PWA — 100% client-side, MIT",
   "scripts": {
