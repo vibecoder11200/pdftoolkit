@@ -11,14 +11,14 @@ import { UpdateBanner } from '../src/components/layout/update-banner';
 // swap in a double. applyUpdate deliberately does NOT use the plugin's
 // updateServiceWorker (vite-plugin-pwa#789: its reload path is unreliable when
 // the waiting worker predates the page load or the page is uncontrolled), so
-// the hook only consumes the event callbacks.
-vi.mock('virtual:pwa-register/react', () => ({
-  useRegisterSW: (opts?: Record<string, ((...args: unknown[]) => void) | undefined>) => {
+// the provider only consumes the event callbacks. Phase 1 (D6) migrates the
+// registration to the plain registerSW export (useRegisterSW cannot skip
+// registration — the desktop gate needs "never register"), the double mocks
+// that seam and captures the same options object.
+vi.mock('virtual:pwa-register', () => ({
+  registerSW: (opts?: Record<string, ((...args: unknown[]) => void) | undefined>) => {
     Object.assign(h.opts, opts ?? {});
-    return {
-      needRefresh: [false, () => undefined] as const,
-      offlineReady: [false, () => undefined] as const,
-    };
+    return Promise.resolve(() => Promise.resolve());
   },
 }));
 
