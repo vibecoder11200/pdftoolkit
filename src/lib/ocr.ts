@@ -5,7 +5,7 @@
 //
 // - Anti-CDN (R14): EVERY asset URL is derived from `import.meta.env.BASE_URL`
 //   (same-origin relative, ocrAssetUrl() refuses absolute URLs). tesseract.js
-//   v7 defaults workerPath/corePath/langPath to cdn.jsdelivr.net (see its
+//   v7 defaults workerPath/corePath/langPath to the jsDelivr public CDN (see its
 //   src/worker/browser/defaultOptions.js and worker-script getCore/loadLanguage)
 //   — all three are overridden on createWorker, and `workerBlobURL: false` so
 //   the worker spawns directly from the bundled `?url` import. Unit tests pin
