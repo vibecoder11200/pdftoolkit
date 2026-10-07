@@ -1,3 +1,6 @@
 # Generated Tauri build artifacts — never commit (phase-6 prep: init + conf only).
 target/
 WixTools/
+
+# Generated at build (tauri_build schemas)
+/gen/

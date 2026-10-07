@@ -8,18 +8,24 @@ import {
   onCleared,
 } from '../../lib/handoff';
 import { initLaunchQueue, routeForLaunch } from '../../lib/launch-queue';
+import { initDesktopIntake } from '../../lib/desktop-intake';
+import { DropOverlay } from './global-drop';
 
 /*
  * OS "open with" landing pad. The launch consumer parks files in the handoff
  * immediately; on home the suggestion sheet picks them up reactively, and on
  * a tool page this banner appears instead of navigating (the running session
  * stays untouched). Dismissing drops the parked files.
+ *
+ * Desktop (Tauri): initDesktopIntake feeds the SAME handoff from the
+ * OS-delivered paths (open-with, drag-drop, cold start) — phase 2 (D13).
  */
 export function LaunchBanner() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const [count, setCount] = useState(0);
+  const [desktopDragging, setDesktopDragging] = useState(false);
   const pathnameRef = useRef(location.pathname);
 
   useEffect(() => {
@@ -39,10 +45,26 @@ export function LaunchBanner() {
     [],
   );
 
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void initDesktopIntake({
+      onFiles: (files) => {
+        // Same semantics as the PWA launch queue: append, never replace.
+        appendPendingFiles(files);
+        if (routeForLaunch(pathnameRef.current) === 'tool') setCount(pendingFileCount());
+      },
+      onDragHighlight: setDesktopDragging,
+    }).then((off) => {
+      dispose = off;
+    });
+    return () => dispose?.();
+  }, []);
+
   // A tool consuming (or the user dismissing) the parked files must retract
   // the offer — otherwise the banner keeps advertising an empty handoff.
   useEffect(() => onCleared(() => setCount(0)), []);
 
+  if (desktopDragging) return <DropOverlay />;
   if (count === 0) return null;
   return (
     <section

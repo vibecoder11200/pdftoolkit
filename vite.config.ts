@@ -48,8 +48,22 @@ const fontRevisions = Object.fromEntries(
   ]),
 );
 
+// D11 (red-team R2): CSP is per-target. Web keeps the authored meta CSP;
+// the desktop build swaps the meta for the desktop CSP (ipc:/asset: connect
+// allowances — Tauri patches nonces into BOTH this meta and security.csp at
+// serve time, so the IPC init scripts stay allowed). tauri.conf.json carries
+// the identical string via security.csp — keep the two in sync.
+const DESKTOP_CSP =
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'";
+
 export default defineConfig({
-  base: '/pdftoolkit/',
+  // D10 (red-team R1, tauri#12332): desktop base is '/' — NOT './'. With
+  // './' a reload at /tools/* resolves assets against the route and Tauri's
+  // no-redirect fallback serves index.html as JS (blank window). Web keeps
+  // the GitHub Pages base. TAURI_ENV_PLATFORM is set by the tauri CLI for
+  // both `tauri dev` and `tauri build`; plain `npm run dev/build` never sees
+  // it, so web output is byte-stable.
+  base: process.env.TAURI_ENV_PLATFORM ? '/' : '/pdftoolkit/',
   resolve: {
     alias: {
       // js-pdf-signer's `browser` field is an IIFE with no exports; force the
@@ -79,6 +93,24 @@ export default defineConfig({
       },
     },
     tailwindcss(),
+    {
+      // D11 (red-team R2): swap the meta CSP to the desktop variant for
+      // `tauri build`/`tauri dev` only — web output is untouched (byte-stable
+      // vs the authored index.html). security.csp in tauri.conf.json carries
+      // the same string; keep the two in sync.
+      name: 'desktop-csp',
+      apply: 'build',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html) {
+          if (!process.env.TAURI_ENV_PLATFORM) return html;
+          return html.replace(
+            /(<meta[^>]*http-equiv="Content-Security-Policy"[^>]*content=")[^"]*(")/,
+            `$1${DESKTOP_CSP}$2`,
+          );
+        },
+      },
+    },
     {
       name: 'emit-qpdf-wasm',
       apply: 'build',
@@ -112,12 +144,24 @@ export default defineConfig({
           '**/*.{js,css,html}',
           'assets/qpdf.wasm',
           'assets/standard_fonts/*',
+          // Phase 4a (D8): tesseract core+tessdata are copied into public/ by
+          // scripts/sync-tessdata.mjs but deliberately NOT precached — the
+          // measured set is ~17MB (3 single-file .wasm.js core builds + 2
+          // traineddata.gz) vs the hard 17MB precache budget, so ocr.ts
+          // fetches them same-origin on first use and pins them in a Cache
+          // API store (offline after the first OCR run; desktop serves them
+          // straight from the on-disk bundle). The tesseract worker chunk
+          // (?url → assets/worker.min-<hash>.js, ~100KB) stays precached.
           'favicon.svg',
           'favicon-32.png',
           'apple-touch-icon-180.png',
           'icons/*.png',
           'manifest.webmanifest',
         ],
+        // Phase 4a: the **/*.js glob would otherwise sweep the tesseract
+        // single-file core builds (~11.7MB) into the precache — excluded here
+        // because ocr.ts lazy-caches them on first use instead (see above).
+        globIgnores: ['tesseract-core/**', 'tessdata/**'],
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
         // Pin the content hash of stable-filename assets (qpdf.wasm, fonts)
         // so a swapped binary can never silently serve from an old precache

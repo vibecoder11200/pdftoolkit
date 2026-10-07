@@ -130,6 +130,36 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
   delete it with Node:
   `node -e "require('fs').unlinkSync('D:/pdftoolkit/NUL')"`.
 
+### Desktop/Tauri invariants (v0.4.0 phase 1+)
+
+- `vite.config.ts` `base` is `'/'` iff `TAURI_ENV_PLATFORM` is set (the tauri
+  CLI sets it for both dev and build) — **NEVER `'./'`** (a reload at
+  /tools/* resolves assets against the route; Tauri's no-redirect fallback
+  serves index.html as JS → blank window, tauri#12332). Web keeps
+  `/pdftoolkit/`.
+- **CSP is per-target**: web meta CSP = v0.3.0 CSP + `'wasm-unsafe-eval'`
+  ONLY (byte-guard: `temp/csp-baseline-index.html` diff / review gate);
+  desktop swaps the meta via the `desktop-csp` transformIndexHtml plugin and
+  carries the identical string in `src-tauri/tauri.conf.json`
+  `security.csp` — edit the two together.
+- `src/hooks/use-app-update.tsx` gates SW registration on `!isTauri()`
+  (`src/lib/platform.ts`). Do NOT switch back to `useRegisterSW` — it calls
+  `registerSW()` unconditionally (its `immediate` only shifts timing), so the
+  gate must stay on the plain `virtual:pwa-register` `registerSW` call.
+- `src-tauri/tauri.conf.json` has NO version literal — `"../package.json"`
+  is the single version source (CI asserts tag == conf version == package).
+- `dist/` is DESKTOP-flavored after `npm run tauri build` (base '/', desktop
+  CSP). Before any web gate (`npm test` sw-precache specs / `test:e2e` /
+  deploy), rerun plain `npm run build`; `tests/sw-precache.spec.ts` asserts
+  every index.html asset URL stays under `/pdftoolkit/` as the tripwire.
+- OCR assets: `scripts/sync-tessdata.mjs` copies tesseract core+tessdata
+  from node_modules into `public/` (first step of `npm run build`). OCR
+  binaries are NEVER committed; `scripts/tessdata-manifest.json` (committed)
+  pins their sha256. They are deliberately NOT in the SW precache (~28MB
+  measured vs the hard 17MB precache budget) — `src/lib/ocr.ts` fetches them
+  same-origin on first use into a Cache API store (web: offline after the
+  first OCR run; desktop: always on disk via the bundle).
+
 ## 5. GitHub Pages deploy
 
 - Site: https://vibecoder11200.github.io/pdftoolkit/ — deployed from `main` by

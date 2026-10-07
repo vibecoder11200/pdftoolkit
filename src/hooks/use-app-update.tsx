@@ -7,7 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+import { registerSW } from 'virtual:pwa-register';
+import { isTauri } from '../lib/platform';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** How long to wait for a waiting worker's BUILD_COMMIT reply before treating it as unanswerable. */
@@ -107,50 +108,66 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
   // NOTE: the plugin's updateServiceWorker is deliberately NOT used (see
   // applyUpdate) — only its event callbacks matter here.
-  useRegisterSW({
-    onNeedRefresh() {
-      void (async () => {
-        const reg = await navigator.serviceWorker
-          ?.getRegistration()
-          .catch(() => undefined);
-        const waiting = reg?.waiting;
-        if (waiting) {
-          await considerWaiting(waiting);
-          return;
-        }
-        setHasWaiting(true);
-        if (!dismissedRef.current) setBannerVisible(true);
-      })();
-    },
-    onRegisteredSW(swUrl, registration) {
-      if (!registration) return;
-      // Periodic re-check (1h) + tab-focus re-check. Skipped while an update
-      // is already installing or the browser is offline; the probe avoids
-      // burning an update() round-trip against a cached/failed sw.js fetch.
-      const check = async () => {
-        if (!navigator.onLine || registration.installing) return;
-        try {
-          const probe = await fetch(swUrl, { cache: 'no-store' });
-          if (!probe.ok) return;
-          await registration.update();
-        } catch {
-          /* probe failed — offline or blocked; try again next tick */
-        }
-      };
-      const timer = window.setInterval(() => void check(), UPDATE_CHECK_INTERVAL_MS);
-      const onVisible = () => {
-        if (document.visibilityState === 'visible') void check();
-      };
-      document.addEventListener('visibilitychange', onVisible);
-      cleanupChecksRef.current = () => {
-        window.clearInterval(timer);
-        document.removeEventListener('visibilitychange', onVisible);
-      };
-    },
-    onRegisterError() {
-      /* app stays fully usable without the update UI */
-    },
-  });
+  //
+  // Registration gate (plan v0.4.0 phase 1, D6): the desktop webview must
+  // never register the service worker — desktop updates belong to the Tauri
+  // updater, and a registering precache would double-download ~20MB and fight
+  // it. useRegisterSW cannot express "don't register" (its `immediate` only
+  // shifts timing — it calls registerSW() unconditionally in a state
+  // initializer), so the plain registerSW export is gated here instead of
+  // passing `immediate: !isTauri()` to the hook. StrictMode double-invokes
+  // effects in dev; the ref keeps registration one-shot (exactly one
+  // Workbox — see the provider doc comment).
+  const registerStartedRef = useRef(false);
+  useEffect(() => {
+    if (isTauri() || registerStartedRef.current) return;
+    registerStartedRef.current = true;
+    void registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        void (async () => {
+          const reg = await navigator.serviceWorker
+            ?.getRegistration()
+            .catch(() => undefined);
+          const waiting = reg?.waiting;
+          if (waiting) {
+            await considerWaiting(waiting);
+            return;
+          }
+          setHasWaiting(true);
+          if (!dismissedRef.current) setBannerVisible(true);
+        })();
+      },
+      onRegisteredSW(swUrl, registration) {
+        if (!registration) return;
+        // Periodic re-check (1h) + tab-focus re-check. Skipped while an update
+        // is already installing or the browser is offline; the probe avoids
+        // burning an update() round-trip against a cached/failed sw.js fetch.
+        const check = async () => {
+          if (!navigator.onLine || registration.installing) return;
+          try {
+            const probe = await fetch(swUrl, { cache: 'no-store' });
+            if (!probe.ok) return;
+            await registration.update();
+          } catch {
+            /* probe failed — offline or blocked; try again next tick */
+          }
+        };
+        const timer = window.setInterval(() => void check(), UPDATE_CHECK_INTERVAL_MS);
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') void check();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        cleanupChecksRef.current = () => {
+          window.clearInterval(timer);
+          document.removeEventListener('visibilitychange', onVisible);
+        };
+      },
+      onRegisterError() {
+        /* app stays fully usable without the update UI */
+      },
+    });
+  }, []);
 
   // StrictMode double-mounts the provider in dev: drop the first mount's
   // timers/listeners so checks don't run twice.

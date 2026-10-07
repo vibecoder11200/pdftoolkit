@@ -52,4 +52,12 @@ describe.skipIf(!hasBuild)('dist/sw.js precache pins', () => {
     expect(unpinned, 'fonts must be revision-pinned').toEqual([]);
     expect(wrong, 'font revisions must match content').toEqual([]);
   });
+
+  it('keeps every index.html asset URL under the /pdftoolkit/ base (TAURI env poison guard, phase 1 D10)', () => {
+    const html = readFileSync('dist/index.html', 'utf8');
+    const urls = [...html.matchAll(/(?:src|href)="(\/[^"]*)"/g)].map((m) => m[1]);
+    expect(urls.length, 'dist/index.html should reference base-absolute assets').toBeGreaterThan(0);
+    const off = urls.filter((u) => !u.startsWith('/pdftoolkit/'));
+    expect(off, `asset URLs outside the web base (desktop-flavored dist? rebuild web first): ${off.join(', ')}`).toEqual([]);
+  });
 });

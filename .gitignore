@@ -136,3 +136,7 @@ plans.db-journal
 plans/
 docs/
 wireframes/
+
+# OCR runtime assets, copied from node_modules by scripts/sync-tessdata.mjs (never commit binaries)
+public/tessdata/
+public/tesseract-core/
