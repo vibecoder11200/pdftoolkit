@@ -9,27 +9,51 @@ import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { FileIcon, LockIcon } from '../ui/icons';
-import type { FormInspectResult, FormTextFieldInfo } from '../../engine/pdf-lib';
+import type {
+  FormFieldInfo,
+  FormFillInput,
+  FormInspectResultAll,
+} from '../../engine/pdf-lib';
 
 // Static Roboto Regular TTF (Apache-2.0 — see NOTICE / LICENSE-THIRD-PARTY),
 // inlined as a data URL and loaded via DYNAMIC import: the ~690KB base64
 // lands in its own lazy chunk next to pdf-lib+fontkit (never the entry
 // bundle), and fetch(data:) works offline once chunks are precached — no
 // extra precache-config coupling for a separate font asset.
-const ROBOTO_URL_PROMISE = import('../../assets/fonts/Roboto-Regular.ttf?inline').then(
-  (m) => m.default,
+// ?inline embeds the TTF as a base64 data URL in this lazy chunk (see the
+// comment above). Decoded with atob — fetch() on data: URLs is rejected by
+// current Chromium, which silently killed the first e2e run of this path.
+const ROBOTO_BYTES_PROMISE = import('../../assets/fonts/Roboto-Regular.ttf?inline').then(
+  (m): Uint8Array => {
+    const b64 = m.default.slice(m.default.indexOf(',') + 1);
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  },
 );
 
-type Refusal = 'no-form' | 'no-text' | 'xfa';
+type Refusal = 'no-form' | 'xfa';
 
 interface RunError {
   key: string;
   values?: Record<string, string | number>;
 }
+
+const TYPE_BADGE_KEY: Record<FormFieldInfo['type'], string | null> = {
+  text: null, // text fields keep the multiline/readonly badges only
+  checkbox: 'fill_form.badge_checkbox',
+  radio: 'fill_form.badge_choice',
+  dropdown: 'fill_form.badge_dropdown',
+  optionlist: 'fill_form.badge_dropdown',
+  signature: 'fill_form.badge_signature',
+  other: 'fill_form.badge_other',
+};
 
 function outputName(original: string): string {
   const base = original.replace(/\.pdf$/i, '').trim() || 'filled';
@@ -55,8 +79,7 @@ export function FillFormTool() {
   const [decrypted, setDecrypted] = useState<{ for: Uint8Array; bytes: Uint8Array } | null>(null);
   const [encrypted, setEncrypted] = useState(false);
   const [decryptPass, setDecryptPass] = useState('');
-  const [inspect, setInspect] = useState<FormInspectResult | null>(null);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [inspect, setInspect] = useState<FormInspectResultAll | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadSeq, setLoadSeq] = useState(0);
@@ -64,8 +87,24 @@ export function FillFormTool() {
   const [runError, setRunError] = useState<RunError | null>(null);
   const [succeeded, setSucceeded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Flatten (phase 6b): irreversible bake, gated behind a confirm dialog with
+  // a HARD extra warning when the document carries a signature field (R15).
+  const [flatten, setFlatten] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Fields whose appearance/flatten step failed (R15 resilience notice).
+  const [skipped, setSkipped] = useState<string[]>([]);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
   const locale = lng === 'vi' ? 'vi-VN' : 'en-US';
+
+  // Perf (R15, large forms): every input is UNCONTROLLED — typing never
+  // re-renders the panel. Values are read from the DOM at export time; only
+  // the names touched by the user (dirty set in a ref) are sent, so an
+  // untouched field keeps the producer's value/appearance exactly.
+  const formRef = useRef<HTMLFormElement>(null);
+  const dirtyRef = useRef<Set<string>>(new Set());
+  const markDirty = (name: string) => {
+    dirtyRef.current.add(name);
+  };
 
   const src = files.length > 0 ? files[0] : null;
   const working =
@@ -76,9 +115,7 @@ export function FillFormTool() {
       ? 'xfa'
       : inspect.totalFields === 0
         ? 'no-form'
-        : inspect.textFields.length === 0
-          ? 'no-text'
-          : null;
+        : null;
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -89,7 +126,9 @@ export function FillFormTool() {
     setNumPages(0);
     setCurrentPage(1);
     setInspect(null);
-    setValues({});
+    dirtyRef.current = new Set();
+    setFlatten(false);
+    setSkipped([]);
     if (!working) {
       setEncrypted(false);
       setDecrypted(null);
@@ -113,8 +152,8 @@ export function FillFormTool() {
         return;
       }
       try {
-        const { inspectFormFields } = await import('../../engine/pdf-lib');
-        const result = await inspectFormFields(working);
+        const { inspectFormFieldsAll } = await import('../../engine/pdf-lib');
+        const result = await inspectFormFieldsAll(working);
         if (cancelled) return;
         setInspect(result);
       } catch (e) {
@@ -155,10 +194,32 @@ export function FillFormTool() {
     }
   };
 
-  // ---- run: subset-embed Roboto, setText, regenerate appearances ------------
+  // ---- export: collect dirty uncontrolled inputs, fill (+ flatten) ---------
+  const collectInput = (): FormFillInput => {
+    const input: FormFillInput = {};
+    const root = formRef.current;
+    if (!root) return input;
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-fname]'))) {
+      const name = el.getAttribute('data-fname');
+      if (!name || !dirtyRef.current.has(name)) continue;
+      if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+        (input.checkboxes ??= {})[name] = el.checked;
+      } else if (el instanceof HTMLInputElement && el.type === 'radio') {
+        // All options of a group share the data-fname; the checked one wins.
+        if (el.checked) (input.radios ??= {})[name] = el.value;
+      } else if (el instanceof HTMLSelectElement) {
+        (input.choices ??= {})[name] = el.value;
+      } else if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+        (input.texts ??= {})[name] = el.value;
+      }
+    }
+    return input;
+  };
+
   const run = async (dest: 'download' | 'pick' = 'download') => {
     setRunError(null);
     setSucceeded(false);
+    setSkipped([]);
     if (!src || !working) {
       setRunError({ key: 'fill_form.err_no_file' });
       return;
@@ -168,21 +229,18 @@ export function FillFormTool() {
       setProgress({ value: 15, label: t('fill_form.progress_working') });
       const [fillModule, fontBuf] = await Promise.all([
         import('../../engine/pdf-lib'),
-        ROBOTO_URL_PROMISE.then((dataUrl) =>
-          fetch(dataUrl).then((r) => {
-            if (!r.ok) throw new Error(`font fetch failed (${r.status})`);
-            return r.arrayBuffer();
-          }),
-        ),
+        ROBOTO_BYTES_PROMISE,
       ]);
       setProgress({ value: 55, label: t('fill_form.progress_working') });
-      const out = await fillModule.fillTextFields(
+      const result = await fillModule.fillFormFields(
         working.slice(),
-        values,
-        new Uint8Array(fontBuf),
+        collectInput(),
+        fontBuf,
+        { flatten },
       );
       setProgress({ value: 85, label: t('fill_form.progress_working') });
-      if (await deliverBytes(out, outputName(src.file.name), dest)) {
+      setSkipped(result.skipped);
+      if (await deliverBytes(result.bytes, outputName(src.file.name), dest)) {
         setProgress({ value: 100, label: t('fill_form.progress_done') });
         setSucceeded(true);
       } else {
@@ -199,6 +257,16 @@ export function FillFormTool() {
     }
   };
 
+  // Flatten is irreversible — route through the confirm dialog (R15). The
+  // chosen destination is parked so the confirm button resumes the exact run
+  // the user asked for (download or save-elsewhere).
+  const pendingDestRef = useRef<'download' | 'pick'>('download');
+  const requestRun = (dest: 'download' | 'pick') => {
+    pendingDestRef.current = dest;
+    if (flatten) setConfirmOpen(true);
+    else void run(dest);
+  };
+
   const resetAll = () => {
     clear();
     setDecrypted(null);
@@ -207,6 +275,9 @@ export function FillFormTool() {
     setProgress(null);
     setRunError(null);
     setSucceeded(false);
+    setFlatten(false);
+    setConfirmOpen(false);
+    setSkipped([]);
   };
 
   // ---- page preview (serialized renders; pdf.js rejects overlapping ones) ---
@@ -242,8 +313,8 @@ export function FillFormTool() {
 
   // ---- field list grouped by page -------------------------------------------
   const groups = useMemo(() => {
-    const map = new Map<number, FormTextFieldInfo[]>();
-    for (const f of inspect?.textFields ?? []) {
+    const map = new Map<number, FormFieldInfo[]>();
+    for (const f of inspect?.fields ?? []) {
       const arr = map.get(f.page) ?? [];
       arr.push(f);
       map.set(f.page, arr);
@@ -270,6 +341,7 @@ export function FillFormTool() {
 
   const ready = Boolean(inspect && !refusal && !encrypted && numPages > 0);
   const runDisabled = !ready || busy;
+  const signed = Boolean(inspect?.hasSignature);
 
   const refusalCopy = (() => {
     if (refusal === 'xfa') {
@@ -278,11 +350,114 @@ export function FillFormTool() {
     if (refusal === 'no-form') {
       return { title: t('fill_form.no_form_title'), desc: t('fill_form.no_form_desc') };
     }
-    if (refusal === 'no-text') {
-      return { title: t('fill_form.no_text_title'), desc: t('fill_form.no_text_desc') };
-    }
     return null;
   })();
+
+  const fieldControl = (f: FormFieldInfo) => {
+    const label = f.label || f.name;
+    if (f.readOnly || f.type === 'signature' || f.type === 'other') {
+      const shown =
+        f.type === 'signature'
+          ? t('fill_form.signature_value')
+          : f.value || t('fill_form.empty_value');
+      return (
+        <p
+          className="mt-1.5 min-h-10 rounded-md border border-border-default bg-surface-sunken px-2.5 py-2 text-[13px] whitespace-pre-wrap"
+          title={f.name}
+          data-fname={f.name}
+        >
+          {shown}
+        </p>
+      );
+    }
+    if (f.type === 'checkbox') {
+      return (
+        <label className="mt-1.5 flex min-h-10 cursor-pointer items-center gap-2.5 rounded-md border border-border-strong px-2.5 text-[13px]" title={f.name}>
+          <input
+            type="checkbox"
+            defaultChecked={f.checked ?? false}
+            onChange={() => markDirty(f.name)}
+            data-fname={f.name}
+            aria-label={label}
+            className="min-h-[18px] min-w-[18px] accent-accent"
+          />
+          <span>{f.value || t('fill_form.empty_value')}</span>
+        </label>
+      );
+    }
+    if (f.type === 'radio' && (f.options?.length ?? 0) <= 4) {
+      return (
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5" role="radiogroup" aria-label={label}>
+          {(f.options ?? []).map((opt) => (
+            <label key={opt} className="flex cursor-pointer items-center gap-1.5 text-[13px]" title={f.name}>
+              <input
+                type="radio"
+                name={`ff-${f.name}`}
+                value={opt}
+                defaultChecked={f.value === opt}
+                onChange={() => markDirty(f.name)}
+                data-fname={f.name}
+                className="min-h-[18px] min-w-[18px] accent-accent"
+              />
+              <span>{opt}</span>
+            </label>
+          ))}
+        </div>
+      );
+    }
+    if (f.type === 'radio' || f.type === 'dropdown' || f.type === 'optionlist') {
+      const asSelect = f.type === 'radio';
+      return (
+        <div className="mt-1.5">
+          <select
+            defaultValue={f.type === 'radio' ? f.value : (f.selected?.[0] ?? '')}
+            onChange={() => markDirty(f.name)}
+            data-fname={f.name}
+            aria-label={label}
+            title={asSelect ? t('fill_form.radio_as_select_hint') : f.name}
+            className="min-h-10 w-full rounded-md border border-border-strong bg-surface-card px-2.5 text-[13px]"
+          >
+            {f.type !== 'radio' ? (
+              <option value="">{t('fill_form.empty_choice')}</option>
+            ) : null}
+            {(f.options ?? []).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {f.type === 'dropdown' && f.editable ? (
+            <p className="mt-1 text-[12px] text-text-muted">{t('fill_form.dropdown_editable_hint')}</p>
+          ) : null}
+        </div>
+      );
+    }
+    // text
+    if (f.multiline) {
+      return (
+        <textarea
+          rows={3}
+          defaultValue={f.value}
+          onChange={() => markDirty(f.name)}
+          data-fname={f.name}
+          aria-label={label}
+          title={f.name}
+          className="mt-1.5 w-full rounded-md border border-border-strong px-2.5 py-2 text-[13px]"
+        />
+      );
+    }
+    return (
+      <input
+        type="text"
+        defaultValue={f.value}
+        onChange={() => markDirty(f.name)}
+        data-fname={f.name}
+        aria-label={label}
+        title={f.name}
+        className="mt-1.5 min-h-10 w-full rounded-md border border-border-strong px-2.5 text-[13px]"
+      />
+    );
+  };
 
   return (
     <WorkspaceShell
@@ -304,16 +479,31 @@ export function FillFormTool() {
       error={error}
       side={
         <>
-          <Button onClick={() => void run()} disabled={runDisabled}>
+          {ready ? (
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border-default p-2.5 text-[13px]">
+              <input
+                type="checkbox"
+                checked={flatten}
+                onChange={(e) => setFlatten(e.target.checked)}
+                data-testid="flatten-toggle"
+                className="mt-0.5 min-h-[18px] min-w-[18px] accent-accent"
+              />
+              <span>
+                {t('fill_form.flatten_toggle')}
+                <small className="mt-0.5 block text-text-muted">{t('fill_form.flatten_hint')}</small>
+              </span>
+            </label>
+          ) : null}
+          <Button onClick={() => requestRun('download')} disabled={runDisabled}>
             {t('fill_form.cta')}
           </Button>
-          <SaveElsewhereButton disabled={runDisabled} onClick={() => void run('pick')} />
+          <SaveElsewhereButton disabled={runDisabled} onClick={() => requestRun('pick')} />
           {progress ? null : (
-            <span className="text-[13px] text-text-muted">{t('fill_form.progress_idle')}</span>
+            <span className="text-[13px] text-text-muted">{t('fill_form.progress_idle_all')}</span>
           )}
           <Hint variant="info" dismissKey="hint-fill-form-scope">
-            <span className="block">{t('fill_form.scope_hint')}</span>
-            <span className="mt-1.5 block">{t('fill_form.interactive_hint')}</span>
+            <span className="block">{t('fill_form.scope_all_hint')}</span>
+            <span className="mt-1.5 block">{t('fill_form.keep_interactive_hint')}</span>
           </Hint>
         </>
       }
@@ -335,6 +525,8 @@ export function FillFormTool() {
             setProgress(null);
             setRunError(null);
             setSucceeded(false);
+            setFlatten(false);
+            setSkipped([]);
             void add([f[0]]);
           }}
         />
@@ -389,82 +581,83 @@ export function FillFormTool() {
         </div>
       ) : ready ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(280px,340px)_1fr]">
-          {/* Left: text fields grouped by page (phase 6a scope) */}
-          <section aria-label={t('fill_form.fields_title', { count: inspect!.textFields.length })}>
-            <p className="text-sm font-bold">
-              {t('fill_form.fields_title', { count: inspect!.textFields.length })}
+          {/* Left: all form fields grouped by page (phase 6b scope) */}
+          <section aria-label={t('fill_form.fields_all_title', { count: inspect!.fields.length })}>
+            <p className="text-sm font-bold" data-testid="fields-title">
+              {t('fill_form.fields_all_title', { count: inspect!.fields.length })}
             </p>
-            <div className="mt-2 flex max-h-[560px] flex-col gap-4 overflow-y-auto pr-0.5">
-              {groups.map(([page, fields]) => (
-                <div key={page}>
-                  <p className="text-[12.5px] font-semibold uppercase tracking-wide text-text-muted">
-                    {page > 0 ? t('fill_form.page_group', { n: page }) : t('fill_form.page_unknown')}
-                  </p>
-                  <ul className="mt-1.5 flex flex-col gap-2">
-                    {fields.map((f) => (
-                      <li key={f.name} className="rounded-lg border border-border-default p-2.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span
-                            className="min-w-0 truncate text-[13.5px] font-semibold"
-                            title={f.name}
-                          >
-                            {f.label || f.name}
-                          </span>
-                          {f.required ? (
-                            <span className="rounded border border-warning bg-warning-soft px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-warning">
-                              {t('fill_form.badge_required')}
-                            </span>
-                          ) : null}
-                          {f.readOnly ? (
-                            <span className="inline-flex items-center gap-1 rounded border border-border-default bg-surface-sunken px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-text-muted">
-                              <LockIcon size={10} />
-                              {t('fill_form.badge_readonly')}
-                            </span>
-                          ) : null}
-                          {f.multiline ? (
-                            <span className="rounded border border-border-strong px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-text-muted">
-                              {t('fill_form.badge_multiline')}
-                            </span>
-                          ) : null}
-                        </div>
-                        {f.readOnly ? (
-                          <p
-                            className="mt-1.5 min-h-10 rounded-md border border-border-default bg-surface-sunken px-2.5 py-2 text-[13px] whitespace-pre-wrap"
-                            title={f.name}
-                          >
-                            {f.value || (
-                              <span className="text-text-muted">{t('fill_form.empty_value')}</span>
-                            )}
-                          </p>
-                        ) : f.multiline ? (
-                          <textarea
-                            rows={3}
-                            value={values[f.name] ?? f.value}
-                            onChange={(e) =>
-                              setValues((prev) => ({ ...prev, [f.name]: e.target.value }))
-                            }
-                            aria-label={f.label || f.name}
-                            title={f.name}
-                            className="mt-1.5 w-full rounded-md border border-border-strong px-2.5 py-2 text-[13px]"
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            value={values[f.name] ?? f.value}
-                            onChange={(e) =>
-                              setValues((prev) => ({ ...prev, [f.name]: e.target.value }))
-                            }
-                            aria-label={f.label || f.name}
-                            title={f.name}
-                            className="mt-1.5 min-h-10 w-full rounded-md border border-border-strong px-2.5 text-[13px]"
-                          />
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+            {signed ? (
+              <div
+                role="alert"
+                data-testid="signed-warning"
+                className="mt-2 flex items-start gap-2 rounded-lg border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] text-warning"
+              >
+                <span aria-hidden>⚠</span>
+                <div>
+                  <strong className="block">{t('fill_form.signed_warn_title')}</strong>
+                  <span className="block">{t('fill_form.signed_warn_desc')}</span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : null}
+            {skipped.length > 0 ? (
+              <p
+                role="status"
+                data-testid="skipped-notice"
+                className="mt-2 rounded-lg border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] text-warning"
+              >
+                {t('fill_form.skipped_notice', { count: skipped.length, names: skipped.join(', ') })}
+              </p>
+            ) : null}
+            <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
+              <div className="mt-2 flex max-h-[560px] flex-col gap-4 overflow-y-auto pr-0.5">
+                {groups.map(([page, fields]) => (
+                  <div key={page}>
+                    <p className="text-[12.5px] font-semibold uppercase tracking-wide text-text-muted">
+                      {page > 0 ? t('fill_form.page_group', { n: page }) : t('fill_form.page_unknown')}
+                    </p>
+                    <ul className="mt-1.5 flex flex-col gap-2">
+                      {fields.map((f) => (
+                        <li key={f.name} className="rounded-lg border border-border-default p-2.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className="min-w-0 truncate text-[13.5px] font-semibold"
+                              title={f.name}
+                            >
+                              {f.label || f.name}
+                            </span>
+                            {f.required ? (
+                              <span className="rounded border border-warning bg-warning-soft px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-warning">
+                                {t('fill_form.badge_required')}
+                              </span>
+                            ) : null}
+                            {f.readOnly ? (
+                              <span className="inline-flex items-center gap-1 rounded border border-border-default bg-surface-sunken px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-text-muted">
+                                <LockIcon size={10} />
+                                {t('fill_form.badge_readonly')}
+                              </span>
+                            ) : null}
+                            {f.multiline ? (
+                              <span className="rounded border border-border-strong px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-text-muted">
+                                {t('fill_form.badge_multiline')}
+                              </span>
+                            ) : null}
+                            {TYPE_BADGE_KEY[f.type] ? (
+                              <span
+                                data-testid={`badge-${f.type}`}
+                                className="rounded border border-border-strong px-1.5 py-0.5 text-[10.5px] font-bold uppercase text-text-muted"
+                              >
+                                {t(TYPE_BADGE_KEY[f.type]!)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {fieldControl(f)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </form>
           </section>
 
           {/* Right: page preview + thumbnail strip to jump pages */}
@@ -513,6 +706,33 @@ export function FillFormTool() {
           </section>
         </div>
       ) : null}
+
+      {/* Flatten confirm — irreversible bake; HARD signed warning (R15) */}
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} title={t('fill_form.flatten_confirm_title')}>
+        <p className="text-[13.5px]">{t('fill_form.flatten_confirm_desc')}</p>
+        {signed ? (
+          <p
+            role="alert"
+            data-testid="flatten-signed-warning"
+            className="mt-3 rounded-lg border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] font-semibold text-warning"
+          >
+            {t('fill_form.flatten_signed_hard_warn')}
+          </p>
+        ) : null}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
+            {t('fill_form.flatten_cancel')}
+          </Button>
+          <Button
+            onClick={() => {
+              setConfirmOpen(false);
+              void run(pendingDestRef.current);
+            }}
+          >
+            {t('fill_form.flatten_confirm_cta')}
+          </Button>
+        </div>
+      </Dialog>
     </WorkspaceShell>
   );
 }
