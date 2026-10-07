@@ -161,6 +161,24 @@ This project is indexed by GitNexus as **pdftoolkit** (1309 symbols, 3181 relati
   CSP). Before any web gate (`npm test` sw-precache specs / `test:e2e` /
   deploy), rerun plain `npm run build`; `tests/sw-precache.spec.ts` asserts
   every index.html asset URL stays under `/pdftoolkit/` as the tripwire.
+- **Router basename follows `import.meta.env.BASE_URL`** (`src/routes.tsx`) —
+  NEVER hardcode `/pdftoolkit`: it blank-rendered the entire desktop window
+  (rc-probe regression; web looked fine because the app IS served under
+  /pdftoolkit there).
+- **Save flow (rc-probe regression #2)**: WebView2's `<a download>` drops
+  files silently (no chooser, no visible path). Every tool deliver MUST go
+  through `deliverBytes`/`deliverBytesMulti` (`src/lib/download.ts`) — on
+  desktop they intercept to the native Save-As dialog (plugin-dialog +
+  plugin-fs; multi-output = one dialog, siblings written beside via the
+  `$HOME/**` fs scope). Never call `downloadBytes` directly from a tool.
+  The FSA toggle (`canSaveElsewhere`) is web-only by design.
+- **Desktop e2e**: `npm run test:e2e` runs BOTH projects — `chromium` (web
+  dist, `/pdftoolkit/` base) and `desktop` (`*.desktop.e2e.spec.ts` against
+  `dist-desktop/` served at ROOT with `__TAURI_INTERNALS__` mocked; scripts
+  `scripts/build-desktop.mjs` + `preview-desktop.mjs`). Desktop specs must be
+  named `*.desktop.e2e.spec.ts` so the web project ignores them.
+- CI: macos-13 (Intel) runners are RETIRED (jobs queue forever) — the Intel
+  macOS leg cross-compiles `x86_64-apple-darwin` on `macos-latest`.
 - OCR assets: `scripts/sync-tessdata.mjs` copies tesseract core+tessdata
   from node_modules into `public/` (first step of `npm run build`). OCR
   binaries are NEVER committed; `scripts/tessdata-manifest.json` (committed)
