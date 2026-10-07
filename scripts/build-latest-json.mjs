@@ -65,7 +65,9 @@ const latest = {
   pub_date: new Date().toISOString(),
   platforms,
 };
-const out = join(work, '..', `latest-${version}.json`);
+// The asset MUST be named exactly latest.json — the updater endpoint resolves
+// releases/latest/download/latest.json, so a versioned name would 404.
+const out = join(tmpdir(), 'latest.json');
 writeFileSync(out, `${JSON.stringify(latest, null, 2)}\n`);
 console.log(`latest.json OK: ${Object.keys(platforms).join(', ')} → ${out}`);
 gh(['release', 'upload', tag, '--repo', REPO, '--clobber', out]);
