@@ -97,7 +97,12 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  { basename: '/pdftoolkit' },
+  {
+    // Web builds live under /pdftoolkit/ (GitHub Pages); desktop (TAURI base
+    // '/') serves at the root — a hardcoded basename blank-rendered the whole
+    // desktop window (rc probe find). BASE_URL follows the vite `base` switch.
+    basename: import.meta.env.BASE_URL.replace(/\/+$/, '') || undefined,
+  },
 );
 
 export function RouterFallback() {
