@@ -195,6 +195,8 @@ export interface OcrSession {
   recognizeText(page: OcrPageInput): Promise<OcrTextResult>;
   /** Searchable single-page PDF bytes (tesseract pdf output). */
   recognizeToPdfPage(page: OcrPageInput): Promise<Uint8Array>;
+  /** Phase 5: text + confidence + searchable PDF page in ONE recognition pass. */
+  recognizePage(page: OcrPageInput): Promise<OcrTextResult & { pdf: Uint8Array }>;
   /** Abort at the page boundary: the in-flight page finishes, the next call rejects. */
   abort(): void;
   /** Terminate the underlying worker; the session is unusable afterwards. */
@@ -238,7 +240,7 @@ export async function createOcrSession(options: OcrSessionOptions): Promise<OcrS
   let disposed = false;
   let pagesDone = 0;
 
-  async function recognize(page: OcrPageInput, output: { text: true } | { pdf: true }) {
+  async function recognize(page: OcrPageInput, output: { text?: true; pdf?: true }) {
     if (disposed) throw new OcrError('OCR session disposed');
     if (aborted) throw new OcrAbortedError();
     const image = await toImageLike(page);
@@ -265,6 +267,17 @@ export async function createOcrSession(options: OcrSessionOptions): Promise<OcrS
       // the value is the emscripten FS readFile result (a Uint8Array).
       if (!data.pdf || data.pdf.length === 0) throw new OcrError('tesseract returned no PDF output for the page');
       return data.pdf instanceof Uint8Array ? data.pdf : Uint8Array.from(data.pdf);
+    },
+    // Phase 5: text + searchable PDF from ONE recognition pass (calling
+    // recognizeText+recognizeToPdfPage would run tesseract twice per page).
+    async recognizePage(page) {
+      const data = await recognize(page, { text: true, pdf: true });
+      if (!data.pdf || data.pdf.length === 0) throw new OcrError('tesseract returned no PDF output for the page');
+      return {
+        text: data.text,
+        confidence: data.confidence,
+        pdf: data.pdf instanceof Uint8Array ? data.pdf : Uint8Array.from(data.pdf),
+      };
     },
     abort() {
       aborted = true;

@@ -63,3 +63,21 @@ export async function renderPageToCanvas(
   await page.render({ canvas, viewport }).promise;
   return { width: canvas.width, height: canvas.height };
 }
+
+// Phase 5 (R21): page count for the OCR cap gate, and first-page text for
+// the "this PDF already has a text layer" warning.
+export async function getPageCount(data: Uint8Array): Promise<number> {
+  const doc = await getDoc(data);
+  return doc.numPages;
+}
+
+export async function getFirstPageText(data: Uint8Array): Promise<string> {
+  const doc = await getDoc(data);
+  const page = await doc.getPage(1);
+  const content = await page.getTextContent();
+  return content.items
+    .map((item) => ('str' in item ? item.str : ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

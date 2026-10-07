@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFHexString, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFHexString, PDFString, StandardFonts } from 'pdf-lib';
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -140,6 +140,131 @@ async function makeFormVn() {
 const formVn = await makeFormVn();
 writeFileSync(join(here, 'form-vn.pdf'), formVn);
 
+// Vietnamese full-type AcroForm fixture (phase 6b): every fillable field type
+// on one page — single-line text, multiline text (explicit size), multiline
+// text with a TRUE-AUTO /DA (`0 Tf`, the upstream pdf-lib#1581 blowup case),
+// readonly text, checkbox, 2-option radio group, 5-option radio group (the
+// UI renders >4 options as a dropdown-style select), and a dropdown with VN
+// option labels. Field names stay ASCII like real-world forms; /TU tooltips
+// carry the Vietnamese labels the fill tool surfaces.
+async function makeFormVnFull() {
+  const { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-form-vn-full');
+  doc.setCreator('pdftoolkit-gen');
+  doc.registerFontkit(fontkit);
+  const roboto = await doc.embedFont(readFileSync(ROBOTO_TTF), { subset: true });
+  const page = doc.addPage([595, 842]);
+  const form = doc.getForm();
+  const label = (text, x, y) => page.drawText(text, { x, y, size: 11, font: roboto });
+
+  label('Họ và tên:', 48, 792);
+  const hoTen = form.createTextField('ho_ten');
+  hoTen.addToPage(page, { x: 140, y: 786, width: 240, height: 24 });
+  hoTen.setFontSize(12);
+  hoTen.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Họ và tên'));
+
+  label('Địa chỉ:', 48, 748);
+  const diaChi = form.createTextField('dia_chi');
+  diaChi.enableMultiline();
+  diaChi.addToPage(page, { x: 140, y: 648, width: 280, height: 72 });
+  diaChi.setFontSize(12);
+  diaChi.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Địa chỉ'));
+
+  label('Ghi chú (auto):', 48, 604);
+  const ghiChu = form.createTextField('ghi_chu');
+  ghiChu.enableMultiline();
+  ghiChu.addToPage(page, { x: 140, y: 532, width: 280, height: 72 });
+  // True-AUTO /DA: size 0 tells the appearance provider to compute the size.
+  // pdf-lib's addToPage pre-writes a computed size (the 62pt-in-72pt-box bug
+  // class), so overwrite with the canonical AUTO marker a foreign producer
+  // would emit — the 6b mitigation must force an explicit fitting size.
+  // markAsClear: enableMultiline set the dirty flag, and save()'s default
+  // appearance pass would otherwise regenerate the field and clobber the
+  // 0 Tf marker back to its computed size (markAsClean is runtime-public).
+  ghiChu.acroField.setDefaultAppearance('0 0 0 rg /Helvetica 0 Tf');
+  ghiChu.markAsClean();
+  ghiChu.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Ghi chú'));
+
+  label('Mã hồ sơ (chỉ đọc):', 48, 496);
+  const maHoSo = form.createTextField('ma_ho_so');
+  maHoSo.addToPage(page, { x: 210, y: 490, width: 160, height: 22 });
+  maHoSo.setText('FT-2026-VN');
+  maHoSo.setFontSize(12);
+  maHoSo.enableReadOnly();
+  maHoSo.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Mã hồ sơ'));
+
+  label('Đồng ý điều khoản:', 48, 452);
+  const dongY = form.createCheckBox('dong_y');
+  dongY.addToPage(page, { x: 200, y: 444, width: 20, height: 20 });
+  dongY.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Đồng ý điều khoản'));
+
+  label('Giới tính:', 48, 408);
+  const gioiTinh = form.createRadioGroup('gioi_tinh');
+  gioiTinh.addOptionToPage('nam', page, { x: 150, y: 400, width: 16, height: 16 });
+  gioiTinh.addOptionToPage('nu', page, { x: 190, y: 400, width: 16, height: 16 });
+  gioiTinh.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Giới tính'));
+
+  label('Khu vực (5 lựa chọn):', 48, 368);
+  const khuVuc = form.createRadioGroup('khu_vuc');
+  for (const [i, opt] of ['mb', 'mt', 'mn', 'tb', 'tn'].entries()) {
+    khuVuc.addOptionToPage(opt, page, { x: 220 + i * 32, y: 360, width: 16, height: 16 });
+  }
+  khuVuc.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Khu vực'));
+
+  label('Nghề nghiệp:', 48, 324);
+  const nghe = form.createDropdown('nghe');
+  nghe.addOptions(['Kế toán', 'Kỹ sư', 'Bác sĩ', 'Khác']);
+  nghe.addToPage(page, { x: 150, y: 316, width: 180, height: 24 });
+  nghe.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Nghề nghiệp'));
+
+  // Structure sanity — the fixture must exercise every 6b type.
+  const types = form.getFields().map((f) => f.constructor.name);
+  for (const cls of [PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown]) {
+    if (!types.includes(cls.name)) throw new Error(`[gen.mjs] form-vn-full missing ${cls.name}`);
+  }
+  return doc.save({ useObjectStreams: false });
+}
+const formVnFull = await makeFormVnFull();
+writeFileSync(join(here, 'form-vn-full.pdf'), formVnFull);
+
+// Same form with an invisible /FT /Sig field appended (same low-level shape
+// as src/lib/sign.ts): exercises the R15 signed-PDF warnings. No real
+// cryptographic signature is needed — detection is structural.
+{
+  const { PDFDict, PDFArray } = await import('pdf-lib');
+  const doc = await PDFDocument.load(formVnFull);
+  const sigRef = doc.context.nextRef();
+  doc.context.assign(
+    sigRef,
+    doc.context.obj({ FT: PDFName.of('Sig'), T: PDFString.of('Sig1'), F: 4 }),
+  );
+  const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+  acroForm.lookup(PDFName.of('Fields'), PDFArray).push(sigRef);
+  writeFileSync(join(here, 'form-vn-signed.pdf'), await doc.save({ useObjectStreams: false }));
+}
+
+// XFA variant: the catalog /AcroForm carries /XFA — the fill tool must refuse
+// before any getForm() call (pdf-lib strips /XFA on form access). pdf-lib's
+// save() silently drops /XFA, so serialize the mutated context directly via
+// the runtime-only writer (deep import; not on the public export surface).
+{
+  const { PDFDict } = await import('pdf-lib');
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const { default: PDFStreamWriter } = require('pdf-lib/cjs/core/writers/PDFStreamWriter.js');
+  const doc = await PDFDocument.load(formVnFull);
+  const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+  acroForm.set(PDFName.of('XFA'), PDFHexString.fromText('<xdp/><ref/>'));
+  const xfaBytes = await PDFStreamWriter.forContext(doc.context, 50).serializeToBuffer();
+  writeFileSync(join(here, 'form-xfa.pdf'), xfaBytes);
+}
+
+// Password-locked variant of the full form (phase 6b e2e: decrypt → fill in
+// place). Same qpdf-wasm encryption as fixture-locked.pdf ('pdftoolkit').
+const formVnLocked = await encryptFixture(formVnFull);
+writeFileSync(join(here, 'form-vn-locked.pdf'), formVnLocked);
+
 // PKCS#12 bundles for the real-cert signing tests (phase 5). openssl CLI is
 // required (present on dev machines + ubuntu CI runners); when missing, the
 // cert specs skip via a fixture-existence check instead of failing npm test.
@@ -205,6 +330,10 @@ console.log(
     'fixture-locked.pdf': locked.length,
     'fixture-photo.png': makePng(64, 48).length,
     'form-vn.pdf': formVn.length,
+    'form-vn-full.pdf': formVnFull.length,
+    'form-vn-signed.pdf': readFileSync(join(here, 'form-vn-signed.pdf')).length,
+    'form-xfa.pdf': readFileSync(join(here, 'form-xfa.pdf')).length,
+    'form-vn-locked.pdf': formVnLocked.length,
   }),
 );
 
@@ -222,4 +351,93 @@ if (wantLarge) {
   const large = await makePdf(LARGE_PAGES, '100mb', LARGE_LINES);
   writeFileSync(join(here, 'fixture-100mb.pdf'), large);
   console.log(JSON.stringify({ 'fixture-100mb.pdf': large.length }));
+}
+
+// OCR scan fixtures (phase 4b, plan v0.4.0): image-only PDFs that look like
+// phone scans — pages rendered with @napi-rs/canvas (Roboto is diacritics
+// capable) at ~200/150dpi, JPEG-encoded, wrapped with pdf-lib embedJpg so the
+// PDF carries NO text layer. tests/ocr-integration.spec.ts renders these back
+// and OCRs them with real tesseract. Canvas is dynamically imported so the
+// rest of gen.mjs never depends on it (same self-skip precedent as the P12
+// fixtures above).
+try {
+  const { createCanvas, GlobalFonts } = await import('@napi-rs/canvas');
+  if (!GlobalFonts.registerFromPath(ROBOTO_TTF, 'Roboto')) {
+    throw new Error(`Roboto font could not be registered from ${ROBOTO_TTF}`);
+  }
+
+  // lines: [text, pixelSize][] — returns JPEG bytes of one rendered page.
+  function renderScanPage(width, height, lines) {
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#111111';
+    let y = Math.round(height * 0.14);
+    for (const [text, size] of lines) {
+      ctx.font = `${size}px Roboto`;
+      ctx.fillText(text, Math.round(width * 0.07), y);
+      y += Math.round(size * 1.9);
+    }
+    return canvas.encode('jpeg', 0.9);
+  }
+
+  async function makeScanPdf(jpegs, title) {
+    const doc = await PDFDocument.create();
+    doc.setTitle(`pdftoolkit-fixture-${title}`);
+    doc.setCreator('pdftoolkit-gen');
+    for (const jpeg of jpegs) {
+      const img = await doc.embedJpg(jpeg);
+      const page = doc.addPage([595.28, 841.89]);
+      page.drawImage(img, { x: 0, y: 0, width: 595.28, height: 841.89 });
+    }
+    return doc.save({ useObjectStreams: false });
+  }
+
+  // A4 at a given dpi.
+  const a4 = (dpi) => [Math.round((210 / 25.4) * dpi), Math.round((297 / 25.4) * dpi)];
+
+  // 2-page fixture: EN page 1 + VN page 2 at 200dpi (1654x2339). The spec
+  // renders these back at the same dpi (scale 200/72 ≈ 1:1 pixels) and
+  // asserts the searchable-PDF keywords — keep the strings in sync with
+  // tests/ocr-integration.spec.ts.
+  const vnEn = await makeScanPdf(
+    [
+      await renderScanPage(...a4(200), [
+        ['Quarterly report', 64],
+        ['total 42,518 items processed', 44],
+        ['Regional warehouse, Building 7', 38],
+        ['Revenue up 12.4 percent year over year', 38],
+      ]),
+      await renderScanPage(...a4(200), [
+        ['Đặng Thị Thu Lĩnh', 64],
+        ['kế hoạch 2026, Hà Nội', 44],
+        ['Người phối ngẫu số 7', 38],
+        ['Điện thoại: 0912 345 678', 38],
+      ]),
+    ],
+    'ocr-scan-vn-en',
+  );
+  writeFileSync(join(here, 'ocr-scan-vn-en.pdf'), vnEn);
+
+  // 12-page fold-merge fixture: EN digits only (fast OCR), 150dpi
+  // (1240x1754), a unique serial per page proving fold preserves order.
+  const pages12 = [];
+  for (let i = 1; i <= 12; i += 1) {
+    pages12.push(
+      await renderScanPage(...a4(150), [
+        [`Scan page ${i} of 12`, 64],
+        [`Serial: 8347${String(i).padStart(3, '0')}`, 48],
+        ['pdftoolkit fixture scan', 36],
+      ]),
+    );
+  }
+  const scan12 = await makeScanPdf(pages12, 'ocr-scan-12p');
+  writeFileSync(join(here, 'ocr-scan-12p.pdf'), scan12);
+
+  console.log(JSON.stringify({ 'ocr-scan-vn-en.pdf': vnEn.length, 'ocr-scan-12p.pdf': scan12.length }));
+} catch (e) {
+  console.warn(
+    `[gen.mjs] OCR scan fixtures SKIPPED (${e.message.split('\n')[0]}) — tests/ocr-integration.spec.ts will self-skip`,
+  );
 }

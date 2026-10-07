@@ -50,5 +50,9 @@
   "sign": {
     "title": "Sign document",
     "desc": "Draw, type, or upload a signature onto the page."
+  },
+  "ocr": {
+    "title": "OCR (text recognition)",
+    "desc": "Turn scans into a searchable PDF + extractable text (Vietnamese/English), fully on-device"
   }
 }

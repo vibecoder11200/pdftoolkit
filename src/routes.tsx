@@ -18,6 +18,7 @@ import { EncryptToolPage } from './pages/encrypt';
 import { MetadataToolPage } from './pages/metadata';
 import { SignToolPage } from './pages/sign';
 import { FillFormToolPage } from './pages/fill-form';
+import { OcrToolPage } from './pages/ocr';
 
 const toolRoutes = [
   'merge',
@@ -27,6 +28,7 @@ const toolRoutes = [
   'reorder',
   'rotate',
   'fill-form',
+  'ocr',
   'compress',
   'pdf-to-img',
   'img-to-pdf',
@@ -50,6 +52,8 @@ const toolRoutes = [
       <RotateToolPage />
     ) : path === 'fill-form' ? (
       <FillFormToolPage />
+    ) : path === 'ocr' ? (
+      <OcrToolPage />
     ) : path === 'compress' ? (
       <CompressToolPage />
     ) : path === 'pdf-to-img' ? (

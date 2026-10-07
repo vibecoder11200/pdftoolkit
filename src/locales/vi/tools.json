@@ -50,5 +50,9 @@
   "sign": {
     "title": "Ký tài liệu",
     "desc": "Vẽ, gõ hoặc tải ảnh chữ ký đặt lên trang."
+  },
+  "ocr": {
+    "title": "Nhận dạng chữ (OCR)",
+    "desc": "Scan PDF thành PDF tìm được (tiếng Việt/Anh) + trích text, 100% trên máy"
   }
 }
