@@ -85,6 +85,10 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        // Phase 3: auto-update (minisign-signed, latest.json channel) + the
+        // process plugin the JS relaunch() call goes through.
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![initial_open_files])
         .on_window_event(|window, event| {
             // Drag-drop: the webview keeps default navigation disabled

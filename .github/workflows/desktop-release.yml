@@ -1,0 +1,121 @@
+# Desktop release (plan v0.4.0 phase 3, R5/R6/R11/R12/R18).
+#
+# Tag `app-v*` → 4 build legs (tauri-action with includeUpdaterJson:false —
+# the legs must never race on latest.json; a real postmortem lost a
+# darwin-aarch64 key that way) → the `publish` job composes latest.json ONCE
+# via scripts/build-latest-json.mjs, asserts the 4 platform keys + the
+# tag==version invariant, computes the sha256 checksum table into the release
+# body, and uploads the manifest.
+#
+# Supply-chain (R11): every third-party action is pinned to an immutable
+# commit SHA; no PR trigger; GITHUB_TOKEN scoped to contents:write for the
+# release jobs only.
+name: desktop-release
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a3267
+      - uses: actions/setup-node@49933ea5288c
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@89b12181fb39
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c3
+        with:
+          workspaces: src-tauri
+      - name: Install Linux webkit deps (tauri ubuntu-22.04)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      # frontendDist ../dist is produced by beforeBuildCommand (npm run build).
+      - name: Build and attach release artifacts
+        uses: tauri-apps/tauri-action@84b9d35b5fc4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'PDF Toolkit Desktop __VERSION__'
+          releaseBody: |
+            **Unsigned build (decision D2)** — no OS code signing; verify with the sha256 checksums below.
+
+            - Windows: SmartScreen shows "unknown publisher" → More info → Run anyway. WebView2 is used for the UI.
+            - macOS: unsigned + not notarized — right-click → Open, or clear the quarantine flag: `xattr -cr "/Applications/PDF Toolkit.app"`, then copy to /Applications.
+            - Linux: AppImage (run directly) or .deb.
+
+            ⚠️ macOS and Linux builds are **build-verified only — not smoke-tested** on real hardware (no machines available); Windows is the probed platform.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: false
+          args: --target ${{ matrix.target }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a3267
+      - uses: actions/setup-node@49933ea5288c
+        with:
+          node-version: 24
+      - name: Compose and upload latest.json (single writer, asserts 4 platform keys + version sync)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/build-latest-json.mjs "${{ github.ref_name }}"
+      - name: Append sha256 checksum table to the release body (R12)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          WORK="$(mktemp -d)"
+          gh release download "$TAG" --repo vibecoder11200/pdftoolkit --dir "$WORK" \
+            --pattern '*.exe' --pattern '*.app.tar.gz' --pattern '*.AppImage' --pattern '*.deb'
+          {
+            echo ""
+            echo "## sha256 checksums"
+            echo ""
+            echo '```'
+            cd "$WORK"
+            sha256sum ./* | sed 's|  \./|  |'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          BODY="$(gh release view "$TAG" --repo vibecoder11200/pdftoolkit --json body -q .body)"
+          SUMS="$(cd "$WORK" && sha256sum ./* | sed 's|  \./|  |')"
+          {
+            printf '%s\n\n## sha256 checksums\n\n```\n%s\n```\n' "$BODY" "$SUMS"
+          } > "$WORK/body.md"
+          gh release edit "$TAG" --repo vibecoder11200/pdftoolkit --notes-file "$WORK/body.md"

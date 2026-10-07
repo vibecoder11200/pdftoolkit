@@ -148,6 +148,15 @@ This project is indexed by GitNexus as **pdftoolkit** (801 symbols, 2026 relatio
   gate must stay on the plain `virtual:pwa-register` `registerSW` call.
 - `src-tauri/tauri.conf.json` has NO version literal — `"../package.json"`
   is the single version source (CI asserts tag == conf version == package).
+- **Release channel split (D5/R6)**: web releases are ALWAYS cut with
+  `gh release create v* --latest=false` — `releases/latest` must stay the
+  DESKTOP channel (the updater endpoint resolves latest.json from it).
+  Desktop releases: tag `app-v*` → `desktop-release.yml` (4 legs build with
+  `includeUpdaterJson: false`; the `publish` job composes latest.json once,
+  asserts 4 platform keys + tag==version, appends sha256 checksums). The
+  updater minisign PRIVATE key lives ONLY in `temp/tauri-signing/`
+  (gitignored) + GitHub Secrets — never commit it; losing key or password
+  strands the desktop fleet on "up to date" forever.
 - `dist/` is DESKTOP-flavored after `npm run tauri build` (base '/', desktop
   CSP). Before any web gate (`npm test` sw-precache specs / `test:e2e` /
   deploy), rerun plain `npm run build`; `tests/sw-precache.spec.ts` asserts

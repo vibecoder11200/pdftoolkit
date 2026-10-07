@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { isTauri } from '../lib/platform';
+import { runDesktopUpdateFlow, type DesktopUpdateState } from '../lib/desktop-updater';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** How long to wait for a waiting worker's BUILD_COMMIT reply before treating it as unanswerable. */
@@ -244,6 +245,55 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
 export function useAppUpdate(): AppUpdateState {
   return useContext(AppUpdateContext);
+}
+
+const DESKTOP_IDLE: DesktopUpdateState = { phase: 'idle', percent: null };
+
+/*
+ * Desktop update flow (phase 3, D5/R10) — the Tauri counterpart of the SW
+ * banner. Same mount/focus/1h re-check cadence as the web registration path,
+ * backed by the updater plugin instead. Inert (and free) on the web: the
+ * hook is called unconditionally from UpdateBanner, but everything inside
+ * is gated on isTauri().
+ */
+export function useDesktopUpdate(): {
+  state: DesktopUpdateState;
+  start: () => void;
+} {
+  const [state, setState] = useState<DesktopUpdateState>(DESKTOP_IDLE);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const update = await check();
+        if (!cancelled && update) setState({ phase: 'available', percent: null });
+      } catch {
+        /* offline / endpoint hiccup — try again next tick */
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), UPDATE_CHECK_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  const start = useCallback(() => {
+    void runDesktopUpdateFlow((next) => {
+      if (next.phase !== 'idle') setState(next);
+    });
+  }, []);
+
+  return { state, start };
 }
 
 /*

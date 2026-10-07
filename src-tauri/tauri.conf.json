@@ -27,9 +27,21 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/vibecoder11200/pdftoolkit/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwODVGREMxRTMyQ0Q1NjMKUldSajFTemp3ZjJGa0hWalVDSThlaTU2ZmV3SC93dmFVOWFzK1RhblFqcHlITjV1Tll1Mk1qak0K",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
         "ext": ["pdf"],

@@ -198,7 +198,9 @@
     "available_short": "Có bản mới",
     "reload": "Cập nhật ngay",
     "later": "Để sau",
-    "dot_aria": "Có phiên bản mới — bấm để cập nhật và tải lại trang"
+    "dot_aria": "Có phiên bản mới — bấm để cập nhật và tải lại trang",
+    "desktop_progress": "Đang tải bản cập nhật… {{percent}}%",
+    "desktop_restarting": "Đã tải xong — ứng dụng sẽ tự khởi động lại…"
   },
   "reorder": {
     "title": "Sắp xếp lại trang",

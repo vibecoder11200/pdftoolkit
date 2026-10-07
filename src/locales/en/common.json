@@ -198,7 +198,9 @@
     "available_short": "New version",
     "reload": "Update now",
     "later": "Later",
-    "dot_aria": "A new version is available — click to update and reload"
+    "dot_aria": "A new version is available — click to update and reload",
+    "desktop_progress": "Downloading update… {{percent}}%",
+    "desktop_restarting": "Downloaded — the app will restart itself…"
   },
   "reorder": {
     "title": "Reorder pages",

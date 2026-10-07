@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default main-window capabilities (phase 1: core only; phase 3 adds updater/process)",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "process:allow-restart", "updater:default"]
 }
