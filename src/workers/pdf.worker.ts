@@ -1,4 +1,4 @@
-import { expose } from 'comlink';
+import { expose, transfer } from 'comlink';
 import * as lib from '../engine/pdf-lib';
 import { compressVectorPack, decryptPdf, encryptPdf, linearizePdf, qpdfCheck } from '../engine/qpdf';
 import { zipStore } from '../lib/zip';
@@ -6,6 +6,23 @@ import { zipStore } from '../lib/zip';
 // pkijs/asn1js stay OUT of the worker's boot path: the cert module loads on
 // first cert call, keeping loadPdf startup as fast as before phase 5.
 import type { CertKeyInfo } from '../engine/p12';
+
+/**
+ * Raw RGBA pixel buffer (v0.4.0 phase 7), duck-typed instead of DOM ImageData
+ * so callers can pass any {data, width, height} triple across comlink.
+ */
+export interface RasterImageData {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+}
+
+export interface EncodeJpegOptions {
+  /** mozjpeg quality, 1-100 (compress presets: balanced 75, small 60). */
+  quality: number;
+  /** Default true — progressive won every A/B cell (phase 7, D9). */
+  progressive?: boolean;
+}
 
 export interface WorkerApi {
   loadPdf(bytes: Uint8Array): Promise<{ info: import('../engine/pdf-lib').PdfInfo }>;
@@ -30,6 +47,15 @@ export interface WorkerApi {
    */
   inspectCertificateKey(p12: Uint8Array, password: string): Promise<CertKeyInfo>;
   signWithCertificate(pdfBytes: Uint8Array, p12: Uint8Array, password: string): Promise<Uint8Array>;
+  /**
+   * mozjpeg encode (v0.4.0 phase 7, D9 gate: GO — A/B in
+   * scripts/ab-mozjpeg.mjs measured 25.1% average size reduction vs the
+   * skia/canvas.toBlob baseline across 2 fixtures x 3 quality levels;
+   * progressive 25.1% / baseline 17.6%). The dynamic import keeps the wasm
+   * codec chunk lazy; the emscripten glue resolves mozjpeg_enc.wasm relative
+   * to its chunk URL under assets/ (same mechanism as qpdf.wasm).
+   */
+  encodeJpeg(imageData: RasterImageData, opts: EncodeJpegOptions): Promise<Uint8Array>;
 }
 
 const api: WorkerApi = {
@@ -51,6 +77,18 @@ const api: WorkerApi = {
     import('../engine/p12').then((m) => m.inspectCertificateKey(p12, password)),
   signWithCertificate: (pdfBytes, p12, password) =>
     import('../engine/p12').then((m) => m.signWithCertificate(pdfBytes, p12, password)),
+  encodeJpeg: async (imageData, opts) => {
+    // Lazy import: the @jsquash/jpeg + mozjpeg wasm chunks only load on the
+    // first JPEG encode, never at worker boot.
+    const { encode } = await import('@jsquash/jpeg');
+    // Construct a real ImageData (jsquash only reads data/width/height).
+    const input = new ImageData(imageData.data, imageData.width, imageData.height);
+    const out = await encode(input, {
+      quality: opts.quality,
+      progressive: opts.progressive ?? true,
+    });
+    return transfer(new Uint8Array(out), [out]);
+  },
 };
 
 expose(api);

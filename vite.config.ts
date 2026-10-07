@@ -26,6 +26,13 @@ const qpdfWasm = readFileSync(
   fileURLToPath(new URL('./node_modules/@neslinesli93/qpdf-wasm/dist/qpdf.wasm', import.meta.url)),
 );
 
+// Phase 7 (D9 GO, 25.1% avg size reduction measured in scripts/ab-mozjpeg.mjs):
+// the jsquash mozjpeg encoder wasm gets the same treatment as qpdf.wasm —
+// stable filename under assets/ + an explicit sha256 precache pin.
+const mozjpegWasm = readFileSync(
+  fileURLToPath(new URL('./node_modules/@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm', import.meta.url)),
+);
+
 // sha256 of node_modules/@neslinesli93/qpdf-wasm/dist/qpdf.wasm, refreshed
 // here whenever the pinned package version in package.json changes. The
 // precache entry for assets/qpdf.wasm gets content-hash URLs for JS (revision
@@ -33,6 +40,8 @@ const qpdfWasm = readFileSync(
 // revision explicitly: a corrupt or swapped wasm can never silently serve
 // from an old precache entry.
 const qpdfWasmRevision = createHash('sha256').update(qpdfWasm).digest('hex');
+
+const mozjpegWasmRevision = createHash('sha256').update(mozjpegWasm).digest('hex');
 
 // pdf.js standard-font programs, served from assets/standard_fonts/ (see
 // src/engine/pdfjs.ts). Without them, PDFs that reference standard fonts
@@ -57,6 +66,11 @@ const DESKTOP_CSP =
   "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'";
 
 export default defineConfig({
+  // Phase 7: the dep prebundle breaks the emscripten glue's import.meta.url
+  // → wasm 404 in dev. Build output is unaffected.
+  optimizeDeps: {
+    exclude: ['@jsquash/jpeg'],
+  },
   // D10 (red-team R1, tauri#12332): desktop base is '/' — NOT './'. With
   // './' a reload at /tools/* resolves assets against the route and Tauri's
   // no-redirect fallback serves index.html as JS (blank window). Web keeps
@@ -116,6 +130,11 @@ export default defineConfig({
       apply: 'build',
       generateBundle() {
         this.emitFile({ type: 'asset', fileName: 'assets/qpdf.wasm', source: qpdfWasm });
+        this.emitFile({
+          type: 'asset',
+          fileName: 'assets/mozjpeg_enc.wasm',
+          source: mozjpegWasm,
+        });
         for (const f of standardFonts) {
           this.emitFile({
             type: 'asset',
@@ -143,6 +162,7 @@ export default defineConfig({
         globPatterns: [
           '**/*.{js,css,html}',
           'assets/qpdf.wasm',
+          'assets/mozjpeg_enc.wasm',
           'assets/standard_fonts/*',
           // Phase 4a (D8): tesseract core+tessdata are copied into public/ by
           // scripts/sync-tessdata.mjs but deliberately NOT precached — the
@@ -171,6 +191,9 @@ export default defineConfig({
             manifest: entries.map((entry) => {
               if (entry.url === 'assets/qpdf.wasm') {
                 return { ...entry, revision: qpdfWasmRevision };
+              }
+              if (entry.url === 'assets/mozjpeg_enc.wasm') {
+                return { ...entry, revision: mozjpegWasmRevision };
               }
               const font = entry.url.match(/^assets\/standard_fonts\/(.+)$/)?.[1];
               if (font && fontRevisions[font]) {

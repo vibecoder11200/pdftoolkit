@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
-import { engine } from '../../engine/client';
+import { engine, getWorker } from '../../engine/client';
 import { deliverBytes, downloadBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -17,9 +17,11 @@ import { FileIcon } from '../ui/icons';
 type CompressMode = 'vector' | 'image' | 'linearize';
 type ImageQuality = 'balanced' | 'small';
 
+// `jpeg` is the mozjpeg quality on the worker's 1-100 scale (phase 7 — the
+// 0-1 canvas.toBlob value of the same name was 75/60 in hundredths).
 const QUALITY_PRESET: Record<ImageQuality, { scale: number; jpeg: number }> = {
-  balanced: { scale: 1.5, jpeg: 0.75 },
-  small: { scale: 1.0, jpeg: 0.6 },
+  balanced: { scale: 1.5, jpeg: 75 },
+  small: { scale: 1.0, jpeg: 60 },
 };
 
 // Per-mode "worth it" thresholds, in percent saved.
@@ -178,11 +180,18 @@ export function CompressTool() {
           });
           const canvas = document.createElement('canvas');
           await renderPageToCanvas(src.bytes, p, canvas, preset.scale);
-          const blob = await new Promise<Blob | null>((res) =>
-            canvas.toBlob(res, 'image/jpeg', preset.jpeg),
+          // Phase 7 (D9 GO): mozjpeg encode in the worker instead of
+          // canvas.toBlob — A/B measured 31-35% smaller at these preset
+          // qualities (scripts/ab-mozjpeg.mjs).
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error(ENCODE_FAILED);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const encoded = await getWorker().encodeJpeg(
+            { data: imageData.data, width: imageData.width, height: imageData.height },
+            { quality: preset.jpeg, progressive: true },
           );
-          if (!blob) throw new Error(ENCODE_FAILED);
-          images.push(new Uint8Array(await blob.arrayBuffer()));
+          if (encoded.byteLength === 0) throw new Error(ENCODE_FAILED);
+          images.push(encoded);
         }
         setProgress({
           value: 85,

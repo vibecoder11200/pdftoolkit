@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
-import { engine } from '../../engine/client';
+import { engine, getWorker } from '../../engine/client';
 import { deliverBytes, downloadBytes } from '../../lib/download';
 import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
@@ -108,7 +108,6 @@ export function PdfToImgTool() {
   const renderAll = async (): Promise<{ name: string; bytes: Uint8Array }[]> => {
     const { renderPageToCanvas } = await import('../../engine/pdfjs');
     const scale = dpi / 72;
-    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
     const ext = format === 'jpg' ? 'jpg' : 'png';
     const stem = baseName(src!.file.name);
     const images: { name: string; bytes: Uint8Array }[] = [];
@@ -119,9 +118,24 @@ export function PdfToImgTool() {
       });
       const canvas = document.createElement('canvas');
       await renderPageToCanvas(src!.bytes, p, canvas, scale);
-      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, mime, 0.92));
-      if (!blob) throw new Error('encode failed');
-      images.push({ name: `${stem}-p${p}.${ext}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      if (format === 'jpg') {
+        // Phase 7 (D9 GO): mozjpeg via the worker instead of
+        // canvas.toBlob('image/jpeg', 0.92) — 8-39% smaller per the A/B
+        // (scripts/ab-mozjpeg.mjs). PNG path stays on toBlob.
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('encode failed');
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const bytes = await getWorker().encodeJpeg(
+          { data: imageData.data, width: imageData.width, height: imageData.height },
+          { quality: 92, progressive: true },
+        );
+        if (bytes.byteLength === 0) throw new Error('encode failed');
+        images.push({ name: `${stem}-p${p}.${ext}`, bytes });
+      } else {
+        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+        if (!blob) throw new Error('encode failed');
+        images.push({ name: `${stem}-p${p}.${ext}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      }
     }
     return images;
   };
