@@ -40,11 +40,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "appimage",
+      "deb"
+    ],
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["pdf"],
+        "ext": [
+          "pdf"
+        ],
         "name": "PDF Toolkit",
         "description": "Open PDF files in PDF Toolkit",
         "role": "Viewer"
