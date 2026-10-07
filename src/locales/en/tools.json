@@ -23,6 +23,10 @@
     "title": "Rotate pages",
     "desc": "Rotate selected pages by 90, 180, or 270 degrees."
   },
+  "fill-form": {
+    "title": "Fill PDF forms",
+    "desc": "Fill Vietnamese text fields, forms stay interactive."
+  },
   "compress": {
     "title": "Compress PDF",
     "desc": "Smaller file size with text quality kept intact."

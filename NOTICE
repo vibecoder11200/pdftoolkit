@@ -19,3 +19,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------------------
+Third-party licenses
+--------------------------------------------------------------------------------
+
+Roboto Regular (static hinted TTF, "Version 2.001047; 2015")
+  Copyright Google LLC
+  License: Apache License 2.0 — full text in LICENSE-THIRD-PARTY
+  Source: https://raw.githubusercontent.com/googlefonts/roboto-2/main/src/hinted/Roboto-Regular.ttf
+  Version: Roboto v2.001047 (2015), from the googlefonts/roboto-2 repository
+           (src/hinted), static TrueType outlines — not a variable font
+           (no fvar table; name table records verified at commit time)
+  SHA-256: 56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d
+  File: src/assets/fonts/Roboto-Regular.ttf (515100 bytes)
+
+  Bundled into PDF Toolkit for embedding Vietnamese text into filled PDF
+  forms (subset-embedded via @pdf-lib/fontkit). Apache License 2.0 requires
+  carrying the license text and attribution above; that obligation carries
+  over to the filled PDFs only as attribution of the font itself, per
+  LICENSE-THIRD-PARTY.

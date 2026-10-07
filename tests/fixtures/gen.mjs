@@ -1,9 +1,10 @@
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFHexString, StandardFonts } from 'pdf-lib';
 import { deflateSync } from 'node:zlib';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import fontkit from '@pdf-lib/fontkit';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -99,10 +100,49 @@ function makePng(width, height) {
 }
 writeFileSync(join(here, 'fixture-photo.png'), makePng(64, 48));
 
+// Vietnamese AcroForm fixture (phase 6a): one page, two text fields with
+// diacritic labels — "Họ và tên" (single-line) and "Địa chỉ" (multiline).
+// Labels on the page are drawn with subset Roboto (WinAnsi standard fonts
+// cannot encode diacritics); field names stay ASCII like real-world forms,
+// while /TU tooltips carry the Vietnamese label the fill tool surfaces.
+// Fields use explicit DA font size 12 — pdf-lib's AUTO-size multiline
+// appearance path is broken (pdf-lib#1581 class), explicit size is not.
+const ROBOTO_TTF = join(here, '..', '..', 'src', 'assets', 'fonts', 'Roboto-Regular.ttf');
+if (!existsSync(ROBOTO_TTF)) {
+  throw new Error(
+    `[gen.mjs] missing ${ROBOTO_TTF} — the committed Roboto Regular asset is required for the VN form fixture`,
+  );
+}
+async function makeFormVn() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-form-vn');
+  doc.setCreator('pdftoolkit-gen');
+  doc.registerFontkit(fontkit);
+  const roboto = await doc.embedFont(readFileSync(ROBOTO_TTF), { subset: true });
+  const page = doc.addPage([595, 842]);
+  const form = doc.getForm();
+
+  page.drawText('Họ và tên:', { x: 48, y: 782, size: 12, font: roboto });
+  const hoTen = form.createTextField('ho_ten');
+  hoTen.addToPage(page, { x: 140, y: 776, width: 240, height: 24 });
+  hoTen.setFontSize(12);
+  hoTen.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Họ và tên'));
+
+  page.drawText('Địa chỉ:', { x: 48, y: 726, size: 12, font: roboto });
+  const diaChi = form.createTextField('dia_chi');
+  diaChi.enableMultiline();
+  diaChi.addToPage(page, { x: 140, y: 640, width: 280, height: 72 });
+  diaChi.setFontSize(12);
+  diaChi.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText('Địa chỉ'));
+
+  return doc.save({ useObjectStreams: false });
+}
+const formVn = await makeFormVn();
+writeFileSync(join(here, 'form-vn.pdf'), formVn);
+
 // PKCS#12 bundles for the real-cert signing tests (phase 5). openssl CLI is
 // required (present on dev machines + ubuntu CI runners); when missing, the
 // cert specs skip via a fixture-existence check instead of failing npm test.
-import { readFileSync } from 'node:fs';
 const CERT_PASSWORD = 'cert-pass';
 const subj = (cn) => ['-subj', `/CN=${cn}/O=pdftoolkit/C=VN`];
 const fx = (f) => join(here, f);
@@ -164,6 +204,7 @@ console.log(
     'fixture-medium.pdf': medium.length,
     'fixture-locked.pdf': locked.length,
     'fixture-photo.png': makePng(64, 48).length,
+    'form-vn.pdf': formVn.length,
   }),
 );
 

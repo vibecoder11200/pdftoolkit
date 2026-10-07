@@ -17,6 +17,7 @@ import { ImgToPdfToolPage } from './pages/img-to-pdf';
 import { EncryptToolPage } from './pages/encrypt';
 import { MetadataToolPage } from './pages/metadata';
 import { SignToolPage } from './pages/sign';
+import { FillFormToolPage } from './pages/fill-form';
 
 const toolRoutes = [
   'merge',
@@ -25,6 +26,7 @@ const toolRoutes = [
   'remove',
   'reorder',
   'rotate',
+  'fill-form',
   'compress',
   'pdf-to-img',
   'img-to-pdf',
@@ -46,6 +48,8 @@ const toolRoutes = [
       <ReorderToolPage />
     ) : path === 'rotate' ? (
       <RotateToolPage />
+    ) : path === 'fill-form' ? (
+      <FillFormToolPage />
     ) : path === 'compress' ? (
       <CompressToolPage />
     ) : path === 'pdf-to-img' ? (

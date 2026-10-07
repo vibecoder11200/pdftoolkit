@@ -120,3 +120,133 @@ export async function extractPages(bytes: Uint8Array, targets: number[]): Promis
   for (const p of pages) doc.addPage(p);
   return doc.save({ useObjectStreams: false });
 }
+
+// ---- AcroForm inspection + fill (phase 6a) — append-only section ----------
+// Everything below is additive; existing exports above are frozen by the
+// engine append-only invariant (AGENTS.md build invariants).
+
+export interface FormTextFieldInfo {
+  /** Fully qualified field name (unique key for fillTextFields). */
+  name: string;
+  /** /TU alternate (tooltip) name authored in the form; '' when absent. */
+  label: string;
+  /** 1-based page of the field's first widget; 0 when not on any page. */
+  page: number;
+  required: boolean;
+  readOnly: boolean;
+  multiline: boolean;
+  /** Current /V value; '' when unset. */
+  value: string;
+}
+
+export interface FormInspectResult {
+  /** Catalog /AcroForm /XFA present — phase 6a refuses to fill these. */
+  hasXFA: boolean;
+  /** All fields regardless of type (drives the "no form" empty state). */
+  totalFields: number;
+  /** Fillable text fields only (phase 6a scope). */
+  textFields: FormTextFieldInfo[];
+}
+
+/**
+ * Inspects the AcroForm of a PDF without modifying it. Loads with
+ * ignoreEncryption:false so encrypted input throws (the caller routes it to
+ * the decrypt flow). Never calls getForm() when no /AcroForm exists — that
+ * accessor would lazily CREATE one on the loaded doc.
+ */
+export async function inspectFormFields(bytes: Uint8Array): Promise<FormInspectResult> {
+  const { PDFName, PDFDict, PDFString, PDFHexString, PDFRef, PDFArray, PDFTextField } =
+    await import('pdf-lib');
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const acroForm = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+  if (!acroForm) return { hasXFA: false, totalFields: 0, textFields: [] };
+  const hasXFA = acroForm.has(PDFName.of('XFA'));
+  // XFA docs stop here: pdf-lib's getForm() path DELETES /XFA (with a
+  // console.warn) as unsupported, and save() strips it silently — we must
+  // report XFA before anything touches the form, and never fill these.
+  if (hasXFA) return { hasXFA: true, totalFields: 0, textFields: [] };
+
+  // Widget annotation ref -> 1-based page. Split fields keep their widgets in
+  // /Kids, so field refs alone miss the page; kids cover that case.
+  const pageOf = new Map<string, number>();
+  doc.getPages().forEach((page, idx) => {
+    const annots = page.node.Annots();
+    if (!annots) return;
+    for (let i = 0; i < annots.size(); i += 1) {
+      const ref = annots.get(i);
+      if (ref instanceof PDFRef) pageOf.set(ref.toString(), idx + 1);
+    }
+  });
+
+  const fields = doc.getForm().getFields();
+  const textFields: FormTextFieldInfo[] = [];
+  for (const field of fields) {
+    if (!(field instanceof PDFTextField)) continue;
+    const dict = field.acroField.dict;
+    const widgetRefs: (string | undefined)[] = [field.acroField.ref?.toString()];
+    const kids = dict.lookupMaybe(PDFName.of('Kids'), PDFArray);
+    if (kids) {
+      for (let i = 0; i < kids.size(); i += 1) {
+        const ref = kids.get(i);
+        if (ref instanceof PDFRef) widgetRefs.push(ref.toString());
+      }
+    }
+    const page = widgetRefs.reduce<number>(
+      (found, key) => found || (key ? (pageOf.get(key) ?? 0) : 0),
+      0,
+    );
+    // /TU is a text string: either literal (PDFString) or hex (PDFHexString,
+    // a PDFString subclass — the lookupMaybe overload matches both).
+    const tu = dict.lookupMaybe(PDFName.of('TU'), PDFString, PDFHexString);
+    const label = tu ? (tu instanceof PDFHexString ? tu.decodeText() : tu.asString()) : '';
+    let value = '';
+    try {
+      value = field.getText() ?? '';
+    } catch {
+      value = ''; // corrupt /V — treat as empty rather than failing the list
+    }
+    textFields.push({
+      name: field.getName(),
+      label,
+      page,
+      required: field.isRequired(),
+      readOnly: field.isReadOnly(),
+      multiline: field.isMultiline(),
+      value,
+    });
+  }
+  return { hasXFA, totalFields: fields.length, textFields };
+}
+
+/**
+ * Fills text fields with a subset-embedded Unicode font so Vietnamese
+ * diacritics survive (standard WinAnsi fonts cannot encode them). Readonly and
+ * unknown names are skipped. Keeps fields interactive — flatten is phase 6b.
+ * Saves with useObjectStreams:false so the font dict (/FontFile2) is written
+ * literally.
+ */
+export async function fillTextFields(
+  bytes: Uint8Array,
+  values: Record<string, string>,
+  fontTtf: Uint8Array,
+): Promise<Uint8Array> {
+  const { PDFTextField } = await import('pdf-lib');
+  const fontkit = await import('@pdf-lib/fontkit');
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(fontTtf, { subset: true });
+  const form = doc.getForm();
+  for (const [name, value] of Object.entries(values)) {
+    const field = form.getFieldMaybe(name);
+    if (field instanceof PDFTextField && !field.isReadOnly()) {
+      field.setText(value);
+    }
+  }
+  form.updateFieldAppearances(font);
+  // updateFieldAppearances:false — pdf-lib's save() default would run a SECOND
+  // appearance pass with the doc's default font (Helvetica, WinAnsi) and throw
+  // on any field still marked dirty with Vietnamese text. Our pass above
+  // already regenerated every dirty field with the embedded font and marked
+  // them clean; this flag makes the risky default pass a no-op.
+  return doc.save({ useObjectStreams: false, updateFieldAppearances: false });
+}

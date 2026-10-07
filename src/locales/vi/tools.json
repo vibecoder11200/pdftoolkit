@@ -23,6 +23,10 @@
     "title": "Xoay trang",
     "desc": "Xoay 90, 180, 270 độ cho trang đã chọn."
   },
+  "fill-form": {
+    "title": "Điền form PDF",
+    "desc": "Điền trường văn bản tiếng Việt, form vẫn giữ tương tác."
+  },
   "compress": {
     "title": "Nén PDF",
     "desc": "Giảm dung lượng, giữ nguyên chất lượng chữ."
