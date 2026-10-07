@@ -89,6 +89,13 @@ pub fn run() {
         // process plugin the JS relaunch() call goes through.
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Save flow (rc probe): native Save-As dialog for every deliver;
+        // plugin-fs writes the bytes to the picked path. The dialog plugin
+        // adds the picked path to the fs scope at runtime; capabilities add
+        // fs:allow-write-file + a $HOME scope so multi-output siblings
+        // (split parts / page images) can be written beside the pick.
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![initial_open_files])
         .on_window_event(|window, event| {
             // Drag-drop: the webview keeps default navigation disabled

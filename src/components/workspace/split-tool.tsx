@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, deliverBytesMulti } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { parseRanges } from '../../lib/ranges';
 import { Dropzone } from '../ui/dropzone';
@@ -168,8 +168,11 @@ export function SplitTool() {
         });
         const outs = await engine.splitRanges(file.bytes, parsedNow.ranges);
         setProgress({ value: 100, label: t('split.progress_done') });
-        // Multi-file mode stays plain download — one picker per file is hostile.
-        outs.forEach((out, i) => downloadBytes(out, `${stem}-part${i + 1}.pdf`));
+        // Multi-file mode: web = plain downloads (one picker per part would be
+        // hostile); desktop = one native save dialog, siblings written beside.
+        void deliverBytesMulti(
+          outs.map((out, i) => ({ bytes: out, filename: `${stem}-part${i + 1}.pdf` })),
+        );
       }
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));

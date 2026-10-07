@@ -3,5 +3,15 @@
   "identifier": "default",
   "description": "Default main-window capabilities (phase 1: core only; phase 3 adds updater/process)",
   "windows": ["main"],
-  "permissions": ["core:default", "process:allow-restart", "updater:default"]
+  "permissions": [
+    "core:default",
+    "process:allow-restart",
+    "updater:default",
+    "dialog:default",
+    "fs:allow-write-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$HOME/**" }]
+    }
+  ]
 }

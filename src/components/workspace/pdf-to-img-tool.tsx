@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine, getWorker } from '../../engine/client';
-import { deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes, deliverBytesMulti } from '../../lib/download';
 import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -176,11 +176,12 @@ export function PdfToImgTool() {
         }
       }
       const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-      // Per-image fallback is multi-output: no picker loop, plain downloads.
-      for (const image of images) {
-        downloadBytes(image.bytes, image.name, mime);
-        await new Promise((r) => setTimeout(r, 150));
-      }
+      // Per-image fallback is multi-output: one save (web: plain downloads
+      // with the popup gap; desktop: one dialog, siblings beside it).
+      await deliverBytesMulti(
+        images.map((image) => ({ bytes: image.bytes, filename: image.name })),
+        mime,
+      );
       setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
     } catch {
       setRunErrorKey('pdf-to-img.error_save');

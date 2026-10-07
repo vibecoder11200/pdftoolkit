@@ -10,11 +10,34 @@ export default defineConfig({
     baseURL: 'http://localhost:4173/pdftoolkit/',
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
-    command: 'npm run preview',
-    url: 'http://localhost:4173/pdftoolkit/',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  projects: [
+    {
+      name: 'chromium',
+      // The desktop flavor has its own project (served at root, mocked
+      // Tauri internals) — keep those specs out of the web run.
+      testIgnore: '**/*.desktop.e2e.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'desktop',
+      testMatch: '**/*.desktop.e2e.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4181/' },
+    },
+  ],
+  webServer: [
+    {
+      command: 'npm run preview',
+      url: 'http://localhost:4173/pdftoolkit/',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      // Builds dist-desktop (desktop flavor) then serves it at the root,
+      // like the Tauri webview does.
+      command: 'node scripts/build-desktop.mjs && node scripts/preview-desktop.mjs',
+      url: 'http://localhost:4181/',
+      reuseExistingServer: !process.env.CI,
+      timeout: 240_000,
+    },
+  ],
 });

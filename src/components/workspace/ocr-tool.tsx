@@ -12,7 +12,7 @@ import {
   OcrAbortedError,
   type OcrLangs,
 } from '../../lib/ocr';
-import { downloadBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 
 /*
  * OCR tool (plan v0.4.0 phase 5, D7/R8/R14/R20): single PDF → searchable PDF
@@ -323,7 +323,11 @@ export function OcrTool() {
           className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent disabled:opacity-50"
           onClick={() =>
             outBytes &&
-            downloadBytes(outBytes, `${(files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '')}-ocr.pdf`)
+            void deliverBytes(
+              outBytes,
+              `${(files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '')}-ocr.pdf`,
+              'download',
+            )
           }
         >
           {t('ocr.download_pdf')}

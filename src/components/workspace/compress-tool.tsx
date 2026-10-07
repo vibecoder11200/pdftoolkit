@@ -4,7 +4,7 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine, getWorker } from '../../engine/client';
-import { deliverBytes, downloadBytes } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -439,7 +439,7 @@ export function CompressTool() {
             })}
           </p>
           <div className="mt-2.5 flex flex-wrap gap-2">
-            <Button onClick={() => downloadBytes(result.bytes, result.filename)}>
+            <Button onClick={() => void deliverBytes(result.bytes, result.filename, 'download')}>
               {t('compress.download_cta')}
             </Button>
             <SaveElsewhereButton
