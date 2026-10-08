@@ -11,6 +11,8 @@
 export type DesktopUpdatePhase =
   | 'idle'
   | 'available'
+  /** Synchronous click feedback, before the plugin module finishes importing. */
+  | 'starting'
   | 'downloading'
   | 'installing'
   | 'restarting'
@@ -20,6 +22,8 @@ export interface DesktopUpdateState {
   phase: DesktopUpdatePhase;
   /** 0-100 while `downloading`. */
   percent: number | null;
+  /** Failure detail for `error` — surfaced with a Retry button (phase 6, F7). */
+  message?: string;
 }
 
 export function isWindows(): boolean {
@@ -67,7 +71,14 @@ export async function runDesktopUpdateFlow(
     } else {
       await relaunch();
     }
-  } catch {
-    onState({ phase: 'error', percent: null });
+  } catch (err) {
+    // F7: the catch must not swallow the failure — the banner shows the
+    // message with a Retry button. (Cancel-vs-network classification is not
+    // possible: the plugin API has no cancel and errors carry no code.)
+    onState({
+      phase: 'error',
+      percent: null,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 }

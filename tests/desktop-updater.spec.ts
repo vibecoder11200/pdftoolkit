@@ -92,9 +92,13 @@ describe('runDesktopUpdateFlow', () => {
     await flow;
   });
 
-  it('maps failures to the error phase and never throws', async () => {
+  it('maps failures to the error phase with the message surfaced (phase 6, F7) and never throws', async () => {
     updaterMock.check.mockRejectedValue(new Error('endpoint down'));
     await expect(runDesktopUpdateFlow((s) => states.push(s))).resolves.toBeUndefined();
-    expect(states).toEqual([{ phase: 'error', percent: null }]);
+    expect(states).toEqual([{ phase: 'error', percent: null, message: 'endpoint down' }]);
+    // Non-Error throws degrade to a string message, not a swallowed catch.
+    updaterMock.check.mockRejectedValue('plain string failure');
+    await runDesktopUpdateFlow((s) => states.push(s));
+    expect(states.at(-1)).toEqual({ phase: 'error', percent: null, message: 'plain string failure' });
   });
 });

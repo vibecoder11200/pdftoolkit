@@ -261,11 +261,18 @@ export function useDesktopUpdate(): {
   start: () => void;
 } {
   const [state, setState] = useState<DesktopUpdateState>(DESKTOP_IDLE);
+  // True from start() until the flow settles on error/idle. Blocks BOTH the
+  // periodic re-check (must not stomp `downloading` back to `available`) and
+  // re-entry (a second click must not spawn a second downloadAndInstall —
+  // phase 6, F7). On Windows the flow resolves right after firing relaunch
+  // while the process is already dying; leaving busy set there is harmless.
+  const busyRef = useRef(false);
 
   useEffect(() => {
     if (!isTauri()) return;
     let cancelled = false;
     const check = async () => {
+      if (busyRef.current) return;
       try {
         const { check } = await import('@tauri-apps/plugin-updater');
         const update = await check();
@@ -288,7 +295,13 @@ export function useDesktopUpdate(): {
   }, []);
 
   const start = useCallback(() => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    // F7: synchronous click feedback — paint "starting" BEFORE the dynamic
+    // import resolves, so there is no dead gap between click and effect.
+    setState({ phase: 'starting', percent: null });
     void runDesktopUpdateFlow((next) => {
+      if (next.phase === 'error' || next.phase === 'idle') busyRef.current = false;
       if (next.phase !== 'idle') setState(next);
     });
   }, []);

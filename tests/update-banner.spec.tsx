@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import i18n from '../src/i18n';
 import { AppUpdateProvider, useAppUpdate } from '../src/hooks/use-app-update';
 import { UpdateBanner } from '../src/components/layout/update-banner';
+import { beginJob, endJob } from '../src/lib/jobs';
 
 // The virtual module only exists under the PWA plugin's dev/build pipeline —
 // swap in a double. applyUpdate deliberately does NOT use the plugin's
@@ -25,6 +26,21 @@ vi.mock('virtual:pwa-register', () => ({
 const h = vi.hoisted(() => ({
   opts: {} as Record<string, ((...args: unknown[]) => void) | undefined>,
 }));
+
+// Desktop updater doubles (phase 6): the banner's desktop lifecycle tests run
+// the real useDesktopUpdate hook against these instead of a Tauri host.
+const updaterMock = vi.hoisted(() => ({ check: vi.fn() }));
+const processMock = vi.hoisted(() => ({ relaunch: vi.fn() }));
+vi.mock('@tauri-apps/plugin-updater', () => updaterMock);
+vi.mock('@tauri-apps/plugin-process', () => processMock);
+
+function fakeDesktopUpdate(events: Array<Record<string, unknown>>) {
+  return {
+    downloadAndInstall: vi.fn(async (onEvent: (e: unknown) => void) => {
+      for (const e of events) onEvent(e);
+    }),
+  };
+}
 
 interface WaitingFake {
   state: string;
@@ -116,6 +132,8 @@ afterEach(() => {
   container.remove();
   // @ts-expect-error test-only removal of the injected mock
   delete navigator.serviceWorker;
+  delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
+  updaterMock.check.mockReset();
 });
 
 function Probe() {
@@ -260,5 +278,109 @@ describe('use-app-update state machine (red-team F2 + vite-plugin-pwa#789)', () 
     await renderTree();
     expect(banner()).toBeNull();
     expect(probe()).toBe('false');
+  });
+});
+
+/*
+ * Desktop banner lifecycle (v0.5.0 phase 6 — red-team F7). The old visible
+ * predicate was `phase === 'available'`, which UNMOUNTED the banner the
+ * moment downloading began: the progress % was dead code, errors never
+ * surfaced, and a click had no feedback until the plugin import resolved.
+ * These tests run the real hook + banner in jsdom with the updater plugin
+ * mocked at its import seam.
+ */
+describe('desktop update banner (phase 6 — F7)', () => {
+  function goDesktop(): void {
+    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  }
+
+  it('regression: banner stays mounted with live percent through downloading (old code unmounted here)', async () => {
+    goDesktop();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    updaterMock.check.mockResolvedValue({
+      downloadAndInstall: vi.fn(async (onEvent: (e: unknown) => void) => {
+        onEvent({ event: 'Started', data: { contentLength: 100 } });
+        onEvent({ event: 'Progress', data: { chunkLength: 80 } });
+        await gate; // hold mid-download — exactly where the old bug hid the banner
+        onEvent({ event: 'Finished' });
+      }),
+    });
+    await renderTree();
+    expect(banner()).not.toBeNull();
+    await act(async () => reloadBtn().click());
+    expect(container.textContent).toContain('Đang tải bản cập nhật');
+    expect(container.textContent).toContain('80%');
+    // No Update button while flowing — a second click cannot spawn a second
+    // downloadAndInstall (the double-click guard).
+    expect(reloadBtn()).toBeNull();
+    release();
+    await act(async () => {});
+    expect(container.textContent).toContain('Đã tải xong');
+  });
+
+  it('synchronous click feedback: "starting" paints before the flow settles', async () => {
+    goDesktop();
+    // Banner must be up first (check finds an update), but the install flow
+    // hangs — whatever the click shows BEFORE any async resolution is the
+    // sync feedback this test pins.
+    updaterMock.check.mockResolvedValue({
+      downloadAndInstall: vi.fn(() => new Promise(() => undefined)),
+    });
+    await renderTree();
+    await act(async () => {});
+    await act(async () => reloadBtn().click());
+    expect(container.textContent).toContain('Đang bắt đầu cập nhật');
+    expect(container.textContent).not.toContain('Cập nhật ngay');
+  });
+
+  it('error surfaces the message with Retry; retry re-runs the flow', async () => {
+    goDesktop();
+    // Mount check finds the update (banner up); the flow's own check fails.
+    updaterMock.check
+      .mockResolvedValueOnce(fakeDesktopUpdate([]))
+      .mockRejectedValue(new Error('endpoint down'));
+    await renderTree();
+    await act(async () => {});
+    await act(async () => reloadBtn().click());
+    expect(container.textContent).toContain('endpoint down');
+    const retry = () => container.querySelector<HTMLButtonElement>('[data-testid="update-retry"]')!;
+    expect(retry()).not.toBeNull();
+    await act(async () => retry().click());
+    expect(updaterMock.check).toHaveBeenCalledTimes(3); // mount + flow + retry
+  });
+
+  it('running job → inline confirm before starting (F22); confirm proceeds', async () => {
+    goDesktop();
+    beginJob('ocr');
+    try {
+      updaterMock.check.mockResolvedValue(fakeDesktopUpdate([{ event: 'Finished' }]));
+      await renderTree();
+      await act(async () => reloadBtn().click());
+      // Click did NOT start the flow — the confirm prompt shows instead.
+      expect(container.textContent).toContain('sẽ bị dừng');
+      const confirm = () =>
+        container.querySelector<HTMLButtonElement>('[data-testid="update-confirm"]')!;
+      expect(confirm()).not.toBeNull();
+      await act(async () => confirm().click());
+      // After the confirm the flow runs to completion (restarting copy).
+      await act(async () => {});
+      expect(container.textContent).toContain('Đã tải xong');
+      expect(processMock.relaunch).toHaveBeenCalled();
+    } finally {
+      endJob('ocr');
+    }
+  });
+
+  it('no running job → click updates immediately, no confirm prompt', async () => {
+    goDesktop();
+    updaterMock.check.mockResolvedValue(fakeDesktopUpdate([{ event: 'Finished' }]));
+    await renderTree();
+    await act(async () => reloadBtn().click());
+    expect(container.textContent).not.toContain('sẽ bị dừng');
+    await act(async () => {});
+    expect(container.textContent).toContain('Đã tải xong');
   });
 });
