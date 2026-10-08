@@ -33,6 +33,15 @@ describe('engineTablesToMarkdown', () => {
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
   });
+
+  it('a literal | inside a cell stays ONE cell through the round trip (review P2-4)', () => {
+    const raw = '<table><tr><td>a|b</td><td>c</td></tr></table>';
+    const md = engineTablesToMarkdown(raw);
+    expect(md).toContain('| a\\|b | c |'); // escaped in the markdown form
+    const html = markdownToSafeHtml(md);
+    expect(html).toContain('<td>a|b</td>'); // unescaped back into one cell
+    expect((html.match(/<td>/g) ?? []).length).toBe(2); // not split into 3 columns
+  });
 });
 
 describe('markdownToSafeHtml (D10)', () => {

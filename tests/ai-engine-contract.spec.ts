@@ -67,4 +67,44 @@ describe('AI engine contract (F8 mock seam)', () => {
     mock.cancelDownload();
     await expect(p).rejects.toThrow();
   });
+
+  it('review P2-10: cancel is not permanent — the next load resets the flag', async () => {
+    const mock = new MockEngine();
+    const first = mock.load(() => undefined);
+    mock.cancelDownload();
+    await expect(first).rejects.toThrow();
+    // The old code never reset downloadAbort, so every later load threw
+    // AbortError immediately — the mock seam was dead after one cancel.
+    await expect(mock.load(() => undefined)).resolves.toMatchObject({ device: 'mock' });
+  });
+
+  it('review P2-5: dispose under an active job fails loud, idle dispose passes', async () => {
+    const mock = new MockEngine();
+    mock.stats.busy = true;
+    await expect(mock.dispose()).rejects.toThrow(/while a job is active/);
+    mock.stats.busy = false;
+    await expect(mock.dispose()).resolves.toBeUndefined();
+
+    const real = new RealEngine();
+    real.stats.busy = true;
+    await expect(real.dispose()).rejects.toThrow(/while a job is active/);
+  });
+
+  it('review P2-9: concurrent first loads share one in-flight load', async () => {
+    const engine = new RealEngine();
+    let calls = 0;
+    // Patch past the transformers import (TS-private, runtime-visible): the
+    // contract under test is the dedupe wrapper, not the model load itself.
+    (engine as unknown as Record<string, unknown>).doLoad = async () => {
+      calls += 1;
+      await new Promise((r) => setTimeout(r, 10));
+      return { loadMs: 1, device: 'wasm' as const };
+    };
+    const [a, b] = await Promise.all([
+      engine.load(() => undefined),
+      engine.load(() => undefined),
+    ]);
+    expect(calls).toBe(1);
+    expect(b).toBe(a);
+  });
 });

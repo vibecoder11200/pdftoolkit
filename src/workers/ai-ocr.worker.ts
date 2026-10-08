@@ -160,6 +160,9 @@ export class MockEngine implements EngineLike {
   private downloadAbort = false;
 
   async load(onProgress: ComlinkCallback<DownloadProgress>): Promise<LoadResult> {
+    // Cancel must not be permanent (review P2-10): a reset happens at every
+    // load, so cancelDownload only ever kills the load in flight.
+    this.downloadAbort = false;
     const t0 = Date.now();
     this.stats.busy = true;
     try {
@@ -214,6 +217,7 @@ export class MockEngine implements EngineLike {
   }
 
   async dispose(): Promise<void> {
+    if (this.stats.busy) throw new Error('dispose() called while a job is active');
     this.stats.loadedAt = null;
   }
 
@@ -307,6 +311,8 @@ export class RealEngine implements EngineLike {
   private model: any = null;
   /* eslint-enable @typescript-eslint/no-explicit-any */
   private downloadController: AbortController | null = null;
+  /** In-flight first load — concurrent callers share it instead of double-loading GB-scale shards (review P2-9). */
+  private loadInFlight: Promise<LoadResult> | null = null;
 
   private async importTransformers(): Promise<Transformers> {
     const T = await import('@huggingface/transformers');
@@ -324,6 +330,21 @@ export class RealEngine implements EngineLike {
 
   async load(onProgress: ComlinkCallback<DownloadProgress>, opts?: LoadOptions): Promise<LoadResult> {
     if (this.model) return { loadMs: 0, device: this.stats.device };
+    // Two concurrent first loads (OCR tool + Settings re-measure) would each
+    // fetch the model and orphan one copy — dedupe on the in-flight promise.
+    if (this.loadInFlight) return this.loadInFlight;
+    this.loadInFlight = this.doLoad(onProgress, opts);
+    try {
+      return await this.loadInFlight;
+    } finally {
+      this.loadInFlight = null;
+    }
+  }
+
+  private async doLoad(
+    onProgress: ComlinkCallback<DownloadProgress>,
+    opts?: LoadOptions,
+  ): Promise<LoadResult> {
     if (opts?.device) this.stats.device = opts.device;
     this.stats.busy = true;
     const t0 = Date.now();
@@ -447,6 +468,11 @@ export class RealEngine implements EngineLike {
   }
 
   async dispose(): Promise<void> {
+    // Review P2-5: disposing under an in-flight job orphaned the session.
+    // Fails loud — the client-side idle/hidden paths already check stats.busy
+    // and never call dispose while a job runs, so reaching this means a
+    // caller is misusing the session.
+    if (this.stats.busy) throw new Error('dispose() called while a job is active');
     this.stats.busy = false;
     try {
       await this.model?.dispose?.();

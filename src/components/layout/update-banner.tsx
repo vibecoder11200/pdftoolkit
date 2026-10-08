@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppUpdate, useDesktopUpdate } from '../../hooks/use-app-update';
 import type { DesktopUpdateState } from '../../lib/desktop-updater';
 import { isTauri } from '../../lib/platform';
-import { hasActiveJob } from '../../lib/jobs';
+import { useActiveJob } from '../../hooks/use-active-job';
 
 /*
  * "A new version is available" prompt (plan decision D1). Never reloads on
@@ -26,6 +26,7 @@ export function UpdateBanner() {
   const desktop = useDesktopUpdate();
   const desktopActive = isTauri();
   const [confirmingJob, setConfirmingJob] = useState(false);
+  const jobBusy = useActiveJob();
   const phase = desktop.state.phase;
   const visible = desktopActive
     ? DESKTOP_VISIBLE_PHASES.includes(phase)
@@ -40,7 +41,7 @@ export function UpdateBanner() {
       {desktopActive ? (
         <DesktopBody
           state={desktop.state}
-          jobBusy={confirmingJob ? false : hasActiveJob()}
+          jobBusy={confirmingJob ? false : jobBusy}
           confirmingJob={confirmingJob}
           onConfirmJob={() => setConfirmingJob(true)}
           onCancelConfirm={() => setConfirmingJob(false)}

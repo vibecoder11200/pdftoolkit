@@ -302,7 +302,11 @@ export function useDesktopUpdate(): {
     setState({ phase: 'starting', percent: null });
     void runDesktopUpdateFlow((next) => {
       if (next.phase === 'error' || next.phase === 'idle') busyRef.current = false;
-      if (next.phase !== 'idle') setState(next);
+      // 'idle' must land in state too (review P2-6): filtering it out left the
+      // banner on 'starting' forever when a manual check found no update —
+      // idle hides the banner (not in DESKTOP_VISIBLE_PHASES), which IS the
+      // correct end state.
+      setState(next);
     });
   }, []);
 

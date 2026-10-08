@@ -478,35 +478,37 @@ export function OcrTool() {
                 className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
                 onClick={cancelAiDownload}
               >
-                {t('ocr.cancel_soft')}
+                {t('ocr.ai_cancel_download')}
               </button>
               <p className="text-xs text-text-muted">{t('ocr.ai_download_hint')}</p>
             </div>
           )}
           {aiPhase === 'loading' && <p className="text-sm font-semibold">{t('ocr.ai_loading')}</p>}
           {(aiPhase === 'running' || aiPhase === 'done') && (
-            <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
-              <p className="text-sm font-semibold">
-                {t('ocr.ai_progress_page', { current: aiPage.current, count: aiPage.total })}
-                <span className="ml-2 font-normal text-text-muted">
-                  {t('ocr.ai_tokens', { tokens: aiTokens })}
-                </span>
-              </p>
-              <div className="h-2 overflow-hidden rounded-full bg-surface-card">
-                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+            <div className="grid gap-1">
+              <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
+                <p className="text-sm font-semibold">
+                  {t('ocr.ai_progress_page', { current: aiPage.current, count: aiPage.total })}
+                  <span className="ml-2 font-normal text-text-muted">
+                    {t('ocr.ai_tokens', { tokens: aiTokens })}
+                  </span>
+                </p>
+                <div className="h-2 overflow-hidden rounded-full bg-surface-card">
+                  <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+                </div>
               </div>
+              <button
+                type="button"
+                className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
+                onClick={() => {
+                  abortRef.current = true;
+                }}
+              >
+                {t('ocr.cancel_soft')}
+              </button>
+              <p className="text-xs text-text-muted">{t('ocr.ai_cancel_hint')}</p>
             </div>
           )}
-          <button
-            type="button"
-            className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
-            onClick={() => {
-              abortRef.current = true;
-            }}
-          >
-            {t('ocr.cancel_soft')}
-          </button>
-          <p className="text-xs text-text-muted">{t('ocr.ai_cancel_hint')}</p>
         </section>
       );
     }

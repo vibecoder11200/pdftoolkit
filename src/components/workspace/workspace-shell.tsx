@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { markToolVisited } from '../layout/tour';
+import { markToolVisited } from '../layout/quick-guide';
 import { Progress } from '../ui/progress';
 import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
 import { CheckIcon, RefreshIcon, ResetIcon } from '../ui/icons';

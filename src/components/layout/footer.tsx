@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Logo } from '../ui/logo';
 import { useAppUpdate } from '../../hooks/use-app-update';
+import { openQuickGuide } from './quick-guide';
 
 const REPO_URL = 'https://github.com/vibecoder11200/pdftoolkit';
 
@@ -10,7 +11,7 @@ const REPO_URL = 'https://github.com/vibecoder11200/pdftoolkit';
  * chip (build-time __APP_VERSION__ + short commit hash — the hash doubles as
  * the user-visible proof that an update landed after a reload), MIT, GitHub,
  * update dot (only while a new version waits; click = apply + reload) and
- * the tour replay.
+ * the quick guide.
  */
 export function Footer() {
   const { t } = useTranslation();
@@ -18,16 +19,11 @@ export function Footer() {
   const location = useLocation();
   const { hasWaiting, applyUpdate } = useAppUpdate();
 
-  const replayTour = () => {
-    try {
-      localStorage.setItem('pdftoolkit-tour-replay', '1');
-      localStorage.removeItem('pdftoolkit-tour-done');
-    } catch {
-      /* storage unavailable */
-    }
-    // The mounted Tour checks nothing on its own — the event reaches it when
-    // the footer is on the same page; the flag covers the cross-page case.
-    window.dispatchEvent(new Event('pdftoolkit:tour-replay'));
+  const openGuide = () => {
+    // Guide-only action: NEVER touch the seen flag here. The old replay path
+    // removed it, so abandoning the tour once after a footer click re-enabled
+    // the auto-tour on every launch (the "tour re-activates" field report).
+    openQuickGuide();
     if (location.pathname !== '/') navigate('/');
   };
 
@@ -69,8 +65,9 @@ export function Footer() {
       ) : null}
       <button
         type="button"
+        data-testid="footer-guide"
         className="ml-auto min-h-9 rounded-lg border border-border-strong px-3 hover:bg-surface-hover hover:text-text-primary"
-        onClick={replayTour}
+        onClick={openGuide}
       >
         {t('footer.replay_tour')}
       </button>

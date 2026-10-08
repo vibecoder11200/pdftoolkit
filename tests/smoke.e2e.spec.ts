@@ -239,17 +239,27 @@ test('pdf-to-img on a 2-page PDF downloads one zip (not per-image files)', async
   expect(download.suggestedFilename()).toBe('fixture-small-images.zip');
 });
 
-test('first-visit tour shows once and skip persists across reload', async ({ page }) => {
-  // The tour hides from automation (navigator.webdriver); opt in explicitly.
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { value: false, configurable: true });
-  });
+test('first-visit welcome strip shows once and dismissal persists across reload', async ({ page }) => {
+  // Non-blocking by design — no webdriver opt-in needed anymore.
   await page.goto('./');
-  const tourDialog = page.getByRole('dialog');
-  await expect(tourDialog).toBeVisible({ timeout: 10_000 });
-  await tourDialog.getByRole('button', { name: 'Bỏ qua' }).click();
-  await expect(tourDialog).toBeHidden();
+  const strip = page.getByTestId('guide-welcome');
+  await expect(strip).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('guide-dismiss').click();
+  await expect(strip).toHaveCount(0);
   await page.reload();
+  await expect(page.getByTestId('guide-welcome')).toHaveCount(0);
+});
+
+test('footer quick guide opens on demand with tool links', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('footer-guide').click();
+  const dialog = page.getByRole('dialog', { name: 'Hướng dẫn nhanh' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('guide-link-ai')).toHaveAttribute('href', /\/tools\/ocr$/);
+  await expect(dialog.getByTestId('guide-link-settings')).toHaveAttribute('href', /\/settings$/);
+  // A guide link navigates AND closes the dialog.
+  await dialog.getByTestId('guide-link-ai').click();
+  await expect(page).toHaveURL(/\/tools\/ocr$/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 

@@ -71,10 +71,15 @@ export function engineTablesToMarkdown(raw: string): string {
  * Cell inner "HTML" → literal text. The engine echoes glyph text verbatim,
  * so inner tags are NOT stripped (a cell that says `<script>x</script>` is
  * OCR CONTENT, not markup) — entities are decoded, whitespace collapsed;
- * rendering escapes it later.
+ * rendering escapes it later. A literal `|` is backslash-escaped so the
+ * markdown table split cannot turn one cell into two columns (review P2-4);
+ * markdownToSafeHtml unescapes on re-split.
  */
 function cellToText(cellHtml: string): string {
-  return decodeEntities(cellHtml).replace(/\s+/g, ' ').trim();
+  return decodeEntities(cellHtml)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replaceAll('|', '\\|');
 }
 
 const SAFE_HREF = /^(https?:\/\/|mailto:|#)/i;
@@ -120,9 +125,14 @@ export function markdownToSafeHtml(markdown: string): string {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
 
-    // table block: header row + |---| separator + body rows
+    // table block: header row + |---| separator + body rows.
+    // Split on UNescaped pipes only — `\|` is a literal pipe that came from
+    // cellToText (a `|` inside OCR cell content), so unescape after splitting.
     if (/^\|.+\|\s*$/.test(trimmed)) {
-      const cells = trimmed.slice(1, -1).split('|').map((c) => c.trim());
+      const cells = trimmed
+        .slice(1, -1)
+        .split(/(?<!\\)\|/)
+        .map((c) => c.trim().replaceAll('\\|', '|'));
       const isSeparator = cells.every((c) => /^:?-{2,}:?$/.test(c));
       if (isSeparator) continue;
       if (!inTable) {

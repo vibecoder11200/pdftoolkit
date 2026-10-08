@@ -13,7 +13,7 @@ import {
 } from '../../lib/storage-rows';
 import { AI_CACHE_STORE, AI_MODEL_ID } from '../../lib/ai-models';
 import { sharedAiClient } from '../../lib/ai-worker-client';
-import { hasActiveJob } from '../../lib/jobs';
+import { useActiveJob } from '../../hooks/use-active-job';
 import { formatBytes } from '../../lib/format';
 
 /** e2e mock seam (F8) — same page-URL flag the OCR tool reads. */
@@ -68,7 +68,7 @@ export function StorageManager() {
 
   useEffect(refresh, [refresh]);
 
-  const jobRunning = hasActiveJob();
+  const jobRunning = useActiveJob();
 
   const deleteRow = useCallback(
     async (id: StorageRowId) => {

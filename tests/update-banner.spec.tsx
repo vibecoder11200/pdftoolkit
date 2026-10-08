@@ -383,4 +383,22 @@ describe('desktop update banner (phase 6 — F7)', () => {
     await act(async () => {});
     expect(container.textContent).toContain('Đã tải xong');
   });
+
+  it('review P2-6: a no-update flow result lands idle — banner hides instead of sticking on "starting"', async () => {
+    goDesktop();
+    // Mount check finds an update (banner up, Update button); by the time the
+    // flow's own check runs, the update is gone → the flow emits 'idle'. The
+    // old filter dropped that emission and left the banner on 'starting'
+    // forever with no button.
+    updaterMock.check
+      .mockResolvedValueOnce(fakeDesktopUpdate([]))
+      .mockResolvedValue(null);
+    await renderTree();
+    await act(async () => {});
+    expect(reloadBtn()).not.toBeNull();
+    await act(async () => reloadBtn().click());
+    await act(async () => {});
+    expect(container.textContent).not.toContain('Đang bắt đầu cập nhật');
+    expect(banner()).toBeNull();
+  });
 });

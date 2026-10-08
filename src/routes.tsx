@@ -4,6 +4,7 @@ import { HomePage } from './pages/home';
 import { ComingSoonPage } from './pages/tool-placeholder';
 import { LaunchBanner } from './components/layout/launch-banner';
 import { UpdateBanner } from './components/layout/update-banner';
+import { QuickGuide } from './components/layout/quick-guide';
 import { AppUpdateProvider } from './hooks/use-app-update';
 import { MergeToolPage } from './pages/merge';
 import { SplitToolPage } from './pages/split';
@@ -79,6 +80,7 @@ function RootLayout() {
     <AppUpdateProvider>
       <LaunchBanner />
       <UpdateBanner />
+      <QuickGuide />
       <Outlet />
     </AppUpdateProvider>
   );
