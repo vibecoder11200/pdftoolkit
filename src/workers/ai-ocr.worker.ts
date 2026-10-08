@@ -101,7 +101,7 @@ export interface AiOcrApi {
   ): Promise<AiOcrPageResult>;
   getStats(): Promise<EngineStats>;
   dispose(): Promise<void>;
-  /** F11 — ModelRegistry cache checks, worker-side only. */
+  /** Cache state (manifest ∩ store + verified marker), worker-side only. */
   getDownloadInfo(modelId: string): Promise<DownloadInfo>;
   isCached(modelId: string): Promise<boolean>;
   clearCache(modelId: string): Promise<number>;
@@ -238,11 +238,44 @@ export class MockEngine implements EngineLike {
 
 /* ------------------------------ real engine ------------------------------ */
 
+/**
+ * transformers' env.customCache adapter over OUR store. Files are stored
+ * CHUNKED (MODEL_CHUNK_BYTES parts — whole-file puts of the 321MB shard
+ * die in dedicated workers), so match() reassembles the `::part/i` run
+ * into one Response before transformers reads it. transformers only ever
+ * READS here (downloads happen via ensureModelDownloaded first); put and
+ * delete pass through for completeness.
+ */
 class OwnedCacheAdapter {
   constructor(private store: Cache) {}
-  match = (key: string) => this.store.match(key);
+  match = async (key: string) => {
+    const direct = await this.store.match(key);
+    if (direct) return direct;
+    const parts: ArrayBuffer[] = [];
+    for (let i = 0; ; i += 1) {
+      const res = await this.store.match(`${key}::part/${i}`);
+      if (!res) break;
+      parts.push(await res.arrayBuffer());
+    }
+    if (parts.length === 0) return undefined;
+    const total = parts.reduce((s, p) => s + p.byteLength, 0);
+    const joined = new Uint8Array(total);
+    let offset = 0;
+    for (const p of parts) {
+      joined.set(new Uint8Array(p), offset);
+      offset += p.byteLength;
+    }
+    return new Response(joined);
+  };
   put = (key: string, res: Response) => this.store.put(key, res);
-  delete = (key: string) => this.store.delete(key);
+  delete = async (key: string) => {
+    let deleted = await this.store.delete(key);
+    for (let i = 0; ; i += 1) {
+      if (!(await this.store.delete(`${key}::part/${i}`))) break;
+      deleted = true;
+    }
+    return deleted;
+  };
 }
 
 export class GpuLostError extends Error {
@@ -390,9 +423,14 @@ export class RealEngine implements EngineLike {
         streamer,
       });
       const genMs = Math.round(performance.now() - tGen0);
-      const decoded = this.tokenizer.batch_decode(out, { skip_special_tokens: true })[0] ?? '';
       const inLen = inputs.input_ids.dims ? inputs.input_ids.dims.at(-1) : inputs.input_ids.length;
       const outLen = out.dims ? out.dims.at(-1) : out.length;
+      // decode ONLY the generated tail (SPIKE-proven path): the full
+      // sequence re-echoes the prompt's image-placeholder tokens, and
+      // batch_decode over the whole tensor returns '' under
+      // skip_special_tokens — the v0.5.0 hand-test found the empty output.
+      const flat = Array.from(out.data, Number);
+      const decoded = this.tokenizer.decode(flat.slice(inLen), { skip_special_tokens: true });
       return {
         text: decoded,
         ms: Math.round(performance.now() - t0),
@@ -422,25 +460,20 @@ export class RealEngine implements EngineLike {
     this.stats.loadedAt = null;
   }
 
-  /** Registry helpers through the SHARED pipelineOptions tuple (F15). */
-  private registryOptions(): Record<string, unknown> {
-    const o = pipelineOptions(this.spec.id);
-    return {
-      revision: o.revision,
-      dtype: { ...o.dtype },
-      device: this.stats.device,
-      use_external_data_format: o.use_external_data_format,
-    };
-  }
-
+  /**
+   * File list straight from the pinned manifest (spec.files) — NOT
+   * ModelRegistry.get_pipeline_files: that validates the task against the
+   * PIPELINE list, and 'image-text-to-text' is a class-route task with no
+   * pipeline entry, so it throws "Unsupported pipeline task" before a byte
+   * is downloaded (the class route is the only supported way to run this
+   * model — see the SPIKE report). Also drops the transformers import from
+   * the state-check path entirely.
+   */
   async downloadInfo(): Promise<DownloadInfo> {
-    const T = this.T ?? (await this.importTransformers());
-    const opts = this.registryOptions();
-    const files = await T.ModelRegistry.get_pipeline_files(this.spec.task, this.spec.repo, opts);
-    const store = await caches.open(AI_CACHE_STORE);
+    const store = (await caches.open(AI_CACHE_STORE)) as unknown as CacheLike;
     let filesCached = 0;
-    for (const f of files) {
-      if (await store.match(hfFileUrl(this.spec, String(f)))) filesCached += 1;
+    for (const f of this.spec.files) {
+      if (await store.match(hfFileUrl(this.spec, f.path))) filesCached += 1;
     }
     return {
       // isCacheUsable: complete AND marker-verified — a full-but-unverified
@@ -448,12 +481,12 @@ export class RealEngine implements EngineLike {
       // re-hashes with zero network instead of being loaded unverified.
       cached: await isCacheUsable(
         this.spec,
-        store as unknown as CacheLike,
+        store,
         filesCached,
-        files.length,
+        this.spec.files.length,
       ),
       filesCached,
-      filesTotal: files.length,
+      filesTotal: this.spec.files.length,
       totalBytes: this.spec.totalBytes,
     };
   }

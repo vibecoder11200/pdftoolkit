@@ -126,8 +126,13 @@ export function hfFileUrl(spec: Pick<AiModelSpec, 'repo' | 'revision'>, path: st
 export function sameOriginWasmPaths(baseUrl: string): { mjs: string; wasm: string } {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   return {
-    mjs: `${base}ort/ort-wasm-simd-threaded.jsep.mjs`,
-    wasm: `${base}ort/ort-wasm-simd-threaded.jsep.wasm`,
+    // ASYNCIFY variant — NOT jsep: transformers 4.3.1's ORT glue calls
+    // factory.webgpuInit(), which only the asyncify build exports (jsep
+    // exports none — "no available backend found … webgpuInit is not a
+    // function", hand-test round 2026-10-09). The spike's env dump showed
+    // the same: the jsdelivr default for this version is the asyncify pair.
+    mjs: `${base}ort/ort-wasm-simd-threaded.asyncify.mjs`,
+    wasm: `${base}ort/ort-wasm-simd-threaded.asyncify.wasm`,
   };
 }
 
@@ -135,7 +140,9 @@ export function sameOriginWasmPaths(baseUrl: string): { mjs: string; wasm: strin
  * Zero-network cached-state check for labels (config step, D4 pre-download
  * tier 1-4): reads OUR Cache API store directly against the committed
  * manifest — no transformers import, no HF HEAD calls (offline-honest).
- * The worker's ModelRegistry path stays the authoritative verify.
+ * The download/verify path (ensureModelDownloaded, worker-side) stays the
+ * authoritative verify — and 'image-text-to-text' has NO ModelRegistry
+ * pipeline entry, so nothing here may go through it.
  */
 /**
  * Open the AI store WITHOUT recreating it: caches.open() materializes a
@@ -158,7 +165,10 @@ export async function isModelCachedLocally(): Promise<boolean> {
   try {
     const spec = getModelSpec(AI_MODEL_ID);
     for (const file of spec.files) {
-      if (!(await store.match(hfFileUrl(spec, file.path)))) return false;
+      // Chunk-aware: every part of every file must be present.
+      if (!(await isFileCompleteInStore(store, hfFileUrl(spec, file.path), file.size))) {
+        return false;
+      }
     }
     return true;
   } catch {
@@ -174,7 +184,9 @@ export async function cachedModelBytes(): Promise<number> {
     const spec = getModelSpec(AI_MODEL_ID);
     let bytes = 0;
     for (const file of spec.files) {
-      if (await store.match(hfFileUrl(spec, file.path))) bytes += file.size;
+      if (await isFileCompleteInStore(store, hfFileUrl(spec, file.path), file.size)) {
+        bytes += file.size;
+      }
     }
     return bytes;
   } catch {
@@ -187,6 +199,60 @@ export async function sha256Hex(buf: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+/**
+ * CHUNKED model storage (hand-test round 2026-10-09): Chrome's Cache API
+ * inside dedicated workers fails whole-file puts of the 321MB decoder shard
+ * ("Unexpected internal error" / "Cache.put() encountered a network
+ * error") while ≤64MB puts are reliable. Every file is stored as
+ * ceil(size / MODEL_CHUNK_BYTES) parts under derived keys; readers
+ * reassemble via readModelFile. The transformer customCache adapter and
+ * the page-side row math share these helpers so both sides agree on
+ * presence.
+ */
+export const MODEL_CHUNK_BYTES = 64 * 1024 * 1024;
+
+export function chunkKeys(url: string, size: number): string[] {
+  const parts = Math.max(1, Math.ceil(size / MODEL_CHUNK_BYTES));
+  return Array.from({ length: parts }, (_, i) => `${url}::part/${i}`);
+}
+
+type MatchLike = { match(request: string): Promise<Response | undefined> };
+
+/** All parts present = the file is fully stored. */
+export async function isFileCompleteInStore(
+  store: MatchLike,
+  url: string,
+  size: number,
+): Promise<boolean> {
+  for (const key of chunkKeys(url, size)) {
+    if (!(await store.match(key))) return false;
+  }
+  return size > 0 || chunkKeys(url, size).length > 0;
+}
+
+/** Reassemble a stored file from its parts. Caller bounds RAM (1 file). */
+export async function readModelFile(
+  store: MatchLike,
+  url: string,
+  size: number,
+): Promise<ArrayBuffer | undefined> {
+  const keys = chunkKeys(url, size);
+  const parts: ArrayBuffer[] = [];
+  for (const key of keys) {
+    const res = await store.match(key);
+    if (!res) return undefined;
+    parts.push(await res.arrayBuffer());
+  }
+  const total = parts.reduce((s, p) => s + p.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(new Uint8Array(p), offset);
+    offset += p.byteLength;
+  }
+  return out.buffer;
 }
 
 export type DownloadPhase = 'persist' | 'preflight' | 'downloading' | 'verifying' | 'done';

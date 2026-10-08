@@ -18,9 +18,14 @@ const MANIFEST = JSON.parse(readFileSync('scripts/ai-model-manifest.json', 'utf8
   files: { path: string; size: number }[];
 };
 const AI_TOTAL = MANIFEST.files.reduce((s, f) => s + f.size, 0);
-const AI_URLS = MANIFEST.files.map(
-  (f) => `https://huggingface.co/${MANIFEST.repo}/resolve/${MANIFEST.revision}/${f.path}`,
-);
+// Chunked storage layout (ai-models.ts): parts of ≤64MiB per file — 64MiB
+// here MUST match MODEL_CHUNK_BYTES (the manifest files are all ≤652MB, so
+// the part counts computed with this constant are the real ones).
+const MODEL_CHUNK_BYTES = 64 * 1024 * 1024;
+const AI_URLS = MANIFEST.files.map((f) => ({
+  url: `https://huggingface.co/${MANIFEST.repo}/resolve/${MANIFEST.revision}/${f.path}`,
+  parts: Math.max(1, Math.ceil(f.size / MODEL_CHUNK_BYTES)),
+}));
 
 const OCR_BODY = 50_000; // fake tessdata pin
 const IDB_BODY = 40_000; // fake gunzipped traineddata
@@ -33,7 +38,11 @@ async function seedStores(page: import('@playwright/test').Page): Promise<void> 
       await navigator.serviceWorker.ready;
 
       const ai = await caches.open('pdftoolkit-ai-v1');
-      for (const url of aiUrls) await ai.put(url, new Response('seed'));
+      for (const { url, parts } of aiUrls) {
+        for (let i = 0; i < parts; i += 1) {
+          await ai.put(`${url}::part/${i}`, new Response('seed'));
+        }
+      }
       await ai.put('https://huggingface.co/extra/leftover', new Response('seed'));
 
       const ocr = await caches.open('pdftoolkit-ocr-v1');

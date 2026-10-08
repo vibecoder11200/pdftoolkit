@@ -15,9 +15,13 @@ const ortDist = `${root}node_modules/onnxruntime-web/dist`;
 const outDir = `${root}public/ort`;
 const manifestPath = `${root}scripts/ort-assets-manifest.json`;
 
-// The jsep build is the WebGPU-capable ORT variant transformers.js loads when
-// webgpu is enabled (its default picks the same family from the CDN).
-const WANTED = ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm'];
+// The ASYNCIFY build is the ORT variant transformers.js 4.3.1's glue loads
+// for webgpu: its factory exposes webgpuInit, which the glue calls — the
+// jsep build does not export it, so pinning jsep broke session init
+// ("no available backend found … webgpuInit is not a function",
+// hand-test round 2026-10-09). The transformers default picks this same
+// family from the CDN (spike env dump: ort-wasm-simd-threaded.asyncify).
+const WANTED = ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'];
 
 mkdirSync(outDir, { recursive: true });
 const manifest = {};
@@ -26,7 +30,7 @@ for (const name of WANTED) {
   cpSync(src, `${outDir}/${name}`);
   manifest[name] = createHash('sha256').update(readFileSync(src)).digest('hex');
 }
-const unused = readdirSync(ortDist).filter((f) => f.startsWith('ort-wasm-simd-threaded.jsep'));
+const unused = readdirSync(ortDist).filter((f) => f.startsWith('ort-wasm-simd-threaded.asyncify'));
 if (unused.length < WANTED.length) {
   throw new Error(`[sync-ort-assets] onnxruntime-web dist missing expected files: found ${unused.join(', ')}`);
 }

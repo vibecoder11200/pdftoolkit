@@ -63,7 +63,7 @@ const fontRevisions = Object.fromEntries(
 // serve time, so the IPC init scripts stay allowed). tauri.conf.json carries
 // the identical string via security.csp — keep the two in sync.
 const DESKTOP_CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost https://huggingface.co https://*.huggingface.co https://*.hf.co; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'";
 
 // v0.5.0 phase 2a (red-team F1): transformers.js carries a jsDelivr
 // wasmPaths DEFAULT (its wasm factory fallback). The worker pins same-origin
@@ -290,6 +290,14 @@ export default defineConfig({
     format: 'es',
     // the worker band needs the same F1 stamp — see stampOutOrtCdn above
     plugins: () => [stampOutOrtCdn],
+  },
+  server: {
+    watch: {
+      // `tauri dev` on Windows: cargo writes src-tauri/target/** while the
+      // dev server scans the project root — chokidar dies with EBUSY on the
+      // locked pdftoolkit.exe and beforeDevCommand aborts.
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
   build: {
     chunkSizeWarningLimit: 1500,

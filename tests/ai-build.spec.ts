@@ -36,7 +36,7 @@ describe.skipIf(!existsSync(join(DIST, 'sw.js')))('AI build output (dist/)', () 
     for (const c of chunks) {
       const code = readFileSync(c, 'utf8');
       // the same-origin wasmPaths pin (F1) is baked into the worker chunk
-      expect(code).toContain('ort/ort-wasm-simd-threaded.jsep.mjs');
+      expect(code).toContain('ort/ort-wasm-simd-threaded.asyncify.mjs');
       expect(code).toContain('pdftoolkit-ai-v1');
     }
   });
@@ -67,7 +67,7 @@ describe.skipIf(!existsSync(join(DIST, 'sw.js')))('AI build output (dist/)', () 
   });
 
   it('same-origin ORT copies exist (public/ort → dist/ort)', () => {
-    expect(existsSync(join(DIST, 'ort', 'ort-wasm-simd-threaded.jsep.mjs'))).toBe(true);
-    expect(existsSync(join(DIST, 'ort', 'ort-wasm-simd-threaded.jsep.wasm'))).toBe(true);
+    expect(existsSync(join(DIST, 'ort', 'ort-wasm-simd-threaded.asyncify.mjs'))).toBe(true);
+    expect(existsSync(join(DIST, 'ort', 'ort-wasm-simd-threaded.asyncify.wasm'))).toBe(true);
   });
 });

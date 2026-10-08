@@ -78,12 +78,12 @@ describe('AI model registry (D8 + manifest pin)', () => {
 
   it('wasmPaths pin: same-origin under BASE_URL, never CDN (F1)', () => {
     expect(sameOriginWasmPaths('/pdftoolkit/')).toEqual({
-      mjs: '/pdftoolkit/ort/ort-wasm-simd-threaded.jsep.mjs',
-      wasm: '/pdftoolkit/ort/ort-wasm-simd-threaded.jsep.wasm',
+      mjs: '/pdftoolkit/ort/ort-wasm-simd-threaded.asyncify.mjs',
+      wasm: '/pdftoolkit/ort/ort-wasm-simd-threaded.asyncify.wasm',
     });
     expect(sameOriginWasmPaths('/')).toEqual({
-      mjs: '/ort/ort-wasm-simd-threaded.jsep.mjs',
-      wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm',
+      mjs: '/ort/ort-wasm-simd-threaded.asyncify.mjs',
+      wasm: '/ort/ort-wasm-simd-threaded.asyncify.wasm',
     });
     expect(sameOriginWasmPaths('/pdftoolkit')).toEqual(sameOriginWasmPaths('/pdftoolkit/'));
   });
@@ -234,9 +234,9 @@ describe('ensureModelDownloaded', () => {
     await expect(
       ensureModelDownloaded(spec, controller.signal, makeDeps(store, fetchImpl)),
     ).rejects.toThrow();
-    // a is cached whole, b left no partial, marker absent
-    expect((await store.match(urlOf(spec, 'tiny-a.onnx_data')))).toBeDefined();
-    expect((await store.match(urlOf(spec, 'tiny-b.onnx_data')))).toBeUndefined();
+    // a is cached whole (its single part), b left no parts, marker absent
+    expect(await store.match(`${urlOf(spec, 'tiny-a.onnx_data')}::part/0`)).toBeDefined();
+    expect(await store.match(`${urlOf(spec, 'tiny-b.onnx_data')}::part/0`)).toBeUndefined();
     expect(await isModelVerified(spec, store)).toBe(false);
 
     // resume: only the missing files are fetched
@@ -252,8 +252,8 @@ describe('ensureModelDownloaded', () => {
     const { fetchImpl } = fakeFetch(bodies);
     const origPut = store.put.bind(store);
     store.put = async (url, res) => {
-      if (String(url).endsWith('tiny-b.onnx_data')) {
-        entries.set(urlOf(spec, 'tiny-a.onnx_data'), new Uint8Array(0)); // a stays
+      if (String(url).includes('tiny-b.onnx_data')) {
+        entries.set(`${urlOf(spec, 'tiny-a.onnx_data')}::part/0`, new Uint8Array(0)); // a stays
         throw new DOMException('quota', 'QuotaExceededError');
       }
       return origPut(url, res);
@@ -327,13 +327,13 @@ describe('isCacheUsable (D3 verify-then-trust gate)', () => {
   it('complete but NO verified marker (interrupted between last put and marker write) → NOT usable', async () => {
     const { store } = fakeCache();
     const spec = makeSpec();
-    // seed all three file URLs with raw bodies — no marker, never hashed
+    // seed every part of all three files — no marker, never hashed
     for (const [name, body] of [
       ['tiny-a.onnx_data', 'AAAA'],
       ['tiny-b.onnx_data', 'BBBB'],
       ['config.json', '{}'],
     ] as const) {
-      await store.put(hfFileUrl(spec, name), new Response(body));
+      await store.put(`${hfFileUrl(spec, name)}::part/0`, new Response(body));
     }
     await expect(isCacheUsable(spec, store, 3, 3)).resolves.toBe(false);
   });
