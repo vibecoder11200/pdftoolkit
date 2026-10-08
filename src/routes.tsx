@@ -19,6 +19,7 @@ import { MetadataToolPage } from './pages/metadata';
 import { SignToolPage } from './pages/sign';
 import { FillFormToolPage } from './pages/fill-form';
 import { OcrToolPage } from './pages/ocr';
+import { SettingsPage } from './pages/settings';
 
 const toolRoutes = [
   'merge',
@@ -93,6 +94,7 @@ export const router = createBrowserRouter(
         // coming-soon state instead of silently falling through to the catch-all.
         { path: '/tools/convert', element: <ComingSoonPage /> },
         ...toolRoutes,
+        { path: '/settings', element: <SettingsPage /> },
         { path: '*', element: <HomePage /> },
       ],
     },

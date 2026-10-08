@@ -10,6 +10,7 @@ const NAV = [
   { to: '/tools/split', vi: 'TÁCH PDF', en: 'SPLIT PDF' },
   { to: '/tools/compress', vi: 'NÉN PDF', en: 'COMPRESS PDF' },
   { to: '/tools/convert', vi: 'ĐỔI ĐỊNH DẠNG', en: 'CONVERT' },
+  { to: '/settings', vi: 'CÀI ĐẶT', en: 'SETTINGS' },
   { to: '/', vi: 'TẤT CẢ CÔNG CỤ', en: 'ALL TOOLS' },
 ];
 
