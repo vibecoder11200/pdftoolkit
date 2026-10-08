@@ -113,9 +113,14 @@ export async function runAiPages(
   const fingerprint = adapterFingerprint((await detectHardware()).adapter);
   const store = opts.benchmarkStore ?? createBenchmarkStore();
   const existing = (await store.loadAll())[AI_MODEL_ID];
+  const load = await client.ensureLoaded(AI_MODEL_ID, (p) => events.onDownloadProgress?.(p));
+  // The condition must match the device THIS run actually loaded with:
+  // after a GPU-loss degrade the client pins 'wasm', and recording WASM
+  // throughput as 'webgpu' would let the staleness check trust it forever
+  // (permanently wrong tier label).
+  const condition: 'webgpu' | 'wasm' = load.device === 'wasm' ? 'wasm' : 'webgpu';
   const needsBenchmark =
-    !existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== 'webgpu';
-  await client.ensureLoaded(AI_MODEL_ID, (p) => events.onDownloadProgress?.(p));
+    !existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== condition;
 
   let firstColdMs: number | null = null;
   for (let i = startPage; i <= pageCount; i++) {
@@ -137,7 +142,7 @@ export async function runAiPages(
         try {
           const rec = await saveBenchmarkRecord(
             AI_MODEL_ID,
-            'webgpu',
+            condition,
             fingerprint,
             r.tokPerSec,
             firstColdMs,

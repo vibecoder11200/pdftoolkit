@@ -64,6 +64,9 @@ interface PendingCall {
 
 const DEFAULT_IDLE_MS = 10 * 60_000;
 const DEFAULT_HIDDEN_MS = 5 * 60_000;
+/** handleFatal spawn budget (see handleFatal — offline first-use otherwise
+ * loops spawn/fail forever; a settled guarded() call resets the counter). */
+const MAX_RESTARTS = 5;
 
 export class AiWorkerClient {
   private readonly options: AiClientOptions;
@@ -109,7 +112,7 @@ export class AiWorkerClient {
 
   private handleFatal(cause?: unknown, event?: Event): void {
     if (event) {
-      // prevent infinite loops on a URL that cannot even load in tests
+      // suppress console noise (does NOT stop the loop — the cap below does)
       event.preventDefault?.();
     }
     const pending = [...this.pending];
@@ -122,19 +125,45 @@ export class AiWorkerClient {
     }
     this.worker = null;
     this.api = null;
-    this.spawn();
     this.restarts += 1;
+    // Cap the spawn/fail loop: the worker chunk is deliberately NOT
+    // precached (F9), so an offline first-use fails the module fetch —
+    // an uncapped onerror here is an infinite spawn/fail/spawn until page
+    // unload. A client past the cap stays dead until reload; the next
+    // guarded() call rejects fast instead of respawning.
+    if (this.restarts <= MAX_RESTARTS) this.spawn();
     this.options.onWorkerCrash?.(this.restarts);
   }
 
   /** Register a rejector so a crashed worker cannot strand the promise. */
   private guarded<T>(run: (api: Remote<AiOcrApi>) => Promise<T>): Promise<T> {
-    if (!this.api) this.spawn();
+    if (!this.api) {
+      if (this.restarts >= MAX_RESTARTS) {
+        return Promise.reject(
+          new WorkerCrashError(new Error('AI worker restart limit reached')),
+        );
+      }
+      this.spawn();
+    }
     const api = this.api!;
     return new Promise<T>((resolve, reject) => {
       const entry: PendingCall = { reject };
       this.pending.add(entry);
-      run(api).then(resolve, reject).finally(() => this.pending.delete(entry));
+      run(api)
+        .then(
+          (value) => {
+            // A settled call proves the CURRENT worker loaded and responds —
+            // it earns a fresh restart budget. Crash rejects (from
+            // handleFatal, which rejects via this same chain) must NOT count.
+            this.restarts = 0;
+            resolve(value);
+          },
+          (err) => {
+            if (!(err instanceof WorkerCrashError)) this.restarts = 0;
+            reject(err);
+          },
+        )
+        .finally(() => this.pending.delete(entry));
     });
   }
 

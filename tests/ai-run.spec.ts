@@ -15,13 +15,16 @@ import type { DownloadProgress } from '../src/lib/ai-models';
  * benchmark-on-second-page (T5: first real page = warmup).
  */
 
-function fakeClient(pages: number, opts: { crashAt?: number } = {}): {
+function fakeClient(
+  pages: number,
+  opts: { crashAt?: number; device?: 'webgpu' | 'wasm' | 'mock' } = {},
+): {
   client: AiRunClient;
   ocrCalls: number[];
 } {
   const ocrCalls: number[] = [];
   const client: AiRunClient = {
-    ensureLoaded: vi.fn(async () => ({ loadMs: 1, device: 'webgpu' as const })),
+    ensureLoaded: vi.fn(async () => ({ loadMs: 1, device: opts.device ?? ('webgpu' as const) })),
     downloadModel: vi.fn(async (_m: string, onProgress?: (p: DownloadProgress) => void) => {
       onProgress?.({ phase: 'downloading', percent: 50 });
       return { bytes: 10, downloaded: 10 };
@@ -170,6 +173,51 @@ describe('runAiPages', () => {
     });
     await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
     expect(saved).toHaveLength(0);
+  });
+
+  it('wasm degrade run records condition wasm — WASM throughput is never labeled webgpu', async () => {
+    const { client } = fakeClient(3, { device: 'wasm' });
+    const { store, saved } = fakeStore();
+    await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
+    expect(saved).toHaveLength(1);
+    expect((saved[0] as { condition: string }).condition).toBe('wasm');
+  });
+
+  it('stored record matches the loaded device condition → no re-measure (parity)', async () => {
+    const { client } = fakeClient(3, { device: 'wasm' });
+    const { store, saved } = fakeStore();
+    const { adapterFingerprint } = await import('../src/lib/capability');
+    (store.loadAll as ReturnType<typeof vi.fn>).mockResolvedValue({
+      'glm-ocr': {
+        modelId: 'glm-ocr',
+        tokPerSecWarm: 3,
+        firstTokenColdMs: null,
+        condition: 'wasm',
+        measuredAt: Date.now(),
+        adapterFingerprint: adapterFingerprint(null),
+      },
+    });
+    await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
+    expect(saved).toHaveLength(0);
+  });
+
+  it('stored wasm record + webgpu load → re-measures (condition mismatch counts as stale)', async () => {
+    const { client } = fakeClient(3);
+    const { store, saved } = fakeStore();
+    const { adapterFingerprint } = await import('../src/lib/capability');
+    (store.loadAll as ReturnType<typeof vi.fn>).mockResolvedValue({
+      'glm-ocr': {
+        modelId: 'glm-ocr',
+        tokPerSecWarm: 3,
+        firstTokenColdMs: null,
+        condition: 'wasm',
+        measuredAt: Date.now(),
+        adapterFingerprint: adapterFingerprint(null),
+      },
+    });
+    await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
+    expect(saved).toHaveLength(1);
+    expect((saved[0] as { condition: string }).condition).toBe('webgpu');
   });
 
   it('resume: startPage continues numbering and keeps caller-provided context', async () => {

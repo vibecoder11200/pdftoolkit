@@ -17,6 +17,7 @@ import {
 import {
   clearModelCache,
   ensureModelDownloaded,
+  isCacheUsable,
   isModelVerified,
   type CacheLike,
   type DownloadDeps,
@@ -310,6 +311,43 @@ describe('clearModelCache', () => {
     const n = await clearModelCache(makeSpec(), store);
     expect(n).toBe(4); // 3 files + marker
     expect(await isModelVerified(makeSpec(), store)).toBe(false);
+  });
+});
+
+describe('isCacheUsable (D3 verify-then-trust gate)', () => {
+  it('complete AND marker-verified → usable', async () => {
+    const { store } = fakeCache();
+    const spec = makeSpec();
+    const bodies = new Map([['tiny-a.onnx_data', 'AAAA'], ['tiny-b.onnx_data', 'BBBB'], ['config.json', '{}']]);
+    const { fetchImpl } = fakeFetch(bodies);
+    await ensureModelDownloaded(spec, new AbortController().signal, makeDeps(store, fetchImpl));
+    await expect(isCacheUsable(spec, store, 3, 3)).resolves.toBe(true);
+  });
+
+  it('complete but NO verified marker (interrupted between last put and marker write) → NOT usable', async () => {
+    const { store } = fakeCache();
+    const spec = makeSpec();
+    // seed all three file URLs with raw bodies — no marker, never hashed
+    for (const [name, body] of [
+      ['tiny-a.onnx_data', 'AAAA'],
+      ['tiny-b.onnx_data', 'BBBB'],
+      ['config.json', '{}'],
+    ] as const) {
+      await store.put(hfFileUrl(spec, name), new Response(body));
+    }
+    await expect(isCacheUsable(spec, store, 3, 3)).resolves.toBe(false);
+  });
+
+  it('verified marker but incomplete set → NOT usable', async () => {
+    const { store } = fakeCache();
+    const spec = makeSpec();
+    await store.put(verifiedMarkerKey(spec.revision), new Response('ok'));
+    await expect(isCacheUsable(spec, store, 2, 3)).resolves.toBe(false);
+  });
+
+  it('empty store (0/0) → NOT usable', async () => {
+    const { store } = fakeCache();
+    await expect(isCacheUsable(makeSpec(), store, 0, 0)).resolves.toBe(false);
   });
 });
 

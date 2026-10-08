@@ -11,6 +11,7 @@ import {
 import {
   clearModelCache,
   ensureModelDownloaded,
+  isCacheUsable,
   type CacheLike,
 } from '../lib/ai-download';
 import type { DownloadProgress } from '../lib/ai-models';
@@ -442,7 +443,15 @@ export class RealEngine implements EngineLike {
       if (await store.match(hfFileUrl(this.spec, String(f)))) filesCached += 1;
     }
     return {
-      cached: files.length > 0 && filesCached === files.length,
+      // isCacheUsable: complete AND marker-verified — a full-but-unverified
+      // set (interrupted verify) flows into ensureModelDownloaded, which
+      // re-hashes with zero network instead of being loaded unverified.
+      cached: await isCacheUsable(
+        this.spec,
+        store as unknown as CacheLike,
+        filesCached,
+        files.length,
+      ),
       filesCached,
       filesTotal: files.length,
       totalBytes: this.spec.totalBytes,

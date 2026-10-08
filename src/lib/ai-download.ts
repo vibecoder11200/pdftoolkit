@@ -85,6 +85,21 @@ export async function isModelVerified(spec: AiModelSpec, store: CacheLike): Prom
 }
 
 /**
+ * Usable = complete AND verified (D3 verify-then-trust). A set interrupted
+ * between the last cache.put and the marker write is complete but NEVER
+ * hashed — it must count as not-cached so ensureModelDownloaded re-verifies
+ * it (zero network) before anything loads it.
+ */
+export async function isCacheUsable(
+  spec: AiModelSpec,
+  store: CacheLike,
+  filesCached: number,
+  filesTotal: number,
+): Promise<boolean> {
+  return filesTotal > 0 && filesCached === filesTotal && (await isModelVerified(spec, store));
+}
+
+/**
  * Identity TransformStream probe: counts bytes for progress WITHOUT
  * buffering the file (backpressure flows through to the network; cache.put
  * writes at disk speed and the stream simply throttles).

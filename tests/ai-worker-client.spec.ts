@@ -159,6 +159,49 @@ describe('AiWorkerClient lifecycle (F6)', () => {
     expect(calls).toBe(1);
   });
 
+  it('crash-respawn loop is capped — an offline worker that always fails stops respawning', async () => {
+    const { workers, spawnWorker } = fakeWorkerFactory();
+    const onWorkerCrash = vi.fn();
+    const { client } = makeClient({ spawnWorker, api: fakeApi(), onWorkerCrash });
+    await client.isBusy(); // spawns worker[0] with a fresh budget
+    // simulate the offline module-fetch failure: every spawn errors instantly
+    for (let i = 0; i < 6; i += 1) {
+      workers[i].fireError();
+      await Promise.resolve();
+    }
+    // 1 initial + MAX_RESTARTS respawns = 6 workers, then handleFatal stops
+    expect(workers).toHaveLength(6);
+    expect(onWorkerCrash).toHaveBeenCalledTimes(6);
+    expect(onWorkerCrash).toHaveBeenLastCalledWith(6);
+    // past the cap: guarded() rejects fast instead of respawning worker[7]
+    await expect(client.isBusy()).rejects.toBeInstanceOf(WorkerCrashError);
+    expect(workers).toHaveLength(6);
+  });
+
+  it('a settled call resets the restart budget — healthy workers never reach the cap', async () => {
+    const { workers, spawnWorker } = fakeWorkerFactory();
+    const onWorkerCrash = vi.fn();
+    const { client } = makeClient({ spawnWorker, api: fakeApi(), onWorkerCrash });
+    await client.isBusy();
+    for (let i = 0; i < 3; i += 1) {
+      workers[i].fireError();
+      await Promise.resolve();
+    }
+    expect(onWorkerCrash).toHaveBeenCalledTimes(3);
+    // a successful call proves the current worker loads — fresh budget
+    await expect(client.isBusy()).resolves.toBe(false);
+    // the live worker is [3]; three more crashes stay under the fresh budget
+    for (let i = 3; i < 6; i += 1) {
+      workers[i].fireError();
+      await Promise.resolve();
+    }
+    // 1 initial + 3 respawns + 3 more respawns (budget was reset mid-way)
+    expect(workers).toHaveLength(7);
+    expect(onWorkerCrash).toHaveBeenCalledTimes(6);
+    // still under the (reset) budget — the client keeps working
+    await expect(client.isBusy()).resolves.toBe(false);
+  });
+
   it('GPU-lost message → onGpuLost + respawn, and the next load pins device wasm (F6 degrade)', async () => {
     const { workers, spawnWorker } = fakeWorkerFactory();
     const api = fakeApi({
