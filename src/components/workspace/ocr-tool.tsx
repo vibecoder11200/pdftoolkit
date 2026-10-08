@@ -13,24 +13,43 @@ import {
   type OcrLangs,
 } from '../../lib/ocr';
 import { deliverBytes } from '../../lib/download';
+import { beginJob, endJob } from '../../lib/jobs';
+import { AI_MODEL_ID } from '../../lib/ai-models';
+import {
+  aiTierEstimate,
+  downloadIfNeeded,
+  runAiPages,
+  type AiPageResult,
+  type AiRunClient,
+} from '../../lib/ai-run';
+import { sharedAiClient } from '../../lib/ai-worker-client';
+import { convertEngineOutput } from '../../lib/ai-markdown';
+import type { TierResolution } from '../../lib/capability';
+import type { RasterImageData } from '../../workers/pdf.worker';
 
 /*
- * OCR tool (plan v0.4.0 phase 5, D7/R8/R14/R20): single PDF → searchable PDF
- * + per-page text. Language Auto resolves by running page 1 through BOTH
- * vie and eng and keeping the higher mean confidence (no OSD — non-goal);
- * the choice is surfaced and overridable. Page cap 100 is HARD (D7) — the
- * config step refuses above it; a PDF that already carries a text layer gets
- * a warning instead. Cancel stops at the page boundary ("dừng sau trang
- * hiện tại") keeping partial results; "Hủy tất" drops everything.
+ * OCR tool (plan v0.4.0 phase 5, D7/R8/R14/R20; v0.5.0 phase 4a adds the
+ * AI engine): single PDF → engine choice. Tesseract keeps the v0.4.0 path
+ * 100% intact (searchable PDF + per-page text). The AI engine (GLM-OCR,
+ * on-device) outputs STRUCTURED text — md/txt/html; a searchable PDF is a
+ * TESSERACT feature by decision D5-amended, and the copy says so. Pages
+ * render lazily one at a time (no raster pile-up), cancel stops at the
+ * page boundary keeping results, and a worker crash offers resume from the
+ * failed page (F6).
  */
 
 type LangChoice = 'auto' | OcrLangs;
 type Step = 'pick' | 'config' | 'running' | 'done';
+type Engine = 'tesseract' | 'ai';
+type AiPhase = 'idle' | 'downloading' | 'loading' | 'running' | 'done' | 'error';
 
 const DPI_CHOICES = [150, 200, 300] as const;
 // Per-page seconds at A4 from the phase-4b benchmarks (~0.5s/page at 200dpi,
 // eng ≈ vie, 0.43-0.83s observed variance; 300dpi scales ~2.25× by pixels).
 const ESTIMATE_S_PER_PAGE: Record<number, number> = { 150: 0.4, 200: 0.6, 300: 1.4 };
+// AI render dpi — the worker caps the long edge at 1024px anyway (SPIKE),
+// so 150dpi (~1240px at A4) is the sweet spot.
+const AI_DPI = 150;
 
 interface PageResult {
   page: number;
@@ -39,10 +58,15 @@ interface PageResult {
   ms: number;
 }
 
+/** e2e mock seam (F8): `?ai-mock=1` on the PAGE url drives the canned engine. */
+const isAiMock = () =>
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('ai-mock');
+
 export function OcrTool() {
   const { t } = useTranslation();
   const { files, error, add, clear } = useDropFiles();
   const [step, setStep] = useState<Step>('pick');
+  const [engine, setEngine] = useState<Engine>('tesseract');
   const [lang, setLang] = useState<LangChoice>('auto');
   const [dpi, setDpi] = useState<(typeof DPI_CHOICES)[number]>(150);
   const [hasTextLayer, setHasTextLayer] = useState(false);
@@ -57,8 +81,23 @@ export function OcrTool() {
   const [runError, setRunError] = useState<string | null>(null);
   const [totalMs, setTotalMs] = useState(0);
 
+  // AI engine state
+  const [aiLabel, setAiLabel] = useState<{ cached: boolean; tier: TierResolution | null } | null>(null);
+  const [aiPhase, setAiPhase] = useState<AiPhase>('idle');
+  const [aiDownload, setAiDownload] = useState<{ percent: number | null; started: boolean }>({
+    percent: null,
+    started: false,
+  });
+  const [aiPage, setAiPage] = useState({ current: 0, total: 0 });
+  const [aiTokens, setAiTokens] = useState(0);
+  const [aiResults, setAiResults] = useState<AiPageResult[]>([]);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiCrashedAt, setAiCrashedAt] = useState<number | null>(null);
+  const [aiTab, setAiTab] = useState<'md' | 'txt' | 'html'>('md');
+
   const abortRef = useRef(false);
   const dropAllRef = useRef(false);
+  const clientRef = useRef<AiRunClient | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -76,17 +115,101 @@ export function OcrTool() {
     })().catch(() => setStep('pick'));
   }, [files]);
 
+  // AI label (D4 pre-download): tier estimate + zero-network cached check.
+  useEffect(() => {
+    if (step !== 'config') return;
+    let cancelled = false;
+    void (async () => {
+      const tier = await aiTierEstimate().catch(() => null);
+      const cached = await isModelCachedLocal();
+      if (!cancelled) setAiLabel({ cached, tier });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
+
   const estimate = useMemo(() => {
     const perPage = ESTIMATE_S_PER_PAGE[dpi] * (lang === 'auto' ? 1.1 : 1);
     const total = Math.round((perPage * pageCount) / 60);
     return total >= 1 ? t('ocr.estimate_minutes', { count: total }) : t('ocr.estimate_under_minute');
   }, [dpi, lang, pageCount, t]);
 
+  const aiClient = useCallback((): AiRunClient => {
+    if (!clientRef.current) {
+      clientRef.current = sharedAiClient({ mock: isAiMock() });
+    }
+    return clientRef.current;
+  }, []);
+
+  const runAi = useCallback(
+    async (startPage: number, keep: AiPageResult[]) => {
+      if (files.length === 0) return;
+      beginJob('ai-ocr');
+      setStep('running');
+      setAiError(null);
+      setAiCrashedAt(null);
+      setAiTokens(keep.reduce((s, r) => s + r.genTokens, 0));
+      setAiResults(keep);
+      abortRef.current = false;
+      const client = aiClient();
+      const bytes = files[0].bytes;
+      const canvas = document.createElement('canvas');
+      const scale = AI_DPI / 72;
+      const renderPage = async (page: number): Promise<RasterImageData> => {
+        await renderPageToCanvas(bytes, page, canvas, scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('canvas 2d context unavailable');
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return { data: image.data, width: image.width, height: image.height };
+      };
+      try {
+        setAiPhase('downloading');
+        setAiDownload({ percent: null, started: true });
+        await downloadIfNeeded(client, AI_MODEL_ID, (p) => {
+          setAiDownload({ percent: p.percent, started: true });
+        });
+        setAiPhase('loading');
+        const out = await runAiPages(
+          client,
+          pageCount,
+          renderPage,
+          {
+            onPage: (c, total) => {
+              setAiPhase('running');
+              setAiPage({ current: c, total });
+            },
+            onToken: () => setAiTokens((n) => n + 1),
+            onCrash: (failedAtPage) => setAiCrashedAt(failedAtPage),
+          },
+          {
+            startPage,
+            shouldContinue: () => !abortRef.current,
+          },
+        );
+        setAiResults([...keep, ...out.results]);
+        setAiPhase('done');
+        setStep('done');
+      } catch (err) {
+        setAiError(err instanceof Error ? err.message : String(err));
+        setAiPhase('error');
+        setStep('done');
+      } finally {
+        endJob('ai-ocr');
+      }
+    },
+    [aiClient, files, pageCount],
+  );
+
   const start = useCallback(() => {
     if (files.length === 0) return;
     // The config step renders BEFORE the async page-count probe resolves —
     // never start with a stale/zero count (assertPageCountOk would throw).
     if (pageCount < 1 || pageCount > OCR_PAGE_CAP) return;
+    if (engine === 'ai') {
+      void runAi(1, []);
+      return;
+    }
     setStep('running');
     setPhase('running');
     setResults([]);
@@ -101,6 +224,8 @@ export function OcrTool() {
     const scale = dpi / 72;
 
     void (async () => {
+      // F22: a desktop update must confirm before restarting over this job.
+      beginJob('ocr');
       const t0 = performance.now();
       let langs: OcrLangs;
       let session;
@@ -172,9 +297,15 @@ export function OcrTool() {
         setStep('config');
       } finally {
         await session?.dispose();
+        endJob('ocr');
       }
     })();
-  }, [dpi, files, lang, pageCount]);
+  }, [dpi, engine, files, lang, pageCount, runAi]);
+
+  const cancelAiDownload = useCallback(() => {
+    void aiClient().cancelDownload();
+    abortRef.current = true;
+  }, [aiClient]);
 
   if (step === 'pick') {
     return (
@@ -193,6 +324,18 @@ export function OcrTool() {
   }
 
   if (step === 'config') {
+    const tier = aiLabel?.tier;
+    const tierKey =
+      tier?.tier === 'gpu-strong'
+        ? 'ocr.ai_tier_strong'
+        : tier?.tier === 'gpu-weak'
+          ? 'ocr.ai_tier_weak'
+          : tier?.tier === 'cpu'
+            ? 'ocr.ai_tier_cpu'
+            : 'ocr.ai_tier_none';
+    // the mock seam (F8) runs on any machine — the tier gate is for the
+    // real engine only
+    const aiUnavailable = !isAiMock() && tier?.tier === 'none';
     return (
       <section className="grid gap-4">
         <header className="grid gap-1">
@@ -210,47 +353,93 @@ export function OcrTool() {
           </p>
         )}
         <fieldset className="grid gap-2">
-          <legend className="text-sm font-bold">{t('ocr.lang_q')}</legend>
-          {(['auto', 'vie', 'eng', 'vie+eng'] as LangChoice[]).map((choice) => (
-            <label key={choice} className="flex min-h-9 items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="ocr-lang"
-                checked={lang === choice}
-                onChange={() => setLang(choice)}
-              />
-              {t(`ocr.lang_${choice.replace('+', '_')}`)}
+          <legend className="text-sm font-bold">{t('ocr.engine_q')}</legend>
+          {(['tesseract', 'ai'] as Engine[]).map((choice) => (
+            <label
+              key={choice}
+              className={`grid gap-1 rounded-lg border px-3.5 py-2.5 text-sm ${
+                engine === choice ? 'border-accent bg-surface-card' : 'border-border-strong'
+              } ${choice === 'ai' && aiUnavailable ? 'opacity-60' : ''}`}
+            >
+              <span className="flex min-h-6 items-center gap-2 font-semibold">
+                <input
+                  type="radio"
+                  name="ocr-engine"
+                  checked={engine === choice}
+                  onChange={() => setEngine(choice)}
+                />
+                {choice === 'tesseract' ? t('ocr.engine_tesseract') : t('ocr.engine_ai')}
+                {choice === 'ai' && aiLabel?.cached && (
+                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-normal text-accent">
+                    {t('ocr.ai_state_ready')}
+                  </span>
+                )}
+              </span>
+              <span className="text-xs text-text-muted">
+                {choice === 'tesseract' ? t('ocr.engine_tesseract_hint') : t('ocr.engine_ai_hint')}
+              </span>
+              {choice === 'ai' && tier && (
+                <span className="text-xs text-text-muted">
+                  {t(tierKey)}
+                  {tier.source === 'measured'
+                    ? ` · ${t('ocr.tier_measured')}`
+                    : ` · ${t('ocr.tier_estimate')}`}
+                </span>
+              )}
             </label>
           ))}
         </fieldset>
-        <fieldset className="grid gap-2">
-          <legend className="text-sm font-bold">{t('ocr.dpi_q')}</legend>
-          <div className="flex gap-2">
-            {DPI_CHOICES.map((d) => (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={dpi === d}
-                className={`min-h-9 rounded-lg border px-3.5 text-sm ${
-                  dpi === d ? 'border-accent bg-surface-card font-semibold' : 'border-border-strong'
-                }`}
-                onClick={() => setDpi(d)}
-              >
-                {d} DPI
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <p className="text-sm text-text-muted">{estimate}</p>
+        {engine === 'tesseract' && (
+          <>
+            <fieldset className="grid gap-2">
+              <legend className="text-sm font-bold">{t('ocr.lang_q')}</legend>
+              {(['auto', 'vie', 'eng', 'vie+eng'] as LangChoice[]).map((choice) => (
+                <label key={choice} className="flex min-h-9 items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="ocr-lang"
+                    checked={lang === choice}
+                    onChange={() => setLang(choice)}
+                  />
+                  {t(`ocr.lang_${choice.replace('+', '_')}`)}
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="grid gap-2">
+              <legend className="text-sm font-bold">{t('ocr.dpi_q')}</legend>
+              <div className="flex gap-2">
+                {DPI_CHOICES.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    aria-pressed={dpi === d}
+                    className={`min-h-9 rounded-lg border px-3.5 text-sm ${
+                      dpi === d ? 'border-accent bg-surface-card font-semibold' : 'border-border-strong'
+                    }`}
+                    onClick={() => setDpi(d)}
+                  >
+                    {d} DPI
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <p className="text-sm text-text-muted">{estimate}</p>
+          </>
+        )}
+        {engine === 'ai' && (
+          <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
+            {t('ocr.ai_notice')}
+          </p>
+        )}
         {runError && <p role="alert" className="text-sm text-tone-red">{runError}</p>}
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={tooManyPages || pageCount < 1}
+            disabled={tooManyPages || pageCount < 1 || (engine === 'ai' && aiUnavailable)}
             className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent disabled:opacity-50"
             onClick={start}
           >
-            {t('ocr.run')}
+            {engine === 'ai' && !aiLabel?.cached ? t('ocr.run_ai_download') : t('ocr.run')}
           </button>
           <button
             type="button"
@@ -268,6 +457,59 @@ export function OcrTool() {
   }
 
   if (step === 'running') {
+    if (engine === 'ai') {
+      const pct = aiPage.total > 0 ? Math.round((aiPage.current / aiPage.total) * 100) : 0;
+      return (
+        <section className="grid gap-4" aria-busy>
+          {aiPhase === 'downloading' && (
+            <div role="progressbar" aria-valuenow={aiDownload.percent ?? undefined} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
+              <p className="text-sm font-semibold">
+                {t('ocr.ai_download_progress', { percent: aiDownload.percent ?? 0 })}
+              </p>
+              <div className="h-2 overflow-hidden rounded-full bg-surface-card">
+                <div
+                  className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${aiDownload.percent ?? 0}%` }}
+                />
+              </div>
+              <button
+                type="button"
+                data-testid="ai-cancel-download"
+                className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
+                onClick={cancelAiDownload}
+              >
+                {t('ocr.cancel_soft')}
+              </button>
+              <p className="text-xs text-text-muted">{t('ocr.ai_download_hint')}</p>
+            </div>
+          )}
+          {aiPhase === 'loading' && <p className="text-sm font-semibold">{t('ocr.ai_loading')}</p>}
+          {(aiPhase === 'running' || aiPhase === 'done') && (
+            <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
+              <p className="text-sm font-semibold">
+                {t('ocr.ai_progress_page', { current: aiPage.current, count: aiPage.total })}
+                <span className="ml-2 font-normal text-text-muted">
+                  {t('ocr.ai_tokens', { tokens: aiTokens })}
+                </span>
+              </p>
+              <div className="h-2 overflow-hidden rounded-full bg-surface-card">
+                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
+            onClick={() => {
+              abortRef.current = true;
+            }}
+          >
+            {t('ocr.cancel_soft')}
+          </button>
+          <p className="text-xs text-text-muted">{t('ocr.ai_cancel_hint')}</p>
+        </section>
+      );
+    }
     const pct = pageCount > 0 ? Math.round((current / pageCount) * 100) : 0;
     return (
       <section className="grid gap-4" aria-busy>
@@ -308,7 +550,109 @@ export function OcrTool() {
     );
   }
 
-  // done — partial results (soft cancel) look the same, with a note.
+  // done — AI results (v1: text) or tesseract results (partial soft-cancel
+  // looks the same, with a note).
+  if (engine === 'ai') {
+    const text = aiResults
+      .slice()
+      .sort((a, b) => a.page - b.page)
+      .map((r) => `--- ${t('ocr.page_n', { page: r.page })} ---\n${r.text}`)
+      .join('\n\n');
+    // D10: markdown/html are built by the escape-then-format converter; the
+    // preview iframe is sandboxed WITHOUT allow-scripts — OCR text is
+    // untrusted (adversarial e2e pins this).
+    const converted = convertEngineOutput(text);
+    const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
+    const tabs: Array<{ id: 'md' | 'txt' | 'html'; label: string }> = [
+      { id: 'md', label: t('ocr.tab_markdown') },
+      { id: 'txt', label: t('ocr.tab_text') },
+      { id: 'html', label: t('ocr.tab_html') },
+    ];
+    return (
+      <section className="grid gap-4">
+        <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-sm">
+          {t('ocr.ai_no_searchable')}
+        </p>
+        {aiCrashedAt !== null && (
+          <div className="rounded-lg border border-tone-red bg-tone-red-soft px-4 py-3 text-sm" role="alert">
+            <p>{t('ocr.ai_resume', { page: aiCrashedAt })}</p>
+            <button
+              type="button"
+              data-testid="ai-resume"
+              className="mt-2 min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
+              onClick={() => void runAi(aiCrashedAt, aiResults)}
+            >
+              {t('ocr.ai_resume_button', { page: aiCrashedAt })}
+            </button>
+          </div>
+        )}
+        {aiError && aiCrashedAt === null && (
+          <p role="alert" className="text-sm text-tone-red">{t('ocr.ai_error', { message: aiError })}</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={t('ocr.engine_ai')}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={aiTab === tab.id}
+              className={`min-h-9 rounded-lg border px-3.5 text-sm ${
+                aiTab === tab.id ? 'border-accent bg-surface-card font-semibold' : 'border-border-strong'
+              }`}
+              onClick={() => setAiTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ['md', converted.markdown, `${baseName}-ocr.md`, 'text/markdown', t('ocr.download_md')],
+              ['txt', converted.text, `${baseName}-ocr.txt`, 'text/plain', t('ocr.download_txt')],
+              ['html', converted.html, `${baseName}-ocr.html`, 'text/html', t('ocr.download_html')],
+            ] as const
+          ).map(([id, content, name, mime, label]) => (
+            <button
+              key={id}
+              type="button"
+              disabled={content.length === 0}
+              className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm disabled:opacity-50"
+              onClick={() => void deliverBytes(new TextEncoder().encode(content), name, 'download', mime)}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="ml-auto rounded border border-border-strong px-2 py-1 text-xs"
+            onClick={() =>
+              void navigator.clipboard.writeText(
+                aiTab === 'md' ? converted.markdown : aiTab === 'html' ? converted.html : converted.text,
+              )
+            }
+          >
+            {t('ocr.copy_all')}
+          </button>
+        </div>
+        {aiTab === 'md' && (
+          <pre data-testid="ai-markdown" className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-border-strong bg-surface-card p-3 text-xs">{converted.markdown}</pre>
+        )}
+        {aiTab === 'txt' && (
+          <pre data-testid="ai-text" className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-border-strong bg-surface-card p-3 text-xs">{converted.text}</pre>
+        )}
+        {aiTab === 'html' && (
+          <iframe
+            data-testid="ai-html-preview"
+            sandbox=""
+            title={t('ocr.tab_html')}
+            srcDoc={converted.html}
+            className="h-96 w-full rounded-lg border border-border-strong bg-white"
+          />
+        )}
+      </section>
+    );
+  }
   return (
     <section className="grid gap-4">
       {phase === 'cancelling' && (
@@ -370,4 +714,10 @@ export function OcrTool() {
       </ol>
     </section>
   );
+}
+
+/** Local import shim — keeps the heavy AI modules lazy like the worker. */
+async function isModelCachedLocal(): Promise<boolean> {
+  const { isModelCachedLocally } = await import('../../lib/ai-models');
+  return isModelCachedLocally();
 }

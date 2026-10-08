@@ -1,0 +1,77 @@
+{
+  "repo": "onnx-community/GLM-OCR-ONNX",
+  "revision": "aea46198f09e3aa2b63422dd234f1cc66afffe52",
+  "license": "MIT",
+  "upstream": {
+    "repo": "zai-org/GLM-OCR",
+    "license": "MIT"
+  },
+  "generatedAt": "2026-10-08",
+  "files": [
+    {
+      "path": "chat_template.jinja",
+      "size": 4606,
+      "sha256": "062e7ee4cc8defa88a5938b5d456dc60366ffd80647f918946ee747bf09ddc7c"
+    },
+    {
+      "path": "config.json",
+      "size": 2022,
+      "sha256": "8bf81b89d42ae98917084dfeaca5a1dc20ac20d6145f088ec2aac8840c1e4b9f"
+    },
+    {
+      "path": "generation_config.json",
+      "size": 166,
+      "sha256": "8da3eae088e11c06a32660d428ce0ac170fefb50e6439469515c82f031d6be45"
+    },
+    {
+      "path": "onnx/decoder_model_merged_q4f16.onnx",
+      "size": 377830,
+      "sha256": "6510318b0b3f1458c38a8678ebb2ca6868e83753cef92d72da8cb926aa82e0b8"
+    },
+    {
+      "path": "onnx/decoder_model_merged_q4f16.onnx_data",
+      "size": 336844800,
+      "sha256": "82af470f508000dcc3914c36d102f60c39b12f4be0f016b333e5e78b2e865bc8"
+    },
+    {
+      "path": "onnx/embed_tokens_q4f16.onnx",
+      "size": 1060,
+      "sha256": "b56ef40c21191aa1fdd4e7251679347ed45dd8473605e9539caeed6b781e41f7"
+    },
+    {
+      "path": "onnx/embed_tokens_q4f16.onnx_data",
+      "size": 52740096,
+      "sha256": "4b82f4062c1cf676e29126c6826c93d262872c1efad8e24fc78476be4245a966"
+    },
+    {
+      "path": "onnx/vision_encoder_q4f16.onnx",
+      "size": 474559,
+      "sha256": "083d41123710a5ceb725d3f48fc8170f3e85d9289e7530454c86c1961254055b"
+    },
+    {
+      "path": "onnx/vision_encoder_q4f16.onnx_data",
+      "size": 262272000,
+      "sha256": "b09ae1abca6bd2d229c63bc2dc4d09bba272c0627b270804f66267b0bac17ee1"
+    },
+    {
+      "path": "preprocessor_config.json",
+      "size": 366,
+      "sha256": "0d4b3cf5190e6b5b53ac52b1880b111163888bfc975db396561ee78887942fe4"
+    },
+    {
+      "path": "processor_config.json",
+      "size": 1495,
+      "sha256": "8dd8262e7ac5495801a1e6b8d6c6035331b2381b930b23eb262fc46604527074"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 5855,
+      "sha256": "49feefa948a21a9386864992b4b5fb7cabc9866a71e57edecb13009afe118fa5"
+    },
+    {
+      "path": "tokenizer.json",
+      "size": 5420559,
+      "sha256": "c3e229a66a06267194e62055f70cf5580af83b3582f46928fefee8cb9618f499"
+    }
+  ]
+}

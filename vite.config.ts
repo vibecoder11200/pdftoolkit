@@ -65,6 +65,35 @@ const fontRevisions = Object.fromEntries(
 const DESKTOP_CSP =
   "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'";
 
+// v0.5.0 phase 2a (red-team F1): transformers.js carries a jsDelivr
+// wasmPaths DEFAULT (its wasm factory fallback). The worker pins same-origin
+// paths before any session, so the default must never fire — stamp the URL
+// out of every chunk so a regression becomes a loud same-origin 404 instead
+// of a silent CDN fetch. This also makes the dist grep test
+// (tests/ai-build.spec.ts) enforceable: the bundled library constant would
+// otherwise defeat any negative grep. Registered in BOTH bands (client
+// plugins[] and worker.plugins) — vite builds workers in a separate band.
+const stampOutOrtCdn = {
+  name: 'stamp-out-ort-cdn-default',
+  apply: 'build' as const,
+  generateBundle(_options: unknown, bundle: Record<string, { type: string; code?: string }>) {
+    const CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@';
+    for (const file of Object.values(bundle)) {
+      if (file.type === 'chunk' && file.code && file.code.includes(CDN)) {
+        file.code = file.code.replaceAll(CDN, '__no_cdn_onnxruntime_web__');
+      }
+    }
+    // The ORT glue bundled inside the transformers chunk resolves its DEFAULT
+    // wasm by URL — which made vite emit a 26MB asyncify wasm asset. The
+    // worker ALWAYS pins wasmPaths to the same-origin jsep copies (F1) before
+    // any session, so the asset is unreachable dead weight (+26MB bundle) —
+    // drop it.
+    for (const name of Object.keys(bundle)) {
+      if (/ort-wasm-simd-threaded\..*\.wasm$/.test(name)) delete bundle[name];
+    }
+  },
+};
+
 export default defineConfig({
   // Phase 7: the dep prebundle breaks the emscripten glue's import.meta.url
   // → wasm 404 in dev. Build output is unaffected.
@@ -144,6 +173,8 @@ export default defineConfig({
         }
       },
     },
+
+    stampOutOrtCdn,
     VitePWA({
       registerType: 'prompt', // deploy B of the phase-2 two-step bridge: the banner cohort is now on app-new
       // Phase 6a: custom SW (src/sw.ts) so the share-target fetch handler can
@@ -181,7 +212,17 @@ export default defineConfig({
         // Phase 4a: the **/*.js glob would otherwise sweep the tesseract
         // single-file core builds (~11.7MB) into the precache — excluded here
         // because ocr.ts lazy-caches them on first use instead (see above).
-        globIgnores: ['tesseract-core/**', 'tessdata/**'],
+        // v0.5.0 phase 2b (F9): same for the AI worker chunk (~1.7MB of
+        // transformers.js — loaded on first AI OCR use, fetched same-origin;
+        // the public/ort wasm pair never matches the glob anyway, but the
+        // ignore is belt-and-braces against future glob changes).
+        globIgnores: [
+          'tesseract-core/**',
+          'tessdata/**',
+          'assets/ai-ocr.worker-*.js',
+          'assets/transformers*.js',
+          'ort/**',
+        ],
         maximumFileSizeToCacheInBytes: 30 * 1024 ** 2,
         // Pin the content hash of stable-filename assets (qpdf.wasm, fonts)
         // so a swapped binary can never silently serve from an old precache
@@ -247,6 +288,8 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
+    // the worker band needs the same F1 stamp — see stampOutOrtCdn above
+    plugins: () => [stampOutOrtCdn],
   },
   build: {
     chunkSizeWarningLimit: 1500,

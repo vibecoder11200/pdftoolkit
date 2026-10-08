@@ -1,12 +1,12 @@
 {
   "name": "pdftoolkit",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "PDF Toolkit PWA — 100% client-side, MIT",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/sync-tessdata.mjs && tsc --noEmit && vite build",
+    "build": "node scripts/sync-ort-assets.mjs && node scripts/sync-tessdata.mjs && tsc --noEmit && vite build",
     "tauri": "tauri",
     "preview": "vite preview --port 4173 --strictPort",
     "test": "vitest run",
@@ -44,6 +44,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@huggingface/transformers": "4.3.1",
     "@napi-rs/canvas": "1.0.10",
     "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
@@ -52,6 +53,7 @@
     "@types/react": "19.0.10",
     "@types/react-dom": "19.0.4",
     "@vitejs/plugin-react": "5.1.2",
+    "@webgpu/types": "0.1.74",
     "fflate": "^0.8.3",
     "jsdom": "^25.0.1",
     "tailwindcss": "4.3.3",

@@ -435,7 +435,127 @@ try {
   const scan12 = await makeScanPdf(pages12, 'ocr-scan-12p');
   writeFileSync(join(here, 'ocr-scan-12p.pdf'), scan12);
 
-  console.log(JSON.stringify({ 'ocr-scan-vn-en.pdf': vnEn.length, 'ocr-scan-12p.pdf': scan12.length }));
+  // Table + heading scan fixture (v0.5.0 phase 1, red-team F13): the line-list
+  // fixtures above cannot distinguish a structured-output engine (GLM-OCR
+  // markdown) from plain transcription — a scan with REAL table geometry
+  // (2-column x-offsets + ruled grid) and section headings is the quality
+  // probe for the AI OCR verdict. Page 2 is a light skew/noise variant so the
+  // verdict is not optimistic on perfectly clean renders.
+  function mulberry32(seed) {
+    return () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function renderTablePage(width, height, { title, sections, skewDeg = 0, noise = false, seed = 1 }) {
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.save();
+    if (skewDeg !== 0) {
+      ctx.translate(width / 2, height / 2);
+      ctx.rotate((skewDeg * Math.PI) / 180);
+      ctx.translate(-width / 2, -height / 2);
+    }
+    const x0 = Math.round(width * 0.08);
+    const x1 = Math.round(width * 0.55);
+    let y = Math.round(height * 0.08);
+    ctx.fillStyle = '#111111';
+    ctx.font = `bold ${Math.round(height * 0.027)}px Roboto`;
+    ctx.fillText(title, x0, y);
+    y += Math.round(height * 0.045);
+    for (const section of sections) {
+      ctx.font = `bold ${Math.round(height * 0.019)}px Roboto`;
+      ctx.fillText(section.heading, x0, y);
+      y += Math.round(height * 0.035);
+      const rows = [section.header, ...section.rows];
+      const rowH = Math.round(height * 0.024);
+      const gridBottom = y + rows.length * rowH;
+      // cell text (2 columns at fixed x-offsets) + ruled grid
+      ctx.font = `${Math.round(height * 0.0165)}px Roboto`;
+      for (const [i, row] of rows.entries()) {
+        const cy = y + i * rowH + Math.round(rowH * 0.72);
+        ctx.fillText(row[0], x0 + 8, cy);
+        ctx.fillText(row[1], x1 + 8, cy);
+      }
+      ctx.strokeStyle = '#555555';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= rows.length; i += 1) {
+        const gy = y + i * rowH + Math.round(rowH * 0.1);
+        ctx.beginPath();
+        ctx.moveTo(x0, gy);
+        ctx.lineTo(x1 + Math.round(width * 0.38), gy);
+        ctx.stroke();
+      }
+      for (const gx of [x0, x1, x1 + Math.round(width * 0.38)]) {
+        ctx.beginPath();
+        ctx.moveTo(gx, y + Math.round(rowH * 0.1));
+        ctx.lineTo(gx, gridBottom + Math.round(rowH * 0.1));
+        ctx.stroke();
+      }
+      y = gridBottom + Math.round(height * 0.05);
+    }
+    ctx.restore();
+    if (noise) {
+      // deterministic speckle — a phone-scan look without flaky randomness
+      const rand = mulberry32(seed);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      const count = Math.round(width * height * 0.00012);
+      for (let i = 0; i < count; i += 1) {
+        ctx.fillRect(Math.round(rand() * width), Math.round(rand() * height), 2, 2);
+      }
+    }
+    return canvas.encode('jpeg', 0.9);
+  }
+
+  const money = (n) => `${n.toLocaleString('vi-VN')}.000`;
+  const tableRows = (prefix, start, count, base) =>
+    Array.from({ length: count }, (_, i) => [`${prefix}-${String(start + i).padStart(3, '0')}`, money(base + (i * 137_000) % 9_000_000)]);
+
+  const tableScan = await makeScanPdf(
+    [
+      await renderTablePage(...a4(200), {
+        title: 'BÁO CÁO TỒN KHO QUÝ 3/2026',
+        sections: [
+          {
+            heading: 'Khu vực phía Bắc',
+            header: ['Mã hàng', 'Thành tiền (VND)'],
+            rows: tableRows('BT', 31, 14, 12_450),
+          },
+          {
+            heading: 'Khu vực phía Nam',
+            header: ['Mã hàng', 'Thành tiền (VND)'],
+            rows: tableRows('SG', 7, 10, 8_320),
+          },
+        ],
+      }),
+      await renderTablePage(...a4(200), {
+        title: 'PHỤ LỤC — ĐỐI CHIẾU CÔNG NỢ',
+        sections: [
+          {
+            heading: 'Khách hàng sỉ',
+            header: ['Mã KH', 'Dư nợ (VND)'],
+            rows: tableRows('KHSI', 2, 8, 45_900),
+          },
+        ],
+        skewDeg: 0.9,
+        noise: true,
+        seed: 20261008,
+      }),
+    ],
+    'ocr-scan-table',
+  );
+  writeFileSync(join(here, 'ocr-scan-table.pdf'), tableScan);
+
+  console.log(JSON.stringify({
+    'ocr-scan-vn-en.pdf': vnEn.length,
+    'ocr-scan-12p.pdf': scan12.length,
+    'ocr-scan-table.pdf': tableScan.length,
+  }));
 } catch (e) {
   console.warn(
     `[gen.mjs] OCR scan fixtures SKIPPED (${e.message.split('\n')[0]}) — tests/ocr-integration.spec.ts will self-skip`,
