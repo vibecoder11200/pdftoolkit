@@ -30,6 +30,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # F21: the committed manifest must still match HuggingFace (revision,
+      # sha256 per file, license ∈ {MIT, Apache-2.0}) before anything builds.
+      - run: node scripts/gen-ai-model-manifest.mjs --check
       - run: npm run build
       # Fixtures are gitignored (reproducible) — generate the 1/10MB pair.
       - run: node tests/fixtures/gen.mjs

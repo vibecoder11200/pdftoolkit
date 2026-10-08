@@ -141,3 +141,5 @@ wireframes/
 # OCR runtime assets, copied from node_modules by scripts/sync-tessdata.mjs (never commit binaries)
 public/tessdata/
 public/tesseract-core/
+# ONNX Runtime Web wasm (v0.5.0 AI OCR), copied by scripts/sync-ort-assets.mjs
+public/ort/

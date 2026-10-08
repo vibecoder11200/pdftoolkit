@@ -39,3 +39,35 @@ Roboto Regular (static hinted TTF, "Version 2.001047; 2015")
   carrying the license text and attribution above; that obligation carries
   over to the filled PDFs only as attribution of the font itself, per
   LICENSE-THIRD-PARTY.
+
+transformers.js (npm @huggingface/transformers, pinned 4.3.1)
+  Copyright The Hugging Face Team
+  License: Apache License 2.0 — https://github.com/huggingface/transformers.js
+  Used for: on-device AI OCR model runtime (AutoProcessor/AutoTokenizer/
+  AutoModelForImageTextToText), fetched lazily in the AI worker chunk.
+
+ONNX Runtime Web (ORT wasm binaries, 1.31.0-dev jsep build)
+  Copyright (c) Microsoft Corporation
+  License: MIT — https://github.com/microsoft/onnxruntime
+  Used for: the WebGPU/WASM execution backend under transformers.js. The
+  ort-wasm-simd-threaded.jsep.{mjs,wasm} pair is synced into public/ort/ at
+  build time (scripts/sync-ort-assets.mjs, sha256-manifested) and served
+  same-origin — never loaded from a public CDN.
+
+GLM-OCR model + ONNX weights (onnx-community/GLM-OCR-ONNX)
+  License: MIT (both the model repo and the ONNX weights repo, asserted per
+  build by scripts/gen-ai-model-manifest.mjs --check)
+  Source: https://huggingface.co/onnx-community/GLM-OCR-ONNX
+          pinned revision aea46198f09e3aa2b63422dd234f1cc66afffe52
+  Used for: the AI OCR engine (optional feature). The model downloads once
+  from HuggingFace into the browser's own Cache storage on first use; user
+  documents are processed on-device and never leave the machine. sha256 of
+  every file is pinned in scripts/ai-model-manifest.json.
+
+Tesseract OCR (tesseract.js + tesseract core/tessdata assets)
+  Copyright (c) Tesseract contributors
+  License: Apache License 2.0 — https://github.com/tesseract-ocr/tesseract
+  Used for: the default OCR engine (eng+vie, LSTM). Assets are synced into
+  public/ at build time from node_modules (scripts/sync-tessdata.mjs,
+  sha256-pinned in scripts/tessdata-manifest.json) and served same-origin.
+

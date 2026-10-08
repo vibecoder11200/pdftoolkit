@@ -17,6 +17,15 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 |---|---|---|
 | Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
 
+## AI OCR (experimental, v0.5.0)
+
+The OCR tool has a second, optional engine: **GLM-OCR running fully on your device** (transformers.js v4 on WebGPU). It targets complex layouts — tables, multi-column pages, poor scans — and outputs Markdown, plain text or sanitized HTML instead of a searchable PDF (use the Tesseract engine when you need searchable PDFs).
+
+- **WebGPU required.** The tool checks your GPU first and reports the detected tier honestly: strong (fast), weak (roughly a minute per page on integrated graphics) or none (the AI engine stays disabled; Tesseract works everywhere). A real throughput benchmark runs after your first pages and stays on-device.
+- **~652 MB one-time model download** from HuggingFace (pinned revision, sha256-verified per file). The model then lives in your browser's storage and AI OCR works fully offline — manage or delete it any time under **Settings → Storage on this device**.
+- **Your documents never leave the machine.** Only the model itself is downloaded, once; pages are rasterized and processed locally.
+- Known limits: headings can be missing from the output (tables and values came through exact in our tests); generation peaks around 4 GB RAM, so 8 GB machines may swap.
+
 ## Extras
 
 - **Batch folders**: merge, Images→PDF and compress can ingest an entire folder (filter, name-sort, 0-byte skip; 500 MB total batch budget).
