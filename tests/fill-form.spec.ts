@@ -409,7 +409,10 @@ d('fillFormFields', () => {
     expect((outDoc.getForm().getField('good') as PDFTextField).getText()).toBe('sống');
   });
 
-  it('flatten bakes fields away: zero fields, zero annots, VN glyphs render', async () => {
+  // Font-subset + napi render under full-suite parallel load measured 9s
+  // once (5s default timeout, passes in 3.3s isolated) — headroom, not a
+  // slowdown of the feature.
+  it('flatten bakes fields away: zero fields, zero annots, VN glyphs render', { timeout: 20_000 }, async () => {
     const out = await fillFormFields(
       fullBytes(),
       {
