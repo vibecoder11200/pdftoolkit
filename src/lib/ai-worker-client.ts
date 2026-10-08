@@ -1,8 +1,9 @@
 /*
  * Main-side AI worker wrapper (v0.5.0 phase 2b, F6). Owns the lifecycle the
  * worker cannot see:
- *  - spawn: URL module worker (never blob) with the optional `?ai-mock=1`
- *    test seam appended to the URL (F8 — query flag checked in the worker);
+ *  - spawn: URL module worker (never blob); the `?ai-mock=1` flag on the
+ *    PAGE URL selects the F8 test seam — the worker is spawned with
+ *    `name: 'ai-mock'` (AI_MOCK_NAME), which the worker reads as self.name;
  *  - idle (10 min) / hidden (≥5 min) dispose timers, both RE-ARMED while a
  *    job is busy — a timer must never kill an in-flight OCR page (F6);
  *  - crash recovery: comlink calls to a dead worker never settle, so every
@@ -44,7 +45,8 @@ export class GpuLostError extends Error {
 const GPU_LOST_MESSAGE = 'WebGPU device was lost';
 
 export interface AiClientOptions {
-  /** F8 test seam — worker URL gets `?ai-mock=1`. */
+  /** F8 test seam — set from the page URL `?ai-mock=1` flag; spawns the
+   *  worker with `name: 'ai-mock'` (AI_MOCK_NAME in ai-ocr.worker.ts). */
   mock?: boolean;
   /** Injectable for node-side lifecycle tests (no real worker spawns). */
   spawnWorker?: () => Worker;
@@ -142,6 +144,9 @@ export class AiWorkerClient {
     this.idleTimer = window.setTimeout(() => void this.disposeIfIdle(), this.options.idleMs ?? DEFAULT_IDLE_MS);
     if (!this.visibilityHooked && typeof document !== 'undefined') {
       this.visibilityHooked = true;
+      // Deliberately NOT removed in destroy(): the client is a page-lifetime
+      // singleton (sharedAiClient), so one listener per page is the intended
+      // cost — never a leak per spawn.
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
           this.hiddenTimer = window.setTimeout(

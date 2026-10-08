@@ -11,7 +11,7 @@
  */
 import type { RasterImageData } from '../workers/pdf.worker';
 import type { OcrPageOptions } from '../workers/ai-ocr.worker';
-import type { DownloadProgress } from './ai-models';
+import { AI_MODEL_ID, type DownloadProgress } from './ai-models';
 import { WorkerCrashError } from './ai-worker-client';
 import {
   adapterFingerprint,
@@ -84,7 +84,7 @@ export async function downloadIfNeeded(
 export async function aiTierEstimate(): Promise<TierResolution> {
   const hardware = await detectHardware();
   const benchmarks = await createBenchmarkStore().loadAll();
-  return resolveTier(hardware, benchmarks['glm-ocr']);
+  return resolveTier(hardware, benchmarks[AI_MODEL_ID]);
 }
 
 /**
@@ -112,10 +112,10 @@ export async function runAiPages(
   const results: AiPageResult[] = [];
   const fingerprint = adapterFingerprint((await detectHardware()).adapter);
   const store = opts.benchmarkStore ?? createBenchmarkStore();
-  const existing = (await store.loadAll())['glm-ocr'];
+  const existing = (await store.loadAll())[AI_MODEL_ID];
   const needsBenchmark =
     !existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== 'webgpu';
-  await client.ensureLoaded('glm-ocr', (p) => events.onDownloadProgress?.(p));
+  await client.ensureLoaded(AI_MODEL_ID, (p) => events.onDownloadProgress?.(p));
 
   let firstColdMs: number | null = null;
   for (let i = startPage; i <= pageCount; i++) {
@@ -136,7 +136,7 @@ export async function runAiPages(
         // must never fail over benchmark bookkeeping.
         try {
           const rec = await saveBenchmarkRecord(
-            'glm-ocr',
+            AI_MODEL_ID,
             'webgpu',
             fingerprint,
             r.tokPerSec,

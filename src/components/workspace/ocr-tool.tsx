@@ -14,7 +14,7 @@ import {
 } from '../../lib/ocr';
 import { deliverBytes } from '../../lib/download';
 import { beginJob, endJob } from '../../lib/jobs';
-import { AI_MODEL_ID } from '../../lib/ai-models';
+import { AI_MODEL_ID, isModelCachedLocally } from '../../lib/ai-models';
 import {
   aiTierEstimate,
   downloadIfNeeded,
@@ -121,7 +121,7 @@ export function OcrTool() {
     let cancelled = false;
     void (async () => {
       const tier = await aiTierEstimate().catch(() => null);
-      const cached = await isModelCachedLocal();
+      const cached = await isModelCachedLocally();
       if (!cancelled) setAiLabel({ cached, tier });
     })();
     return () => {
@@ -714,10 +714,4 @@ export function OcrTool() {
       </ol>
     </section>
   );
-}
-
-/** Local import shim — keeps the heavy AI modules lazy like the worker. */
-async function isModelCachedLocal(): Promise<boolean> {
-  const { isModelCachedLocally } = await import('../../lib/ai-models');
-  return isModelCachedLocally();
 }

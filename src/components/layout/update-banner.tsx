@@ -122,8 +122,8 @@ function DesktopBody({
     );
   }
   if (state.phase === 'available') {
-    if (confirmingJob || jobBusy) {
-      return confirmingJob ? (
+    if (confirmingJob) {
+      return (
         <>
           <span className="text-[13.5px]">{t('update.desktop_confirm_job')}</span>
           <span className="ml-auto flex gap-2">
@@ -145,22 +145,10 @@ function DesktopBody({
             </button>
           </span>
         </>
-      ) : (
-        <>
-          <span className="text-[13.5px]">{t('update.available')}</span>
-          <span className="ml-auto flex gap-2">
-            <button
-              type="button"
-              data-testid="update-reload"
-              className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
-              onClick={onConfirmJob}
-            >
-              {t('update.reload')}
-            </button>
-          </span>
-        </>
       );
     }
+    // Identical markup either way — a running job only reroutes the click to
+    // the inline confirm above (F22) instead of starting the install.
     return (
       <>
         <span className="text-[13.5px]">{t('update.available')}</span>
@@ -169,7 +157,7 @@ function DesktopBody({
             type="button"
             data-testid="update-reload"
             className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
-            onClick={onStart}
+            onClick={jobBusy ? onConfirmJob : onStart}
           >
             {t('update.reload')}
           </button>

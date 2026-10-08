@@ -4,6 +4,7 @@ import {
   adapterFingerprint,
   createBenchmarkStore,
   detectHardware,
+  getHardwareInfo,
   resolveTier,
   runBenchmark,
   type BenchmarkRecord,
@@ -87,12 +88,14 @@ export function HardwarePanel() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const hardware = await detectHardware();
-      const benchmarks = await createBenchmarkStore().loadAll();
-      const resolution = resolveTier(hardware, benchmarks[AI_MODEL_ID]);
+      const { hardware, perModel } = await getHardwareInfo();
       const cached = await isModelCachedLocally();
       if (!cancelled) {
-        setState({ hardware, resolution });
+        setState({
+          hardware,
+          // No stored benchmark → perModel has no entry → estimate-only.
+          resolution: perModel[AI_MODEL_ID] ?? resolveTier(hardware, undefined),
+        });
         setModelCached(cached);
       }
     })().catch(() => undefined);

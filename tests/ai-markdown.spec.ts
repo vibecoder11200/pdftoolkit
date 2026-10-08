@@ -51,7 +51,7 @@ describe('markdownToSafeHtml (D10)', () => {
   it('javascript: links degrade to plain text; http links survive whitelisted', () => {
     const bad = markdownToSafeHtml('[x](javascript:alert(1))');
     expect(bad).not.toContain('<a ');
-    expect(bad).toContain('javascript:alert(1)'.replaceAll('&', '&amp;').replaceAll('<', '&lt;') === 'javascript:alert(1)' ? 'javascript:alert(1)' : 'javascript:alert(1)');
+    expect(bad).toContain('javascript:alert(1)');
 
     const good = markdownToSafeHtml('[site](https://example.com)');
     expect(good).toContain('<a href="https://example.com"');

@@ -19,7 +19,6 @@
  * user press the button behind a warning; tesseract is the suggested tier
  * when AI is red.
  */
-import { getModelSpec } from './ai-models';
 import { openBenchmarkDb, type IDBDatabaseLike } from './idb-benchmarks';
 
 export type CapabilityTier = 'gpu-strong' | 'gpu-weak' | 'cpu' | 'none';
@@ -257,12 +256,15 @@ export async function runBenchmark(
 }
 
 /** Human-facing summary for the Settings hardware panel (phase 5 renders). */
-export async function getHardwareInfo(store: BenchmarkStore = createBenchmarkStore()) {
+export async function getHardwareInfo(
+  store: BenchmarkStore = createBenchmarkStore(),
+): Promise<{ hardware: HardwareInfo; perModel: Record<string, TierResolution> }> {
   const hardware = await detectHardware();
   const benchmarks = await store.loadAll();
   const perModel = Object.fromEntries(
-    Object.entries(benchmarks).map(([id, rec]) => [id, resolveTier(hardware, rec)]),
+    Object.entries(benchmarks).map(
+      ([id, rec]) => [id, resolveTier(hardware, rec)] as const,
+    ),
   );
-  void getModelSpec; // phase 4a/5 pair the label with the spec sizes
   return { hardware, perModel };
 }

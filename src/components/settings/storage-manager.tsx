@@ -20,6 +20,13 @@ import { formatBytes } from '../../lib/format';
 const isAiMock = () =>
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('ai-mock');
 
+/** Pipeline cache + manifest entries through the worker (comlink), then the
+ *  store itself for anything outside the manifest. */
+async function clearAiModel(deps: StorageDeps): Promise<void> {
+  await sharedAiClient({ mock: isAiMock() }).clearCache(AI_MODEL_ID);
+  await deps.deleteCacheStore(AI_CACHE_STORE);
+}
+
 const ROW_ORDER: StorageRowId[] = ['ai-model', 'ocr-assets', 'ocr-idb', 'precache'];
 
 function rowTitleKey(id: StorageRowId): string {
@@ -69,10 +76,7 @@ export function StorageManager() {
       setBusy(id);
       try {
         if (id === 'ai-model') {
-          // Pipeline cache + manifest entries through the worker (comlink),
-          // then the store itself for anything outside the manifest.
-          await sharedAiClient({ mock: isAiMock() }).clearCache(AI_MODEL_ID);
-          await deps.deleteCacheStore(AI_CACHE_STORE);
+          await clearAiModel(deps);
         } else if (id === 'ocr-assets') {
           await deleteOcrRuntime(deps);
         } else if (id === 'ocr-idb') {
@@ -93,8 +97,7 @@ export function StorageManager() {
     if (busy || clearAll) return;
     setClearAll(true);
     try {
-      await sharedAiClient({ mock: isAiMock() }).clearCache(AI_MODEL_ID);
-      await deps.deleteCacheStore(AI_CACHE_STORE);
+      await clearAiModel(deps);
       await deleteOcrRuntime(deps);
       refresh();
     } finally {

@@ -23,10 +23,11 @@ import type { RasterImageData } from './pdf.worker';
  * main thread never imports the library (F11: megabytes stay out of the
  * entry bundle) and every model network call happens in this scope.
  *
- * Mock seam (F8): with `?ai-mock=1` in the worker URL the same comlink API
+ * Mock seam (F8): when the client spawns this worker with name 'ai-mock'
+ * (selected by the PAGE URL `?ai-mock=1` flag), the same comlink API
  * is served by a canned deterministic engine — zero network, zero
  * transformers import, fake download progress. CI drives the REAL worker
- * chunk through this seam (query flag checked HERE, not an env build flag),
+ * chunk through this seam (self.name checked HERE, not an env build flag),
  * and the zero-external fence stays unconditional.
  *
  * Session lifecycle (F6): one engine per worker; `busy` guards dispose
