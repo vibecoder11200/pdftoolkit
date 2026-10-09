@@ -16,6 +16,7 @@ export interface IdbLike {
 export interface IDBDatabaseLike {
   get(key: string): Promise<unknown>;
   put(value: unknown, key: string): Promise<void>;
+  delete(key: string): Promise<void>;
   deleteStoreKeys?(): Promise<string[]>;
   getAllKeys(): Promise<string[]>;
   close(): void;
@@ -46,6 +47,12 @@ export function openBenchmarkDb(
         put: (value: unknown, key: string) =>
           new Promise<void>((res, rej) => {
             const r = db.transaction(BENCHMARK_STORE, 'readwrite').objectStore(BENCHMARK_STORE).put(value, key);
+            r.onsuccess = () => res();
+            r.onerror = () => rej(r.error);
+          }),
+        delete: (key: string) =>
+          new Promise<void>((res, rej) => {
+            const r = db.transaction(BENCHMARK_STORE, 'readwrite').objectStore(BENCHMARK_STORE).delete(key);
             r.onsuccess = () => res();
             r.onerror = () => rej(r.error);
           }),

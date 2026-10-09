@@ -24,7 +24,11 @@ function fakeClient(
 } {
   const ocrCalls: number[] = [];
   const client: AiRunClient = {
-    ensureLoaded: vi.fn(async () => ({ loadMs: 1, device: opts.device ?? ('webgpu' as const) })),
+    ensureLoaded: vi.fn(async () => ({
+      loadMs: 1,
+      device: opts.device ?? ('webgpu' as const),
+      adapterFingerprint: opts.device === 'wasm' ? null : 'intel|gen-12lp|iris-xe',
+    })),
     downloadModel: vi.fn(async (_m: string, onProgress?: (p: DownloadProgress) => void) => {
       onProgress?.({ phase: 'downloading', percent: 50 });
       return { bytes: 10, downloaded: 10 };
@@ -155,20 +159,20 @@ describe('runAiPages', () => {
   it('fresh benchmark already stored → no re-measure', async () => {
     const { client } = fakeClient(3);
     const { store, saved } = fakeStore();
-    const { adapterFingerprint } = await import('../src/lib/capability');
-    // node env: navigator.gpu is undefined → detectHardware sees a null
-    // adapter → the fingerprint the orchestrator computes is the null one.
-    const fingerprint = adapterFingerprint(null);
-    // NOTE: detectHardware in jsdom returns adapter null → fingerprint "?|?|?" —
-    // store a record with THAT fingerprint so it reads fresh.
+    // H4/A7 record identity: the orchestrator keys on the ENGINE-reported
+    // fingerprint (LoadResult.adapterFingerprint) — the fake client reports
+    // 'intel|gen-12lp|iris-xe'; a record with THAT fingerprint reads fresh.
+    const fingerprint = 'intel|gen-12lp|iris-xe';
     (store.loadAll as ReturnType<typeof vi.fn>).mockResolvedValue({
       'glm-ocr': {
-        modelId: 'glm-ocr',
-        tokPerSecWarm: 16,
-        firstTokenColdMs: 9000,
-        condition: 'webgpu',
-        measuredAt: Date.now(),
-        adapterFingerprint: fingerprint,
+        [fingerprint]: {
+          modelId: 'glm-ocr',
+          tokPerSecWarm: 16,
+          firstTokenColdMs: 9000,
+          condition: 'webgpu',
+          measuredAt: Date.now(),
+          adapterFingerprint: fingerprint,
+        },
       },
     });
     await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
@@ -186,15 +190,21 @@ describe('runAiPages', () => {
   it('stored record matches the loaded device condition → no re-measure (parity)', async () => {
     const { client } = fakeClient(3, { device: 'wasm' });
     const { store, saved } = fakeStore();
+    // wasm load → LoadResult.adapterFingerprint is null → probe fallback
+    // ('?|?|?' in node); the stored record sits at THAT key with the same
+    // fingerprint and the matching condition.
     const { adapterFingerprint } = await import('../src/lib/capability');
+    const fp = adapterFingerprint(null);
     (store.loadAll as ReturnType<typeof vi.fn>).mockResolvedValue({
       'glm-ocr': {
-        modelId: 'glm-ocr',
-        tokPerSecWarm: 3,
-        firstTokenColdMs: null,
-        condition: 'wasm',
-        measuredAt: Date.now(),
-        adapterFingerprint: adapterFingerprint(null),
+        [fp]: {
+          modelId: 'glm-ocr',
+          tokPerSecWarm: 3,
+          firstTokenColdMs: null,
+          condition: 'wasm',
+          measuredAt: Date.now(),
+          adapterFingerprint: fp,
+        },
       },
     });
     await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
@@ -205,14 +215,17 @@ describe('runAiPages', () => {
     const { client } = fakeClient(3);
     const { store, saved } = fakeStore();
     const { adapterFingerprint } = await import('../src/lib/capability');
+    const fp = adapterFingerprint(null);
     (store.loadAll as ReturnType<typeof vi.fn>).mockResolvedValue({
       'glm-ocr': {
-        modelId: 'glm-ocr',
-        tokPerSecWarm: 3,
-        firstTokenColdMs: null,
-        condition: 'wasm',
-        measuredAt: Date.now(),
-        adapterFingerprint: adapterFingerprint(null),
+        [fp]: {
+          modelId: 'glm-ocr',
+          tokPerSecWarm: 3,
+          firstTokenColdMs: null,
+          condition: 'wasm',
+          measuredAt: Date.now(),
+          adapterFingerprint: fp,
+        },
       },
     });
     await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });

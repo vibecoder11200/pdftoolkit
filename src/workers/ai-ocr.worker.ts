@@ -16,6 +16,7 @@ import {
 } from '../lib/ai-download';
 import type { DownloadProgress } from '../lib/ai-models';
 import type { RasterImageData } from './pdf.worker';
+import { adapterFingerprint, readAdapterInfo } from '../lib/capability';
 
 /*
  * AI OCR worker (v0.5.0 phase 2b, F2/F6/F8/F11/F12). URL module worker —
@@ -58,11 +59,16 @@ export interface EngineStats {
   device: 'webgpu' | 'wasm' | 'mock';
   busy: boolean;
   loadedAt: number | null;
+  /** The adapter the ENGINE built its device from (null on wasm/mock) —
+   *  honest-reporting basis: diagnostics show the REQUEST and this REPORT
+   *  side by side; they can legally differ (Windows override). */
+  adapterFingerprint: string | null;
 }
 
 export interface LoadResult {
   loadMs: number;
   device: EngineStats['device'];
+  adapterFingerprint: string | null;
 }
 
 export interface DownloadInfo {
@@ -75,11 +81,20 @@ export interface DownloadInfo {
 export interface LoadOptions {
   /** Force the WASM CPU tier (GPU-lost degrade — F6). */
   device?: 'webgpu' | 'wasm';
+  /** Adapter-selection slot for the GPU device WE request and inject into
+   *  the ORT session (R1: env.webgpu.powerPreference is dead in the Dawn
+   *  build — the injected device is the only reliable selector). Absent =
+   *  bare request (the discovery slot that found the adapter decides). */
+  powerPreference?: 'high-performance' | 'low-power';
 }
 
 export interface OcrPageOptions {
   /** Cap generation (benchmark passes use small values for determinism). */
   maxNewTokens?: number;
+  /** Image long-edge cap for THIS run (phase 3 preflight tuning: the
+   *  reduced preset is 768). Absent = the SPIKE-measured 1024 default —
+   *  existing callers are unchanged. */
+  maxLongEdge?: number;
 }
 
 export interface AiOcrApi {
@@ -156,7 +171,13 @@ const MOCK_MARKDOWN = [
  */
 /** Exported for the contract spec — pinned to the same API shape as RealEngine. */
 export class MockEngine implements EngineLike {
-  readonly stats: EngineStats = { modelId: 'mock', device: 'mock', busy: false, loadedAt: null };
+  readonly stats: EngineStats = {
+    modelId: 'mock',
+    device: 'mock',
+    busy: false,
+    loadedAt: null,
+    adapterFingerprint: null,
+  };
   private downloadAbort = false;
 
   async load(onProgress: ComlinkCallback<DownloadProgress>): Promise<LoadResult> {
@@ -178,7 +199,7 @@ export class MockEngine implements EngineLike {
         });
       }
       this.stats.loadedAt = Date.now();
-      return { loadMs: Date.now() - t0, device: 'mock' };
+      return { loadMs: Date.now() - t0, device: 'mock', adapterFingerprint: null };
     } finally {
       this.stats.busy = false;
     }
@@ -289,6 +310,23 @@ export class GpuLostError extends Error {
   }
 }
 
+/**
+ * The requested adapter could not be obtained at LOAD time (probe null,
+ * requestDevice failure, navigator.gpu gone). Message-shaped for the
+ * client-side classifier — comlink crosses the boundary message-only, so
+ * the name never survives; the message must match the R1 Q4 init-failure
+ * shapes for the dGPU→iGPU→CPU chain to fire.
+ */
+export class AdapterUnavailableError extends Error {
+  constructor(powerPreference: 'high-performance' | 'low-power' | undefined, reason: string) {
+    super(
+      `Failed to get a WebGPU adapter${powerPreference ? ` (${powerPreference})` : ''}: ${reason}`,
+      { cause: reason },
+    );
+    this.name = 'AdapterUnavailableError';
+  }
+}
+
 const GPU_LOST_PATTERN = /device lost|GPUDevice|lost the device|Destroying a GPU/i;
 
 const OCR_PROMPT =
@@ -301,8 +339,24 @@ const OCR_PROMPT =
  */
 const MAX_LONG_EDGE = 1024;
 
+/**
+ * Pure resize math for the long-edge cap (phase 3 preflight tuning) —
+ * extracted so the reduced-preset behavior is unit-testable without WebGL.
+ * Returns null when no downscale is needed.
+ */
+export function longEdgeScale(
+  width: number,
+  height: number,
+  cap: number,
+): { width: number; height: number } | null {
+  const longEdge = Math.max(width, height);
+  if (longEdge <= cap) return null;
+  const scale = cap / longEdge;
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
 export class RealEngine implements EngineLike {
-  stats: EngineStats = { modelId: null, device: 'webgpu', busy: false, loadedAt: null };
+  stats: EngineStats = { modelId: null, device: 'webgpu', busy: false, loadedAt: null, adapterFingerprint: null };
   private spec: AiModelSpec = getModelSpec(AI_MODEL_ID);
   private T: Transformers | null = null;
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -313,6 +367,15 @@ export class RealEngine implements EngineLike {
   private downloadController: AbortController | null = null;
   /** In-flight first load — concurrent callers share it instead of double-loading GB-scale shards (review P2-9). */
   private loadInFlight: Promise<LoadResult> | null = null;
+  /** DI for node-side tests (the worker probes navigator.gpu inside its own global). */
+  private readonly gpu: Navigator['gpu'] | undefined;
+  /** The device WE created for the injected sessions — released on dispose. */
+  private ownedDevice: GPUDevice | null = null;
+
+  constructor(gpu?: Navigator['gpu'] | undefined) {
+    this.gpu =
+      gpu ?? (typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { gpu?: Navigator['gpu'] }).gpu);
+  }
 
   private async importTransformers(): Promise<Transformers> {
     const T = await import('@huggingface/transformers');
@@ -329,7 +392,9 @@ export class RealEngine implements EngineLike {
   }
 
   async load(onProgress: ComlinkCallback<DownloadProgress>, opts?: LoadOptions): Promise<LoadResult> {
-    if (this.model) return { loadMs: 0, device: this.stats.device };
+    if (this.model) {
+      return { loadMs: 0, device: this.stats.device, adapterFingerprint: this.stats.adapterFingerprint };
+    }
     // Two concurrent first loads (OCR tool + Settings re-measure) would each
     // fetch the model and orphan one copy — dedupe on the in-flight promise.
     if (this.loadInFlight) return this.loadInFlight;
@@ -353,11 +418,46 @@ export class RealEngine implements EngineLike {
       const T = await this.importTransformers();
       this.T = T;
       const o = pipelineOptions(this.spec.id);
+      // R1: the ORT Dawn EP pins its GPUDevice per worker-context and
+      // ignores env.webgpu.powerPreference — the only reliable adapter
+      // selector is a device WE request and inject per session
+      // (webgpuRegisterDevice, ORT ≥ 1.25).
+      let injectedDevice: GPUDevice | null = null;
+      let fingerprint: string | null = null;
+      if (this.stats.device === 'webgpu') {
+        if (!this.gpu) throw new AdapterUnavailableError(opts?.powerPreference, 'navigator.gpu missing in worker');
+        let adapter: GPUAdapter | null = null;
+        try {
+          adapter = await this.gpu.requestAdapter(
+            opts?.powerPreference ? { powerPreference: opts.powerPreference } : undefined,
+          );
+        } catch (err) {
+          throw new AdapterUnavailableError(opts?.powerPreference, String(err instanceof Error ? err.message : err));
+        }
+        if (!adapter) throw new AdapterUnavailableError(opts?.powerPreference, 'requestAdapter returned null');
+        try {
+          // SPIKE-PROVEN (2026-10-09, this machine): a bare requestDevice()
+          // yields a device WITHOUT optional features — q4f16 session create
+          // then dies with "Program Transpose requires f16 but the device
+          // does not support it". ORT's own device requests shader-f16; the
+          // injected device must too.
+          injectedDevice = await adapter.requestDevice({
+            requiredFeatures: adapter.features?.has('shader-f16') ? ['shader-f16'] : [],
+          });
+        } catch (err) {
+          throw new AdapterUnavailableError(opts?.powerPreference, String(err instanceof Error ? err.message : err));
+        }
+        this.ownedDevice = injectedDevice;
+        fingerprint = adapterFingerprint(readAdapterInfo(adapter));
+      }
       const loadOpts = {
         revision: o.revision,
         dtype: { ...o.dtype },
         device: this.stats.device as 'webgpu' | 'wasm',
         use_external_data_format: o.use_external_data_format,
+        ...(injectedDevice
+          ? { session_options: { executionProviders: [{ name: 'webgpu', device: injectedDevice }] } }
+          : {}),
       };
       this.processor = await T.AutoProcessor.from_pretrained(this.spec.repo, {
         revision: o.revision,
@@ -368,8 +468,9 @@ export class RealEngine implements EngineLike {
       this.model = await T.AutoModelForImageTextToText.from_pretrained(this.spec.repo, loadOpts);
       this.stats.modelId = this.spec.id;
       this.stats.loadedAt = Date.now();
+      this.stats.adapterFingerprint = fingerprint;
       onProgress({ phase: 'done', percent: 100 });
-      return { loadMs: Date.now() - t0, device: this.stats.device };
+      return { loadMs: Date.now() - t0, device: this.stats.device, adapterFingerprint: fingerprint };
     } finally {
       this.stats.busy = false;
     }
@@ -406,10 +507,9 @@ export class RealEngine implements EngineLike {
     try {
       const { TextStreamer, RawImage } = this.T;
       let rawImage = new RawImage(image.data, image.width, image.height, 4);
-      const longEdge = Math.max(rawImage.width, rawImage.height);
-      if (longEdge > MAX_LONG_EDGE) {
-        const scale = MAX_LONG_EDGE / longEdge;
-        rawImage = await rawImage.resize(Math.round(rawImage.width * scale), Math.round(rawImage.height * scale));
+      const scaled = longEdgeScale(rawImage.width, rawImage.height, opts?.maxLongEdge ?? MAX_LONG_EDGE);
+      if (scaled) {
+        rawImage = await rawImage.resize(scaled.width, scaled.height);
       }
       const messages = [
         {
@@ -474,16 +574,29 @@ export class RealEngine implements EngineLike {
     // caller is misusing the session.
     if (this.stats.busy) throw new Error('dispose() called while a job is active');
     this.stats.busy = false;
-    try {
-      await this.model?.dispose?.();
-    } catch {
-      /* dispose on a dead session is best-effort */
+    // R1 Q5: EVERY webgpu session must release so the EP factory ref-count
+    // hits zero and the context erases — the next create re-requests the
+    // adapter (this is what makes adapter switching work without a worker
+    // respawn). Only the model session was released before phases 1-3.
+    for (const piece of [this.model, this.processor, this.tokenizer]) {
+      try {
+        await piece?.dispose?.();
+      } catch {
+        /* dispose on a dead session is best-effort */
+      }
     }
+    try {
+      this.ownedDevice?.destroy?.();
+    } catch {
+      /* a lost device cannot be destroyed again */
+    }
+    this.ownedDevice = null;
     this.model = null;
     this.processor = null;
     this.tokenizer = null;
     this.stats.modelId = null;
     this.stats.loadedAt = null;
+    this.stats.adapterFingerprint = null;
   }
 
   /**

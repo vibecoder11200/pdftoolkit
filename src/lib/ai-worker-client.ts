@@ -26,6 +26,9 @@ import type {
 } from '../workers/ai-ocr.worker';
 import type { RasterImageData } from '../workers/pdf.worker';
 import type { DownloadProgress } from './ai-models';
+import { probeAdapters, resolveChoice, getGpuChoice, type AdapterDiscovery, type ResolvedGpuChoice } from './gpu-choice';
+import { setGpuFallback } from './gpu-fallback-store';
+import { hasActiveJob } from './jobs';
 
 
 export class WorkerCrashError extends Error {
@@ -42,7 +45,27 @@ export class GpuLostError extends Error {
   }
 }
 
+/** applyGpuChoice while a job runs — the UI disables the button via the same
+ *  job registry; this guards the race and carries the honest message. */
+export class EngineBusyError extends Error {
+  constructor() {
+    super('AI engine is running — apply is disabled until the job finishes.');
+    this.name = 'EngineBusyError';
+  }
+}
+
 const GPU_LOST_MESSAGE = 'WebGPU device was lost';
+
+/**
+ * Message-based GPU-failure classification (never instanceof — comlink
+ * crosses the boundary message-only, cf. ai-run.ts): covers ALL R1 Q4
+ * shapes — probe-null, Dawn adapter/device create failures, the ORT
+ * concurrency guard, backend-poison init errors, and device loss (both the
+ * worker's GpuLostError phrasing and ORT's native "WebGPU device lost").
+ */
+const WEBGPU_LOST_RE = /webgpu device (was )?lost|device lost|lost the device|destroying a gpu/i;
+const WEBGPU_INIT_FAIL_RE =
+  /failed to get a webgpu (adapter|device)|webgpu is not supported|no available adapters|another webgpu ep inference session/i;
 
 export interface AiClientOptions {
   /** F8 test seam — set from the page URL `?ai-mock=1` flag; spawns the
@@ -56,6 +79,14 @@ export interface AiClientOptions {
   hiddenMs?: number;
   onWorkerCrash?: (restarts: number) => void;
   onGpuLost?: () => void;
+  /** Fallback-chain notifications (phase 2) — also mirrored into the
+   *  gpu-fallback-store; this callback is for direct callers (tests). */
+  onGpuFallback?: (info: { from: string; to: string; reason: string }) => void;
+  /** Injectable choice resolution — defaults to the phase-1 store + a live
+   *  dual probe; node tests inject a stub (no navigator.gpu there). */
+  resolveGpuRequest?: () => Promise<ResolvedGpuChoice | null>;
+  /** Injectable discovery for the hop decision (same node-test rationale). */
+  probeAdapters?: () => Promise<AdapterDiscovery>;
 }
 
 interface PendingCall {
@@ -67,6 +98,25 @@ const DEFAULT_HIDDEN_MS = 5 * 60_000;
 /** handleFatal spawn budget (see handleFatal — offline first-use otherwise
  * loops spawn/fail forever; a settled guarded() call resets the counter). */
 const MAX_RESTARTS = 5;
+/**
+ * RED-TEAM H4: GPU-hop cap — deliberately NOT derived from `restarts`
+ * (guarded() resets restarts on every settled non-crash rejection, which
+ * would neutralize MAX_RESTARTS into an infinite spawn/fail cycle when both
+ * adapters fail). One hop (chosen → other GPU); the next failure degrades
+ * to wasm in place. Reset ONLY by user-initiated applyGpuChoice.
+ */
+const MAX_GPU_HOPS = 1;
+
+/** Default request resolution: the persisted choice, probed live. */
+async function defaultResolveGpuRequest(): Promise<ResolvedGpuChoice | null> {
+  const choice = getGpuChoice();
+  if (choice !== 'auto' && choice.kind === 'cpu') return { kind: 'cpu' };
+  const discovery = await probeAdapters();
+  // No adapters discoverable: pass nothing — the engine's own bare request
+  // becomes the honest probe and the fallback chain handles the failure.
+  if (discovery.adapters.length === 0) return null;
+  return resolveChoice(choice, discovery).resolved;
+}
 
 export class AiWorkerClient {
   private readonly options: AiClientOptions;
@@ -75,6 +125,18 @@ export class AiWorkerClient {
   private pending = new Set<PendingCall>();
   private restarts = 0;
   private degradeToWasm = false;
+  /** RED-TEAM H3/H2: recovery pins — a GPU hop pins the other adapter's
+   *  slot until the first successful post-hop load; applyGpuChoice clears
+   *  both pins (user choice outranks). */
+  private pinPowerPreference: 'high-performance' | 'low-power' | undefined = undefined;
+  private gpuHopCount = 0;
+  /** RED-TEAM H6: one-shot override (per-adapter measurement) — consumed by
+   *  the next ensureLoaded; the PERSISTED choice is never temp-written. */
+  private loadOverride: ResolvedGpuChoice | null = null;
+  /** The preference slot the RUNNING engine was loaded with — the hop
+   *  decision compares the failed slot against discovery (a collapsed
+   *  single-adapter machine never hops). */
+  private activeRequestPref: 'high-performance' | 'low-power' | undefined = undefined;
   private idleTimer: number | null = null;
   private hiddenTimer: number | null = null;
   private visibilityHooked = false;
@@ -133,6 +195,91 @@ export class AiWorkerClient {
     // guarded() call rejects fast instead of respawning.
     if (this.restarts <= MAX_RESTARTS) this.spawn();
     this.options.onWorkerCrash?.(this.restarts);
+  }
+
+  /**
+   * Deliberate respawn for an adapter switch (red-team H4/A4): terminate +
+   * spawn WITHOUT touching the crash budget (`restarts`), rejecting pending
+   * calls so nothing strands. The next load runs pinned via
+   * pinPowerPreference (ensureLoaded precedence).
+   */
+  private respawnDeliberate(): void {
+    const pending = [...this.pending];
+    this.pending.clear();
+    for (const p of pending) p.reject(new WorkerCrashError(new Error('switching GPU adapter')));
+    try {
+      this.worker?.terminate();
+    } catch {
+      /* already gone */
+    }
+    this.worker = null;
+    this.api = null;
+    this.spawn();
+  }
+
+  /**
+   * GPU-failure chain (phase 2): dGPU→iGPU→CPU. One deliberate hop to the
+   * OTHER adapter's slot — only when a genuinely different, non-software
+   * adapter exists (Windows collapse = no hop, straight to wasm) — else
+   * in-place wasm degrade (R1: CPU retry works after webgpu poison; webgpu
+   * retry in the same context never does).
+   */
+  private async classifyGpuFailure(err: unknown, message: string): Promise<unknown> {
+    const lost = WEBGPU_LOST_RE.test(message);
+    if (!lost && !WEBGPU_INIT_FAIL_RE.test(message)) return err;
+    if (this.gpuHopCount < MAX_GPU_HOPS) {
+      const probe = this.options.probeAdapters ?? probeAdapters;
+      const discovery = await probe();
+      const { hp, lp } = discovery.probes;
+      // The adapter the engine was actually USING (bare request ≈ the
+      // default/high-performance slot — Dawn maps bare to the same
+      // enumeration). A candidate equal to it is a cosmetic hop.
+      const usedFp =
+        this.activeRequestPref === 'low-power'
+          ? lp?.fingerprint
+          : this.activeRequestPref === 'high-performance'
+            ? hp?.fingerprint
+            : (hp?.fingerprint ?? lp?.fingerprint);
+      const candidates: Array<'high-performance' | 'low-power'> =
+        this.activeRequestPref === 'high-performance'
+          ? ['low-power']
+          : this.activeRequestPref === 'low-power'
+            ? ['high-performance']
+            : ['low-power', 'high-performance'];
+      for (const pref of candidates) {
+        const probeSlot = pref === 'high-performance' ? hp : lp;
+        if (!probeSlot || probeSlot.isFallbackAdapter === true) continue;
+        if (usedFp !== undefined && probeSlot.fingerprint === usedFp) continue;
+        this.gpuHopCount += 1;
+        this.pinPowerPreference = pref;
+        const info = { from: usedFp ?? 'unknown', to: probeSlot.fingerprint, reason: message };
+        setGpuFallback({ ...info, at: Date.now() });
+        this.options.onGpuFallback?.(info);
+        this.respawnDeliberate();
+        return new GpuLostError();
+      }
+    }
+    // No hop available: wasm degrade in place. Device loss also needs the
+    // standard fatal respawn (the worker may be dead); init-fail poisons
+    // only the webgpu backend — wasm still works in that context.
+    this.degradeToWasm = true;
+    setGpuFallback({ from: this.activeRequestPref ?? 'gpu', to: 'cpu', reason: message, at: Date.now() });
+    this.options.onGpuFallback?.({ from: this.activeRequestPref ?? 'gpu', to: 'cpu', reason: message });
+    if (lost) {
+      this.handleFatal(err);
+      this.options.onGpuLost?.();
+      return new GpuLostError();
+    }
+    return err;
+  }
+
+  /** Async classification used by the delegated calls (chain + notifications). */
+  private async typedErrorAsync(err: unknown): Promise<unknown> {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes(GPU_LOST_MESSAGE) || WEBGPU_LOST_RE.test(message) || WEBGPU_INIT_FAIL_RE.test(message)) {
+      return this.classifyGpuFailure(err, message);
+    }
+    return err;
   }
 
   /** Register a rejector so a crashed worker cannot strand the promise. */
@@ -201,15 +348,34 @@ export class AiWorkerClient {
     await api.dispose().catch(() => undefined);
   }
 
-  private typedError(err: unknown): unknown {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes(GPU_LOST_MESSAGE)) {
-      this.degradeToWasm = true;
-      this.handleFatal(err);
-      this.options.onGpuLost?.();
-      return new GpuLostError();
+  /**
+   * User-initiated choice application (phase 2). Idle → dispose (R1: full
+   * session release re-arms the EP context, so the next ensureLoaded builds
+   * its device from the NEW choice) — no worker respawn, no app restart.
+   * RED-TEAM H5: gated on the JOB REGISTRY (hasActiveJob), not isBusy() —
+   * stats.busy is only true INSIDE worker run(); between OCR pages the
+   * worker idles while the main thread renders, so an isBusy() gate could
+   * dispose mid-run with no resume offer. A second (worker-side) busy check
+   * backs the registry up.
+   * RED-TEAM H6: an explicit `override` (per-adapter measurement) is a ONE-
+   * SHOT request — the persisted choice is never temp-written; a failed
+   * measurement cannot strand the user's selection. After the measurement,
+   * callers re-apply the persisted choice (applyGpuChoice() bare).
+   */
+  async applyGpuChoice(override?: ResolvedGpuChoice): Promise<void> {
+    // Gate FIRST (both the registry and the worker-side busy check) — a
+    // rejected apply must not leave pins cleared or an override armed.
+    if (hasActiveJob()) throw new EngineBusyError();
+    const api = this.api;
+    if (api) {
+      const busy = await api.isBusy().catch(() => true);
+      if (busy) throw new EngineBusyError();
     }
-    return err;
+    this.degradeToWasm = false;
+    this.pinPowerPreference = undefined;
+    this.gpuHopCount = 0;
+    this.loadOverride = override ?? null;
+    if (api) await api.dispose().catch(() => undefined);
   }
 
   get restartCount(): number {
@@ -224,19 +390,78 @@ export class AiWorkerClient {
     return this.guarded((api) => api.getStats());
   }
 
+  /**
+   * The request the NEXT load would carry (choice + pins + degrade) — the
+   * status line's honest "requesting X" basis. `degraded` distinguishes a
+   * wasm request born from the fallback chain vs a user CPU choice.
+   */
+  async effectiveRequest(): Promise<
+    { device: 'wasm'; degraded: boolean; fingerprint: null } | { device: 'webgpu'; degraded: false; powerPreference?: 'high-performance' | 'low-power'; fingerprint: string | null }
+  > {
+    if (this.degradeToWasm) return { device: 'wasm', degraded: true, fingerprint: null };
+    const override = this.loadOverride;
+    if (override) {
+      return override.kind === 'cpu'
+        ? { device: 'wasm', degraded: false, fingerprint: null }
+        : { device: 'webgpu', degraded: false, powerPreference: override.powerPreference, fingerprint: override.fingerprint };
+    }
+    if (this.pinPowerPreference) {
+      return { device: 'webgpu', degraded: false, powerPreference: this.pinPowerPreference, fingerprint: null };
+    }
+    const request = (this.options.resolveGpuRequest ?? defaultResolveGpuRequest)();
+    const resolved = request instanceof Promise ? await request : request;
+    if (resolved?.kind === 'cpu') return { device: 'wasm', degraded: false, fingerprint: null };
+    if (resolved?.kind === 'gpu') {
+      return { device: 'webgpu', degraded: false, powerPreference: resolved.powerPreference, fingerprint: resolved.fingerprint };
+    }
+    return { device: 'webgpu', degraded: false, fingerprint: null };
+  }
+
   async ensureLoaded(
     modelId: string,
     onProgress: (p: DownloadProgress) => void,
+    loadOpts?: { override?: ResolvedGpuChoice },
   ): Promise<LoadResult> {
     this.touch();
-    return this.guarded(async (api) => {
-      const stats = await api.getStats();
-      if (stats.modelId !== null && stats.loadedAt !== null) {
-        return { loadMs: 0, device: stats.device };
+    // RED-TEAM C1: load-time failures MUST reach the classifier (hop /
+    // degrade / notify) — raw rejections used to leave the poisoned worker
+    // alive with no notification.
+    try {
+      // One-shot override (H6): an explicit loadOpts override wins, else a
+      // pending applyGpuChoice(override) is consumed here.
+      const override = loadOpts?.override ?? this.loadOverride;
+      let request: ResolvedGpuChoice | null;
+      if (override) {
+        request = override;
+      } else {
+        const r = (this.options.resolveGpuRequest ?? defaultResolveGpuRequest)();
+        request = r instanceof Promise ? await r : r;
       }
-      const opts: LoadOptions = this.degradeToWasm ? { device: 'wasm' } : {};
-      return api.loadEngine(modelId, proxy(onProgress), opts);
-    });
+      const result = await this.guarded(async (api) => {
+        const stats = await api.getStats();
+        if (stats.modelId !== null && stats.loadedAt !== null) {
+          return { loadMs: 0, device: stats.device, adapterFingerprint: stats.adapterFingerprint };
+        }
+        // Precedence (red-team H3/H2): crash-budget degrade > recovery pin >
+        // the user's choice. applyGpuChoice clears both pins; a pin also
+        // clears itself after the first successful load.
+        const opts: LoadOptions = {};
+        if (this.degradeToWasm) {
+          opts.device = 'wasm';
+        } else {
+          if (request?.kind === 'cpu') opts.device = 'wasm';
+          else if (this.pinPowerPreference) opts.powerPreference = this.pinPowerPreference;
+          else if (request?.kind === 'gpu') opts.powerPreference = request.powerPreference;
+        }
+        this.activeRequestPref = opts.powerPreference;
+        return api.loadEngine(modelId, proxy(onProgress), opts);
+      });
+      this.loadOverride = null; // one-shot consumed
+      this.pinPowerPreference = undefined; // survived until the first success
+      return result;
+    } catch (err) {
+      throw await this.typedErrorAsync(err);
+    }
   }
 
   async downloadModel(
@@ -247,7 +472,7 @@ export class AiWorkerClient {
     try {
       return await this.guarded((api) => api.downloadModel(modelId, proxy(onProgress)));
     } catch (err) {
-      throw this.typedError(err);
+      throw await this.typedErrorAsync(err);
     }
   }
 
@@ -265,7 +490,7 @@ export class AiWorkerClient {
     try {
       return await this.guarded((api) => api.ocrPage(image, proxy(onToken), opts));
     } catch (err) {
-      throw this.typedError(err);
+      throw await this.typedErrorAsync(err);
     }
   }
 

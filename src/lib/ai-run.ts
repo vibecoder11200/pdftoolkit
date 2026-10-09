@@ -44,7 +44,8 @@ export interface AiRunClient {
   ensureLoaded(
     modelId: string,
     onProgress: (p: DownloadProgress) => void,
-  ): Promise<{ loadMs: number; device: 'webgpu' | 'wasm' | 'mock' }>;
+    loadOpts?: { override?: import('./gpu-choice').ResolvedGpuChoice },
+  ): Promise<{ loadMs: number; device: 'webgpu' | 'wasm' | 'mock'; adapterFingerprint: string | null }>;
   downloadModel(
     modelId: string,
     onProgress: (p: DownloadProgress) => void,
@@ -80,11 +81,13 @@ export async function downloadIfNeeded(
   await client.downloadModel(modelId, (p) => onProgress?.(p));
 }
 
-/** Tier label (D4) — estimate + any stored benchmark, per resolution order. */
+/** Tier label (D4) — estimate + any stored benchmark, per resolution order.
+ *  v2 keys: the benchmark for THIS machine's current adapter fingerprint. */
 export async function aiTierEstimate(): Promise<TierResolution> {
   const hardware = await detectHardware();
   const benchmarks = await createBenchmarkStore().loadAll();
-  return resolveTier(hardware, benchmarks[AI_MODEL_ID]);
+  const current = adapterFingerprint(hardware.adapter);
+  return resolveTier(hardware, benchmarks[AI_MODEL_ID]?.[current]);
 }
 
 /**
@@ -93,6 +96,11 @@ export async function aiTierEstimate(): Promise<TierResolution> {
  * the SECOND completed page of a fresh fingerprint the measured benchmark
  * is persisted and the refined tier surfaces via onTierAfter (T5 — the
  * first real page acted as the discarded warmup).
+ *
+ * Phase-3 tuning: `maxLongEdgePerPage`/`maxNewTokensPerPage` thread the
+ * preflight presets into every page; `benchmarkRecord` skips persistence
+ * for non-full tunings (a 768px/2048-token pass must not pollute the
+ * per-adapter records, phase 4 v2 keys).
  */
 export async function runAiPages(
   client: AiRunClient,
@@ -105,22 +113,30 @@ export async function runAiPages(
     startPage?: number;
     shouldContinue?: () => boolean;
     maxNewTokensPerPage?: number;
+    maxLongEdgePerPage?: number;
+    benchmarkRecord?: boolean;
     benchmarkStore?: BenchmarkStore;
   } = {},
 ): Promise<{ results: AiPageResult[]; completedAll: boolean; tierAfter?: TierResolution }> {
   const startPage = opts.startPage ?? 1;
   const results: AiPageResult[] = [];
-  const fingerprint = adapterFingerprint((await detectHardware()).adapter);
   const store = opts.benchmarkStore ?? createBenchmarkStore();
-  const existing = (await store.loadAll())[AI_MODEL_ID];
   const load = await client.ensureLoaded(AI_MODEL_ID, (p) => events.onDownloadProgress?.(p));
+  // RED-TEAM H4/A7 (record identity): the record keys on the adapter the
+  // ENGINE built its device from — a fresh bare probe can legally differ
+  // (battery/display changes the UA's pick between discovery and load).
+  // The engine-reported fingerprint is the honest identity; the probe is
+  // only the wasm/mock fallback (null there).
+  const fingerprint = load.adapterFingerprint ?? adapterFingerprint((await detectHardware()).adapter);
+  const existing = (await store.loadAll())[AI_MODEL_ID]?.[fingerprint];
   // The condition must match the device THIS run actually loaded with:
   // after a GPU-loss degrade the client pins 'wasm', and recording WASM
   // throughput as 'webgpu' would let the staleness check trust it forever
   // (permanently wrong tier label).
   const condition: 'webgpu' | 'wasm' = load.device === 'wasm' ? 'wasm' : 'webgpu';
   const needsBenchmark =
-    !existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== condition;
+    (opts.benchmarkRecord ?? true) &&
+    (!existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== condition);
 
   let firstColdMs: number | null = null;
   for (let i = startPage; i <= pageCount; i++) {
@@ -132,7 +148,10 @@ export async function runAiPages(
       const r = await client.ocrPage(
         await renderPage(i),
         (chunk) => events.onToken?.(i, chunk),
-        { maxNewTokens: opts.maxNewTokensPerPage ?? 4096 },
+        {
+          maxNewTokens: opts.maxNewTokensPerPage ?? 4096,
+          maxLongEdge: opts.maxLongEdgePerPage,
+        },
       );
       if (firstColdMs === null) firstColdMs = r.firstTokenMs;
       results.push({ page: i, text: r.text, ms: r.ms, genTokens: r.genTokens });
@@ -155,10 +174,13 @@ export async function runAiPages(
       }
     } catch (err) {
       // comlink rebuilds thrown errors message-only — the crash class never
-      // survives the boundary, so detect by the canonical message too.
+      // survives the boundary, so detect by the canonical message too. The
+      // 'Engine not loaded' race (phase-2 applyGpuChoice companion) is
+      // crash-like: the resume UI must still fire.
       const isCrash =
         err instanceof WorkerCrashError ||
-        (err instanceof Error && err.message.includes('AI worker crashed'));
+        (err instanceof Error &&
+          (err.message.includes('AI worker crashed') || err.message.includes('Engine not loaded')));
       if (isCrash) {
         events.onCrash?.(i); // page i never completed — resume from there
       }

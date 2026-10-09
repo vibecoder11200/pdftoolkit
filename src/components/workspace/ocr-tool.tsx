@@ -24,6 +24,20 @@ import {
 } from '../../lib/ai-run';
 import { sharedAiClient } from '../../lib/ai-worker-client';
 import { convertEngineOutput } from '../../lib/ai-markdown';
+import {
+  AI_TUNING_PRESETS,
+  estimateForCurrentChoice,
+  type AiFootprintEstimate,
+  type AiTuning,
+} from '../../lib/ai-preflight';
+import {
+  probeAdapters,
+  resolveCurrentChoice,
+  type AdapterDiscovery,
+  type ResolvedGpuChoice,
+} from '../../lib/gpu-choice';
+import { useGpuChoice } from '../../hooks/use-gpu-choice';
+import { useGpuFallback } from '../../hooks/use-gpu-fallback';
 import type { TierResolution } from '../../lib/capability';
 import type { RasterImageData } from '../../workers/pdf.worker';
 
@@ -62,6 +76,25 @@ interface PageResult {
 const isAiMock = () =>
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('ai-mock');
 
+/**
+ * Honest "requesting X" text for the status line — adapter-reported driver
+ * strings render as plain React text only (SEC-3).
+ */
+function gpuRequestLabel(
+  request: ResolvedGpuChoice | null,
+  discovery: AdapterDiscovery | null,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  if (!request) return t('ocr.gpu_status_unknown');
+  if (request.kind === 'cpu') return t('ocr.gpu_status_cpu');
+  const adapter = discovery?.adapters.find((a) => a.fingerprint === request.fingerprint);
+  if (!adapter) return request.fingerprint;
+  const parts = [adapter.info.vendor, adapter.info.architecture, adapter.info.device]
+    .filter(Boolean)
+    .join(' · ');
+  return parts || adapter.info.description || adapter.fingerprint;
+}
+
 export function OcrTool() {
   const { t } = useTranslation();
   const { files, error, add, clear } = useDropFiles();
@@ -94,6 +127,14 @@ export function OcrTool() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiCrashedAt, setAiCrashedAt] = useState<number | null>(null);
   const [aiTab, setAiTab] = useState<'md' | 'txt' | 'html'>('md');
+  // GPU selection state (plan 261009-0836 phases 3+4)
+  const gpuChoice = useGpuChoice();
+  const gpuFallback = useGpuFallback();
+  const [gpuRequest, setGpuRequest] = useState<ResolvedGpuChoice | null>(null);
+  const [gpuDiscovery, setGpuDiscovery] = useState<AdapterDiscovery | null>(null);
+  const [preflight, setPreflight] = useState<AiFootprintEstimate | null>(null);
+  const [aiTuning, setAiTuning] = useState<'full' | 'reduced'>('full');
+  const [resumeReask, setResumeReask] = useState(false);
 
   const abortRef = useRef(false);
   const dropAllRef = useRef(false);
@@ -129,6 +170,42 @@ export function OcrTool() {
     };
   }, [step]);
 
+  // Live "requesting X" status (phase 4): the RESOLVED request for the
+  // current choice — the app can only REQUEST; the OS may deliver another
+  // adapter (the honest phrasing never claims otherwise). Re-probes when
+  // the choice changes, no app restart.
+  useEffect(() => {
+    if (step !== 'config') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const discovery = await probeAdapters();
+        const { resolved } = resolveCurrentChoice(discovery);
+        if (!cancelled) {
+          setGpuDiscovery(discovery);
+          setGpuRequest(resolved);
+        }
+      } catch {
+        if (!cancelled) setGpuRequest({ kind: 'cpu' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, gpuChoice]);
+
+  // Phase-3 preflight estimate for the resolved target.
+  useEffect(() => {
+    if (step !== 'config' || engine !== 'ai') return;
+    let cancelled = false;
+    void estimateForCurrentChoice().then((estimate) => {
+      if (!cancelled) setPreflight(estimate);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, engine, gpuChoice]);
+
   const estimate = useMemo(() => {
     const perPage = ESTIMATE_S_PER_PAGE[dpi] * (lang === 'auto' ? 1.1 : 1);
     const total = Math.round((perPage * pageCount) / 60);
@@ -143,12 +220,13 @@ export function OcrTool() {
   }, []);
 
   const runAi = useCallback(
-    async (startPage: number, keep: AiPageResult[]) => {
+    async (startPage: number, keep: AiPageResult[], tuning: AiTuning = AI_TUNING_PRESETS.full) => {
       if (files.length === 0) return;
       beginJob('ai-ocr');
       setStep('running');
       setAiError(null);
       setAiCrashedAt(null);
+      setResumeReask(false);
       setAiTokens(keep.reduce((s, r) => s + r.genTokens, 0));
       setAiResults(keep);
       abortRef.current = false;
@@ -185,6 +263,12 @@ export function OcrTool() {
           {
             startPage,
             shouldContinue: () => !abortRef.current,
+            // Phase-3 preflight tuning, threaded per page.
+            maxNewTokensPerPage: tuning.maxNewTokens,
+            maxLongEdgePerPage: tuning.maxLongEdge,
+            // A non-full tuning must not pollute the per-adapter benchmark
+            // records (phase 4 keys measurements by adapter fingerprint).
+            benchmarkRecord: tuning.maxLongEdge === 1024 && tuning.maxNewTokens === 4096,
           },
         );
         setAiResults([...keep, ...out.results]);
@@ -201,13 +285,31 @@ export function OcrTool() {
     [aiClient, files, pageCount],
   );
 
+  /**
+   * Resume (red-team F8): the resume path never re-enters the config card,
+   * and it is exactly when the fallback chain may have moved the engine to
+   * a tighter configuration — re-run the preflight; if it is now tight and
+   * the crash-time tuning was FULL, re-ask instead of silently running.
+   */
+  const resumeAi = useCallback(
+    async (startPage: number, keep: AiPageResult[]) => {
+      const estimate = await estimateForCurrentChoice().catch(() => null);
+      if (estimate?.tight && aiTuning === 'full') {
+        setResumeReask(true);
+        return;
+      }
+      void runAi(startPage, keep, AI_TUNING_PRESETS[aiTuning]);
+    },
+    [aiTuning, runAi],
+  );
+
   const start = useCallback(() => {
     if (files.length === 0) return;
     // The config step renders BEFORE the async page-count probe resolves —
     // never start with a stale/zero count (assertPageCountOk would throw).
     if (pageCount < 1 || pageCount > OCR_PAGE_CAP) return;
     if (engine === 'ai') {
-      void runAi(1, []);
+      void runAi(1, [], AI_TUNING_PRESETS[aiTuning]);
       return;
     }
     setStep('running');
@@ -300,7 +402,7 @@ export function OcrTool() {
         endJob('ocr');
       }
     })();
-  }, [dpi, engine, files, lang, pageCount, runAi]);
+  }, [aiTuning, dpi, engine, files, lang, pageCount, runAi]);
 
   const cancelAiDownload = useCallback(() => {
     void aiClient().cancelDownload();
@@ -427,9 +529,61 @@ export function OcrTool() {
           </>
         )}
         {engine === 'ai' && (
-          <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
-            {t('ocr.ai_notice')}
-          </p>
+          <>
+            <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
+              {t('ocr.ai_notice')}
+            </p>
+            {/* Live "requesting" status (phase 4): the app only requests an
+                adapter — the OS may deliver another one. */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted" data-testid="ocr-gpu-status">
+              <span>
+                {t('ocr.gpu_status_requesting', {
+                  target: gpuRequestLabel(gpuRequest, gpuDiscovery, t),
+                })}
+              </span>
+              <a
+                href="/settings"
+                className="rounded border border-border-strong px-2 py-0.5 hover:bg-surface-hover"
+              >
+                {t('ocr.gpu_status_change')}
+              </a>
+            </div>
+            {gpuFallback && (
+              <p className="rounded-lg border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400" role="status">
+                {t('ocr.gpu_fallback_note', {
+                  target: gpuFallback.to === 'cpu' ? t('ocr.gpu_fallback_cpu') : gpuFallback.to,
+                  reason: gpuFallback.reason,
+                })}
+              </p>
+            )}
+            {/* Phase-3 preflight choice card: ASK, never decide. Non-blocking
+                inline card (quick-guide strip pattern); this run only. */}
+            {preflight?.tight && (
+              <fieldset className="grid gap-2 rounded-lg border border-border-strong px-3.5 py-3" data-testid="ocr-preflight-card">
+                <legend className="text-sm font-bold">{t('ocr.preflight_tight_title')}</legend>
+                <p className="text-xs text-text-muted">
+                  {t('ocr.preflight_basis_note', { basis: t(`ocr.preflight_basis_${preflight.basis}`) })}
+                </p>
+                {(['full', 'reduced'] as const).map((preset) => (
+                  <label key={preset} className="grid gap-0.5 text-sm">
+                    <span className="flex min-h-6 items-center gap-2 font-semibold">
+                      <input
+                        type="radio"
+                        name="ai-tuning"
+                        checked={aiTuning === preset}
+                        onChange={() => setAiTuning(preset)}
+                      />
+                      {t(`ocr.preflight_${preset}`)}
+                    </span>
+                    <span className="pl-6 text-xs text-text-muted">{t(`ocr.preflight_${preset}_hint`)}</span>
+                  </label>
+                ))}
+                <p className="text-xs text-text-muted">
+                  {t('ocr.preflight_tesseract_hint')}
+                </p>
+              </fieldset>
+            )}
+          </>
         )}
         {runError && <p role="alert" className="text-sm text-tone-red">{runError}</p>}
         <div className="flex gap-2">
@@ -578,14 +732,39 @@ export function OcrTool() {
         {aiCrashedAt !== null && (
           <div className="rounded-lg border border-tone-red bg-tone-red-soft px-4 py-3 text-sm" role="alert">
             <p>{t('ocr.ai_resume', { page: aiCrashedAt })}</p>
-            <button
-              type="button"
-              data-testid="ai-resume"
-              className="mt-2 min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
-              onClick={() => void runAi(aiCrashedAt, aiResults)}
-            >
-              {t('ocr.ai_resume_button', { page: aiCrashedAt })}
-            </button>
+            {resumeReask ? (
+              // F8 resume re-ask: the adapter situation changed after the
+              // crash — the full-mode choice is re-offered, not assumed.
+              <div className="mt-2 grid gap-2" data-testid="ocr-resume-reask">
+                <p className="text-xs text-text-muted">{t('ocr.preflight_tight_title')}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    data-testid="ocr-resume-reduced"
+                    className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
+                    onClick={() => void runAi(aiCrashedAt, aiResults, AI_TUNING_PRESETS.reduced)}
+                  >
+                    {t('ocr.preflight_reduced_resume')}
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm"
+                    onClick={() => void runAi(aiCrashedAt, aiResults, AI_TUNING_PRESETS.full)}
+                  >
+                    {t('ocr.preflight_full_resume')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid="ai-resume"
+                className="mt-2 min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
+                onClick={() => void resumeAi(aiCrashedAt, aiResults)}
+              >
+                {t('ocr.ai_resume_button', { page: aiCrashedAt })}
+              </button>
+            )}
           </div>
         )}
         {aiError && aiCrashedAt === null && (

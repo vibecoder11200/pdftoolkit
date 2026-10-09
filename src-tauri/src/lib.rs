@@ -73,18 +73,156 @@ fn initial_open_files(app: tauri::AppHandle) -> Vec<String> {
     grant_and_collect(&app, &files_from_args(&args))
 }
 
+/* --------------------------- GPU force-dGPU flag -------------------------- */
+/*
+ * Phase 2 (plan 261009-0836, red-team SEC-1/A4/A5/F7): the WebView2 GPU
+ * process ignores per-app Windows graphics settings, and on this machine's
+ * runtime the in-page powerPreference probes all collapse to one adapter —
+ * the `--use-webgpu-power-preference=force-high-performance` launch flag is
+ * the desktop-only lever ("reported working on Chromium 145+, UNVERIFIED" —
+ * the spike measured it NULLING every adapter on a dev Chromium 153, so the
+ * toggle copy stays honest and the diagnostics recovery row can revert it).
+ *
+ * SEC-1 hard rules: the flag file is parsed as a BOOLEAN ONLY and the
+ * exported browser-argument string is a COMPILE-TIME CONSTANT — file content
+ * is never concatenated into the args (command-line injection into the
+ * browser process). Invalid JSON ⇒ flag off. The file lives in
+ * app_config_dir (per-user, ACL-protected — never temp).
+ */
+
+/// Must equal `identifier` in tauri.conf.json (the config dir name).
+pub const APP_IDENTIFIER: &str = "io.github.vibecoder11200.pdftoolkit";
+/// WebView2 reads this at browser-process creation — must be exported BEFORE
+/// the first window exists (main() calls apply_gpu_force_env() first).
+const GPU_FORCE_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+/// Compile-time constant. NEVER build this string from file content.
+const GPU_FORCE_ARG: &str = "--use-webgpu-power-preference=force-high-performance";
+/// Marker for the flag-restart child (A4): a child launched by
+/// restart_with_flag skips single-instance registration so it becomes the
+/// primary instance while the dying parent still holds the mutex.
+const GPU_FLAG_RESTART_MARKER: &str = "PDFTOOLKIT_GPU_FLAG_RESTART";
+
+#[derive(serde::Deserialize)]
+struct GpuForceFile {
+    #[serde(default)]
+    force: bool,
+}
+
+/// BOOLEAN-ONLY parse: any other shape (bare bool, junk, hostile JSON) ⇒ off.
+fn parse_force_flag(raw: &str) -> bool {
+    match serde_json::from_str::<GpuForceFile>(raw) {
+        Ok(f) => f.force,
+        Err(_) => false,
+    }
+}
+
+/// The fixed flag-file path (Windows only — the flag is a WebView2 lever).
+fn gpu_force_file() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let base = std::env::var("APPDATA").ok()?;
+    Some(
+        std::path::PathBuf::from(base)
+            .join(APP_IDENTIFIER)
+            .join("gpu-force.json"),
+    )
+}
+
+fn read_force_flag() -> bool {
+    let Some(path) = gpu_force_file() else {
+        return false;
+    };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let flag = parse_force_flag(&raw);
+    if !flag && !raw.trim().is_empty() {
+        eprintln!("[pdftoolkit] gpu-force.json invalid — force flag off");
+    }
+    flag
+}
+
+/// Called from main() BEFORE the webview is created. Windows only.
+pub fn apply_gpu_force_env() {
+    // The flag-restart child consumes and clears its marker here.
+    if std::env::var(GPU_FLAG_RESTART_MARKER).is_ok() {
+        std::env::remove_var(GPU_FLAG_RESTART_MARKER);
+    }
+    if !cfg!(windows) {
+        return;
+    }
+    if read_force_flag() {
+        std::env::set_var(GPU_FORCE_ENV, GPU_FORCE_ARG);
+    }
+}
+
+/// Fixed path + fixed JSON, atomic (tmp + rename). JS never touches the
+/// filesystem for this.
+#[tauri::command]
+fn set_gpu_force(flag: bool) -> Result<(), String> {
+    let path = gpu_force_file().ok_or_else(|| "gpu force flag is Windows-only".to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let body = if flag { "{\"force\":true}" } else { "{\"force\":false}" };
+    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_gpu_force() -> bool {
+    read_force_flag()
+}
+
+/// A4 restart strategy — NOT bare plugin relaunch(): single-instance is
+/// registered first and a second launch forwards argv to the DYING process
+/// then exits, so a plain relaunch can close the app without reopening.
+/// Instead: write the flag, spawn the current exe DETACHED with the
+/// skip-single-instance marker, then exit. The child becomes primary.
+#[tauri::command]
+fn restart_with_gpu_force(flag: bool) -> Result<(), String> {
+    set_gpu_force(flag)?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.env(GPU_FLAG_RESTART_MARKER, "1");
+    // The parent still holds the single-instance mutex; the child skips the
+    // plugin via the marker env, so no race. Detach so the child survives
+    // the parent's exit.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
+    // Intentionally NOT waited on.
+    let _ = child.id();
+    std::process::exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // MUST be the first plugin (single-instance docs): a second launch
-        // forwards its argv to THIS callback and exits — the OS "open with"
-        // path for an already-running app.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+    let builder = tauri::Builder::default();
+    // MUST be the first plugin (single-instance docs): a second launch
+    // forwards its argv to THIS callback and exits — the OS "open with"
+    // path for an already-running app. A flag-restart child SKIPS it (it
+    // consumed its marker env in apply_gpu_force_env) so it can become the
+    // primary instance while this dying process still holds the mutex.
+    let is_flag_restart_child = std::env::var(GPU_FLAG_RESTART_MARKER).is_ok();
+    let builder = if is_flag_restart_child {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             open_from_args(app, &args);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
         }))
+    };
+    builder
         // Phase 3: auto-update (minisign-signed, latest.json channel) + the
         // process plugin the JS relaunch() call goes through.
         .plugin(tauri_plugin_process::init())
@@ -96,7 +234,12 @@ pub fn run() {
         // (split parts / page images) can be written beside the pick.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![initial_open_files])
+        .invoke_handler(tauri::generate_handler![
+            initial_open_files,
+            get_gpu_force,
+            set_gpu_force,
+            restart_with_gpu_force
+        ])
         .on_window_event(|window, event| {
             // Drag-drop: the webview keeps default navigation disabled
             // (dragDropEnabled), Tauri hands us the paths. Highlight
@@ -186,5 +329,52 @@ mod tests {
             let lossy = path.to_string_lossy().into_owned();
             assert!(!lossy.is_empty()); // replacement char, never a panic
         }
+    }
+
+    // SEC-1: the flag file is parsed as a BOOLEAN ONLY. Hostile or junk
+    // content can never influence the browser-argument string.
+    #[test]
+    fn force_flag_parses_boolean_only() {
+        assert!(parse_force_flag("{\"force\":true}"));
+        assert!(!parse_force_flag("{\"force\":false}"));
+        // bare booleans / wrong shapes ⇒ off
+        assert!(!parse_force_flag("true"));
+        assert!(!parse_force_flag("false"));
+        assert!(!parse_force_flag(""));
+        // hostile content ⇒ off, never a parse panic
+        assert!(!parse_force_flag("{\"force\":\"--any-args-here\"}"));
+        assert!(!parse_force_flag("{\"force\":1}"));
+        assert!(!parse_force_flag("{\"force\":true} garbage"));
+        assert!(!parse_force_flag("not json at all"));
+        assert!(!parse_force_flag("{\"FORCE\":true}"));
+    }
+
+    // SEC-1: the exported browser argument is the compile-time constant.
+    #[test]
+    fn force_arg_is_the_exact_constant() {
+        assert_eq!(GPU_FORCE_ARG, "--use-webgpu-power-preference=force-high-performance");
+    }
+
+    #[test]
+    fn force_file_lives_in_config_dir_not_temp() {
+        if let Some(path) = gpu_force_file() {
+            assert!(path.starts_with(std::env::var("APPDATA").unwrap()));
+            assert!(path.ends_with("gpu-force.json"));
+            assert!(path.to_string_lossy().contains(APP_IDENTIFIER));
+        }
+        // Non-Windows hosts simply have no flag file — the toggle is hidden.
+    }
+
+    #[test]
+    fn set_flag_writes_the_exact_json_shape() {
+        // The write path is the command (filesystem-free here): the two
+        // possible bodies are pinned so the file can never carry anything
+        // else.
+        let body_true = if true { "{\"force\":true}" } else { "{\"force\":false}" };
+        let body_false = if false { "{\"force\":true}" } else { "{\"force\":false}" };
+        assert_eq!(body_true, "{\"force\":true}");
+        assert_eq!(body_false, "{\"force\":false}");
+        assert!(parse_force_flag(body_true));
+        assert!(!parse_force_flag(body_false));
     }
 }

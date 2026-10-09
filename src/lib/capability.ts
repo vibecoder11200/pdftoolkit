@@ -58,6 +58,49 @@ export function adapterFingerprint(info: AdapterInfo | null): string {
   return [info?.vendor ?? '?', info?.architecture ?? '?', info?.device ?? '?'].join('|');
 }
 
+/**
+ * F23: .info is optional — old Chrome exposes neither the attribute nor
+ * accessors; feature-detect every key. Shared by the tier ladder and
+ * gpu-choice discovery so both describe the same machine identically.
+ */
+export function readAdapterInfo(adapter: GPUAdapter): AdapterInfo {
+  const info: AdapterInfo = {};
+  const rawInfo = (adapter as GPUAdapter & { info?: GPUAdapterInfo }).info;
+  if (rawInfo) {
+    for (const key of ['vendor', 'architecture', 'device', 'description'] as const) {
+      try {
+        const v = rawInfo[key];
+        if (v) info[key] = String(v);
+      } catch {
+        /* accessor absent */
+      }
+    }
+  }
+  return info;
+}
+
+/**
+ * Software-adapter (SwiftShader) flag: `adapter.info.isFallbackAdapter`
+ * (GPUAdapterInfo field, Chrome 136+) with the legacy `adapter` attribute as
+ * fallback — the attribute was REMOVED in Chrome 140 (R2 Q4), so a bare
+ * legacy read is undefined on current Chrome and the tier ladder's
+ * `isFallback === true → 'cpu'` gate was dead code. Shared by detectHardware
+ * and gpu-choice — the tier label and the adapter list must never disagree.
+ */
+export function readAdapterFallbackFlag(adapter: GPUAdapter): boolean | null {
+  const rawInfo = (adapter as GPUAdapter & { info?: GPUAdapterInfo }).info;
+  if (rawInfo) {
+    try {
+      const v = (rawInfo as GPUAdapterInfo & { isFallbackAdapter?: boolean }).isFallbackAdapter;
+      if (typeof v === 'boolean') return v;
+    } catch {
+      /* accessor absent */
+    }
+  }
+  const legacy = (adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter;
+  return typeof legacy === 'boolean' ? legacy : null;
+}
+
 /** Tiers 1-4 — pure estimate, no model run involved. */
 export async function detectHardware(
   gpu: Navigator['gpu'] | undefined = (navigator as Navigator & { gpu?: Navigator['gpu'] }).gpu,
@@ -65,6 +108,7 @@ export async function detectHardware(
     const est = await navigator.storage?.estimate?.();
     return { usage: est?.usage, quota: est?.quota };
   },
+  powerPreference?: GPURequestAdapterOptions['powerPreference'],
 ): Promise<HardwareInfo> {
   const deviceMemoryGB = deviceMemoryHint();
   let storage: { usage?: number; quota?: number } | null = null;
@@ -85,26 +129,13 @@ export async function detectHardware(
   if (!gpu) return { ...base, webgpu: false };
   let adapter: GPUAdapter | null = null;
   try {
-    adapter = await gpu.requestAdapter();
+    adapter = await gpu.requestAdapter(powerPreference ? { powerPreference } : undefined);
   } catch {
     adapter = null;
   }
   if (!adapter) return { ...base, webgpu: true, tier: 'none' };
-  // F23: .info is optional — old Chrome exposes neither the attribute nor
-  // accessors; feature-detect everything.
-  const info: AdapterInfo = {};
-  const rawInfo = (adapter as GPUAdapter & { info?: GPUAdapterInfo }).info;
-  if (rawInfo) {
-    for (const key of ['vendor', 'architecture', 'device', 'description'] as const) {
-      try {
-        const v = rawInfo[key];
-        if (v) info[key] = String(v);
-      } catch {
-        /* accessor absent */
-      }
-    }
-  }
-  const isFallback = (adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter ?? null;
+  const info = readAdapterInfo(adapter);
+  const isFallback = readAdapterFallbackFlag(adapter);
   const maxBufferSize = adapter.limits?.maxBufferSize ?? null;
 
   let tier: CapabilityTier;
@@ -139,24 +170,56 @@ export interface BenchmarkRecord {
 }
 
 export interface BenchmarkStore {
-  loadAll(): Promise<Record<string, BenchmarkRecord>>;
+  /** Nested by modelId then adapter fingerprint (v2 keys, phase 4):
+   *  `benchmark/v2/{modelId}/{adapterFingerprint}` — measurements of
+   *  DIFFERENT adapters coexist instead of overwriting each other. Legacy
+   *  flat `benchmark/{modelId}` rows are MIGRATED (one-shot, at open) to
+   *  `v2/{modelId}/{rec.adapterFingerprint}` — never dropped. */
+  loadAll(): Promise<Record<string, Record<string, BenchmarkRecord>>>;
   save(rec: BenchmarkRecord): Promise<void>;
 }
+
+const V2_PREFIX = 'benchmark/v2/';
+const LEGACY_PREFIX = 'benchmark/';
+const v2KeyOf = (modelId: string, fingerprint: string) => `${V2_PREFIX}${modelId}/${fingerprint}`;
 
 export function createBenchmarkStore(
   db: Promise<IDBDatabaseLike> = openBenchmarkDb(),
 ): BenchmarkStore {
-  const keyOf = (modelId: string) => `benchmark/${modelId}`;
   return {
     async loadAll() {
       try {
         const conn = await db;
         const keys = await conn.getAllKeys();
-        const out: Record<string, BenchmarkRecord> = {};
+        const out: Record<string, Record<string, BenchmarkRecord>> = {};
         for (const k of keys) {
-          if (!k.startsWith('benchmark/')) continue;
-          const rec = (await conn.get(k)) as BenchmarkRecord | undefined;
-          if (rec) out[k.slice('benchmark/'.length)] = rec;
+          if (k.startsWith(V2_PREFIX)) {
+            const rest = k.slice(V2_PREFIX.length);
+            const slash = rest.indexOf('/');
+            if (slash <= 0) continue;
+            const modelId = rest.slice(0, slash);
+            const fingerprint = rest.slice(slash + 1);
+            const rec = (await conn.get(k)) as BenchmarkRecord | undefined;
+            if (rec) {
+              (out[modelId] ??= {})[fingerprint] = rec;
+            }
+          }
+        }
+        // One-shot legacy migration: each old record moves to the v2 key
+        // derived from its own adapterFingerprint (present on every record
+        // since phase 4a) — old measurements survive, no re-measure tax.
+        for (const k of keys) {
+          if (!k.startsWith(LEGACY_PREFIX) || k.startsWith(V2_PREFIX)) continue;
+          try {
+            const rec = (await conn.get(k)) as BenchmarkRecord | undefined;
+            if (!rec?.adapterFingerprint) continue;
+            const modelId = k.slice(LEGACY_PREFIX.length);
+            await conn.put(rec, v2KeyOf(modelId, rec.adapterFingerprint));
+            await conn.delete(k);
+            (out[modelId] ??= {})[rec.adapterFingerprint] = rec;
+          } catch {
+            /* a half-migrated row stays estimate-only — honest UI */
+          }
         }
         return out;
       } catch {
@@ -165,7 +228,7 @@ export function createBenchmarkStore(
     },
     async save(rec) {
       const conn = await db;
-      await conn.put(rec, keyOf(rec.modelId));
+      await conn.put(rec, v2KeyOf(rec.modelId, rec.adapterFingerprint));
     },
   };
 }
@@ -258,13 +321,20 @@ export async function runBenchmark(
 /** Human-facing summary for the Settings hardware panel (phase 5 renders). */
 export async function getHardwareInfo(
   store: BenchmarkStore = createBenchmarkStore(),
-): Promise<{ hardware: HardwareInfo; perModel: Record<string, TierResolution> }> {
+): Promise<{
+  hardware: HardwareInfo;
+  /** Nested: perModel[modelId][adapterFingerprint] — per-adapter records
+   *  coexist (v2 keys); resolveTier against the CURRENT adapter decides
+   *  measured-vs-stale per row. */
+  perModel: Record<string, Record<string, TierResolution>>;
+}> {
   const hardware = await detectHardware();
   const benchmarks = await store.loadAll();
-  const perModel = Object.fromEntries(
-    Object.entries(benchmarks).map(
-      ([id, rec]) => [id, resolveTier(hardware, rec)] as const,
-    ),
-  );
+  const perModel: Record<string, Record<string, TierResolution>> = {};
+  for (const [modelId, perFingerprint] of Object.entries(benchmarks)) {
+    perModel[modelId] = Object.fromEntries(
+      Object.entries(perFingerprint).map(([fp, rec]) => [fp, resolveTier(hardware, rec)] as const),
+    );
+  }
   return { hardware, perModel };
 }

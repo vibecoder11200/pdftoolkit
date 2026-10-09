@@ -47,11 +47,12 @@ function fakeApi(overrides: Partial<AiOcrApi> = {}): AiOcrApi {
     loadEngine: vi.fn(async (_modelId: string, _onProgress: unknown, opts?: { device?: string }) => ({
       loadMs: 5,
       device: (opts?.device ?? 'webgpu') as EngineStats['device'],
+      adapterFingerprint: (opts?.device ?? 'webgpu') === 'wasm' ? null : 'intel|gen-12lp|iris-xe',
     })),
     downloadModel: vi.fn(async () => ({ bytes: 10, downloaded: 10 })),
     cancelDownload: vi.fn(async () => undefined),
     ocrPage: vi.fn(async () => ({ text: 'x', ms: 1, genTokens: 1, tokPerSec: 1, firstTokenMs: 1 })),
-    getStats: vi.fn(async () => ({ modelId: null, device: 'webgpu' as const, busy: false, loadedAt: null })),
+    getStats: vi.fn(async () => ({ modelId: null, device: 'webgpu' as const, busy: false, loadedAt: null, adapterFingerprint: null })),
     dispose: vi.fn(async () => undefined),
     getDownloadInfo: vi.fn(async () => ({ cached: false, filesCached: 0, filesTotal: 0, totalBytes: 10 })),
     isCached: vi.fn(async () => false),

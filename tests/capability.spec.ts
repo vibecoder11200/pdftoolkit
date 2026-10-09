@@ -120,6 +120,7 @@ function fakeDb() {
   const conn: IDBDatabaseLike = {
     get: async (k) => map.get(k),
     put: async (v, k) => void map.set(k, v),
+    delete: async (k) => void map.delete(k),
     getAllKeys: async () => [...map.keys()],
     close: () => undefined,
   };
@@ -137,8 +138,8 @@ function executorWith(genTokens: number, ms: number, firstTokenMs: number | null
 }
 
 describe('T5 benchmark (F17 protocol + persistence)', () => {
-  it('warmup discarded, measured pass persisted with fingerprint + tok/s', async () => {
-    const { store } = fakeDb();
+  it('warmup discarded, measured pass persisted with fingerprint + tok/s (v2 per-adapter key)', async () => {
+    const { store, map } = fakeDb();
     const rec = await runBenchmark(
       'glm-ocr',
       'webgpu',
@@ -149,7 +150,40 @@ describe('T5 benchmark (F17 protocol + persistence)', () => {
     expect(rec.tokPerSecWarm).toBe(64);
     expect(rec.adapterFingerprint).toBe('intel|gen-12lp|iris-xe');
     const all = await store.loadAll();
-    expect(all['glm-ocr']).toEqual(rec);
+    expect(all['glm-ocr']['intel|gen-12lp|iris-xe']).toEqual(rec);
+    // v2 physical key shape (phase 4): measurements of different adapters
+    // coexist instead of overwriting each other.
+    expect(map.has('benchmark/v2/glm-ocr/intel|gen-12lp|iris-xe')).toBe(true);
+    const second = await runBenchmark(
+      'glm-ocr',
+      'webgpu',
+      'nvidia|ada|4050',
+      executorWith(1200, 10_000, 1_000),
+      store,
+    );
+    const all2 = await store.loadAll();
+    expect(Object.keys(all2['glm-ocr']).sort()).toEqual(['intel|gen-12lp|iris-xe', 'nvidia|ada|4050']);
+    expect(all2['glm-ocr']['nvidia|ada|4050']).toEqual(second);
+  });
+
+  it('legacy flat records MIGRATE to v2 keys at open (never dropped, A8)', async () => {
+    const { map, store } = fakeDb();
+    const legacy: BenchmarkRecord = {
+      modelId: 'glm-ocr',
+      tokPerSecWarm: 16,
+      firstTokenColdMs: 9000,
+      condition: 'webgpu',
+      measuredAt: Date.now(),
+      adapterFingerprint: 'intel|gen-12lp|iris-xe',
+    };
+    map.set('benchmark/glm-ocr', legacy);
+    const all = await store.loadAll();
+    expect(all['glm-ocr']['intel|gen-12lp|iris-xe']).toEqual(legacy);
+    expect(map.has('benchmark/glm-ocr')).toBe(false); // moved, not copied
+    expect(map.has('benchmark/v2/glm-ocr/intel|gen-12lp|iris-xe')).toBe(true);
+    // a second load is stable (no double-migration artifacts)
+    const again = await store.loadAll();
+    expect(again['glm-ocr']['intel|gen-12lp|iris-xe']).toEqual(legacy);
   });
 
   it('stale detection: fingerprint mismatch marks stale, does not resolve measured', () => {
