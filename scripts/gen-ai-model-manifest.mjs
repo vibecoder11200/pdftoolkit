@@ -94,7 +94,15 @@ async function main() {
 
   if (check) {
     const current = readFileSync(out, 'utf8');
-    if (current !== json) {
+    // `generatedAt` is generation-day metadata, not pin state — comparing it
+    // verbatim made --check fail on every day after the last regeneration
+    // (broke CI 2026-10-09 while license/revision/files were identical).
+    const pinState = (s) => {
+      const o = JSON.parse(s);
+      delete o.generatedAt;
+      return JSON.stringify(o);
+    };
+    if (pinState(current) !== pinState(json)) {
       console.error('[gen-ai-model-manifest] DRIFT — committed manifest != HF at pinned revision.');
       console.error('  Re-run `node scripts/gen-ai-model-manifest.mjs` and review the diff (license + revision + files).');
       process.exit(1);

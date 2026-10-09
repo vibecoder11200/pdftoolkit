@@ -81,7 +81,10 @@ This project is indexed by GitNexus as **pdftoolkit** (1309 symbols, 3181 relati
 - `npm test` needs fixtures first: `node tests/fixtures/gen.mjs` (fixtures are
   gitignored).
 - The 100MB tier is opt-in: `node tests/fixtures/gen.mjs --large` then
-  `MATRIX_100MB=1 npx vitest run tests/matrix.spec.ts`. Fixture generation
+  `MATRIX_100MB=1 npx vitest run tests/matrix-100mb.spec.ts --no-file-parallelism`
+  (its own file + own process since 2026-10-09 — the old single-process
+  tier stacking OOM'd every nightly; lift the heap to 8192 for it too).
+  Fixture generation
   needs a big heap: `NODE_OPTIONS=--max-old-space-size=8192`.
 
 ## 4. Build invariants (breaking any of these ships a broken app)

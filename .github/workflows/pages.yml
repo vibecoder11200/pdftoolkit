@@ -58,10 +58,20 @@ jobs:
       - run: node tests/fixtures/gen.mjs --large
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+      # PR-tier engine+matrix run (the 100MB describe is a separate FILE now —
+      # one vitest process for everything OOM'd the nightly run 4 nights in a
+      # row, 2026-10-06..09: all tiers' fixtures went resident at collection
+      # and shared the threads-pool heap).
       - run: npx vitest run tests/engine.spec.ts tests/matrix.spec.ts --reporter=default --reporter=json --outputFile=test-results/matrix.json
         env:
-          MATRIX_100MB: '1'
           NODE_OPTIONS: --max-old-space-size=6144
+      # 100MB tier in its own process: heap lifted to 8GiB (matches the
+      # local contract in AGENTS.md §3), file parallelism off so nothing
+      # else shares the process.
+      - run: npx vitest run tests/matrix-100mb.spec.ts --no-file-parallelism --reporter=default --reporter=json --outputFile=test-results/matrix-100mb.json
+        env:
+          MATRIX_100MB: '1'
+          NODE_OPTIONS: --max-old-space-size=8192
       - uses: actions/upload-artifact@v4
         if: always()
         with:
