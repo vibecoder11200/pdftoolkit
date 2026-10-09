@@ -10,6 +10,12 @@
 
 export type DesktopUpdatePhase =
   | 'idle'
+  /** Manual/auto check in flight (desktop-update-store) — never shown by the banner. */
+  | 'checking'
+  /** Manual check found nothing newer — Settings-local state. */
+  | 'uptodate'
+  /** Manual check failed (offline, endpoint) — Settings-local state. */
+  | 'check-error'
   | 'available'
   /** Synchronous click feedback, before the plugin module finishes importing. */
   | 'starting'
@@ -22,8 +28,12 @@ export interface DesktopUpdateState {
   phase: DesktopUpdatePhase;
   /** 0-100 while `downloading`. */
   percent: number | null;
-  /** Failure detail for `error` — surfaced with a Retry button (phase 6, F7). */
+  /** Failure detail for `error`/`check-error` — surfaced with a Retry button (phase 6, F7). */
   message?: string;
+  /** Remote version for `available` (the plugin's update.version, when reported). */
+  availableVersion?: string;
+  /** Epoch ms of the last completed check — "checked N minutes ago" in Settings. */
+  lastCheckedAt?: number;
 }
 
 export function isWindows(): boolean {

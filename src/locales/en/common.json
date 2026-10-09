@@ -654,6 +654,18 @@
     "hw_measuring": "Measuring…",
     "hw_remeasure_needs_model": "Download the AI model first (OCR tool page).",
     "hw_measure_error": "Measurement failed: {{message}}",
+    "updates_title": "Updates",
+    "updates_current": "Current version: {{version}}",
+    "updates_idle": "Press check to look for a new version — no app restart needed.",
+    "updates_check": "Check for updates",
+    "updates_checking": "Checking for updates…",
+    "updates_uptodate": "You are on the latest version.",
+    "updates_available": "A new version (v{{version}}) is available — download and install progress shows in the banner.",
+    "updates_downloading": "Downloading update… {{percent}}%",
+    "updates_installing": "Installing — the app will restart itself.",
+    "updates_error": "Update failed: {{message}}",
+    "updates_check_error": "Check failed: {{message}} — try again later.",
+    "updates_last_checked": "Last checked: {{time}}",
     "about_title": "About",
     "credits_title": "Open-source components"
   }

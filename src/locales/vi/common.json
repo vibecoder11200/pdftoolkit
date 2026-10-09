@@ -654,6 +654,18 @@
     "hw_measuring": "Đang đo…",
     "hw_remeasure_needs_model": "Cần tải model AI trước (trang công cụ OCR).",
     "hw_measure_error": "Đo lỗi: {{message}}",
+    "updates_title": "Bản cập nhật",
+    "updates_current": "Bản hiện tại: {{version}}",
+    "updates_idle": "Nhấn kiểm tra để xem có bản mới không — không cần khởi động lại ứng dụng.",
+    "updates_check": "Kiểm tra bản mới",
+    "updates_checking": "Đang kiểm tra bản mới…",
+    "updates_uptodate": "Bạn đang dùng bản mới nhất.",
+    "updates_available": "Có bản mới (v{{version}}) — tiến trình tải và cài sẽ hiện ở banner góc màn hình.",
+    "updates_downloading": "Đang tải bản cập nhật… {{percent}}%",
+    "updates_installing": "Đang cài đặt — ứng dụng sẽ tự khởi động lại.",
+    "updates_error": "Cập nhật thất bại: {{message}}",
+    "updates_check_error": "Kiểm tra thất bại: {{message}} — thử lại sau.",
+    "updates_last_checked": "Kiểm tra lần cuối: {{time}}",
     "about_title": "Về ứng dụng",
     "credits_title": "Thành phần mã nguồn mở"
   }

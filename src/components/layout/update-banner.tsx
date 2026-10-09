@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppUpdate, useDesktopUpdate } from '../../hooks/use-app-update';
+import { useAppUpdate, useDesktopUpdateAutoCheck, useDesktopUpdateState } from '../../hooks/use-app-update';
+import { startDesktopUpdateInstall } from '../../lib/desktop-update-store';
 import type { DesktopUpdateState } from '../../lib/desktop-updater';
 import { isTauri } from '../../lib/platform';
 import { useActiveJob } from '../../hooks/use-active-job';
@@ -23,11 +24,12 @@ import { useActiveJob } from '../../hooks/use-active-job';
 export function UpdateBanner() {
   const { t } = useTranslation();
   const web = useAppUpdate();
-  const desktop = useDesktopUpdate();
+  useDesktopUpdateAutoCheck(); // once, app-wide: mount + focus + 1h cadence
+  const desktopState = useDesktopUpdateState();
   const desktopActive = isTauri();
   const [confirmingJob, setConfirmingJob] = useState(false);
   const jobBusy = useActiveJob();
-  const phase = desktop.state.phase;
+  const phase = desktopState.phase;
   const visible = desktopActive
     ? DESKTOP_VISIBLE_PHASES.includes(phase)
     : web.bannerVisible;
@@ -36,18 +38,19 @@ export function UpdateBanner() {
     <section
       role="status"
       aria-live="polite"
+      data-testid="update-banner"
       className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-xl flex-wrap items-center gap-2.5 rounded-lg border border-border-strong bg-surface-card px-4 py-3 shadow-lg"
     >
       {desktopActive ? (
         <DesktopBody
-          state={desktop.state}
+          state={desktopState}
           jobBusy={confirmingJob ? false : jobBusy}
           confirmingJob={confirmingJob}
           onConfirmJob={() => setConfirmingJob(true)}
           onCancelConfirm={() => setConfirmingJob(false)}
           onStart={() => {
             setConfirmingJob(false);
-            desktop.start();
+            startDesktopUpdateInstall();
           }}
         />
       ) : (

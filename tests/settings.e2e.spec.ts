@@ -89,6 +89,9 @@ test('storage rows: owned allowlist with honest sources, unknown display-only', 
   await page.goto('./settings?ai-mock=1');
   await seedStores(page);
 
+  // The manual-update card is desktop-only — the web app never renders it.
+  await expect(page.getByTestId('updates-card')).toHaveCount(0);
+
   // AI row: manifest ∩ cache total (tiny seeded bodies, manifest sizes)
   const aiRow = page.getByTestId('row-ai-model');
   await expect(aiRow).toBeVisible({ timeout: 20_000 });

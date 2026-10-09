@@ -126,3 +126,40 @@ test('no update published → banner never appears', async ({ page }) => {
   await page.waitForTimeout(300);
   await expect(page.getByText('Đã có phiên bản mới của ứng dụng.')).toHaveCount(0);
 });
+
+test('settings updates card: manual check, no update → up-to-date copy, banner never appears', async ({
+  page,
+}) => {
+  await setupUpdater(page, { mode: 'progress' }); // check() → null
+  await page.goto('./settings');
+  const card = page.getByTestId('updates-card');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  // The mount auto-check already resolved to "up to date"; the manual check
+  // re-runs it on demand — the whole point of the card.
+  await page.getByTestId('updates-check').click();
+  await expect(page.getByTestId('updates-status')).toContainText('bản mới nhất', {
+    timeout: 10_000,
+  });
+  await expect(card.getByTestId('updates-check')).toBeEnabled();
+  await expect(page.getByText('Đã có phiên bản mới của ứng dụng.')).toHaveCount(0);
+});
+
+test('settings updates card: update found → remote version on the card, install runs from there', async ({
+  page,
+}) => {
+  await setupUpdater(page, { mode: 'progress', holdMs: 1200 }, UPDATE_RESOURCE);
+  await page.goto('./settings');
+  const card = page.getByTestId('updates-card');
+  // The mount auto-check surfaces the banner AND the card state together.
+  await expect(page.getByText('Đã có phiên bản mới của ứng dụng.')).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(card).toContainText('9.9.9');
+  // Install from the CARD — both surfaces mirror the shared store: the card
+  // status line AND the banner (which owns the progress UI).
+  await card.getByTestId('updates-install').click();
+  await expect(page.getByTestId('update-banner')).toContainText('Đang tải bản cập nhật… 75%', {
+    timeout: 10_000,
+  });
+  await expect(page.getByTestId('updates-status')).toContainText('75%');
+});

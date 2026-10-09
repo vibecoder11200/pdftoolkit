@@ -5,11 +5,17 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { isTauri } from '../lib/platform';
-import { runDesktopUpdateFlow, type DesktopUpdateState } from '../lib/desktop-updater';
+import type { DesktopUpdateState } from '../lib/desktop-updater';
+import {
+  checkForDesktopUpdate,
+  getDesktopUpdateState,
+  subscribeDesktopUpdate,
+} from '../lib/desktop-update-store';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** How long to wait for a waiting worker's BUILD_COMMIT reply before treating it as unanswerable. */
@@ -250,67 +256,34 @@ export function useAppUpdate(): AppUpdateState {
 const DESKTOP_IDLE: DesktopUpdateState = { phase: 'idle', percent: null };
 
 /*
- * Desktop update flow (phase 3, D5/R10) — the Tauri counterpart of the SW
- * banner. Same mount/focus/1h re-check cadence as the web registration path,
- * backed by the updater plugin instead. Inert (and free) on the web: the
- * hook is called unconditionally from UpdateBanner, but everything inside
- * is gated on isTauri().
+ * Desktop update flow (phase 3, D5/R10; v0.5.3 manual check) — the Tauri
+ * counterpart of the SW banner. Same mount/focus/1h re-check cadence as the
+ * web registration path, backed by the updater plugin. The PHASES live in
+ * the shared desktop-update-store (both the banner and the Settings
+ * "Bản cập nhật" card read them); this hook owns exactly the AUTO-check
+ * cadence — mount it ONCE, from UpdateBanner (RootLayout-level, so the
+ * cadence runs on every route).
  */
-export function useDesktopUpdate(): {
-  state: DesktopUpdateState;
-  start: () => void;
-} {
-  const [state, setState] = useState<DesktopUpdateState>(DESKTOP_IDLE);
-  // True from start() until the flow settles on error/idle. Blocks BOTH the
-  // periodic re-check (must not stomp `downloading` back to `available`) and
-  // re-entry (a second click must not spawn a second downloadAndInstall —
-  // phase 6, F7). On Windows the flow resolves right after firing relaunch
-  // while the process is already dying; leaving busy set there is harmless.
-  const busyRef = useRef(false);
-
+export function useDesktopUpdateAutoCheck(): void {
   useEffect(() => {
     if (!isTauri()) return;
-    let cancelled = false;
-    const check = async () => {
-      if (busyRef.current) return;
-      try {
-        const { check } = await import('@tauri-apps/plugin-updater');
-        const update = await check();
-        if (!cancelled && update) setState({ phase: 'available', percent: null });
-      } catch {
-        /* offline / endpoint hiccup — try again next tick */
-      }
-    };
+    const check = () => void checkForDesktopUpdate();
     void check();
-    const timer = window.setInterval(() => void check(), UPDATE_CHECK_INTERVAL_MS);
+    const timer = window.setInterval(check, UPDATE_CHECK_INTERVAL_MS);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void check();
+      if (document.visibilityState === 'visible') check();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
+}
 
-  const start = useCallback(() => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    // F7: synchronous click feedback — paint "starting" BEFORE the dynamic
-    // import resolves, so there is no dead gap between click and effect.
-    setState({ phase: 'starting', percent: null });
-    void runDesktopUpdateFlow((next) => {
-      if (next.phase === 'error' || next.phase === 'idle') busyRef.current = false;
-      // 'idle' must land in state too (review P2-6): filtering it out left the
-      // banner on 'starting' forever when a manual check found no update —
-      // idle hides the banner (not in DESKTOP_VISIBLE_PHASES), which IS the
-      // correct end state.
-      setState(next);
-    });
-  }, []);
-
-  return { state, start };
+/** Passive read of the shared desktop-update phases (no side effects). */
+export function useDesktopUpdateState(): DesktopUpdateState {
+  return useSyncExternalStore(subscribeDesktopUpdate, getDesktopUpdateState, () => DESKTOP_IDLE);
 }
 
 /*

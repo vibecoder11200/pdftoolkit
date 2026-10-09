@@ -3,6 +3,7 @@ import { Nav } from '../components/layout/nav';
 import { Footer } from '../components/layout/footer';
 import { StorageManager } from '../components/settings/storage-manager';
 import { HardwarePanel } from '../components/settings/hardware-panel';
+import { UpdatesCard } from '../components/settings/updates-card';
 import { AboutPanel } from '../components/settings/about-panel';
 
 export function SettingsPage() {
@@ -16,6 +17,7 @@ export function SettingsPage() {
         </section>
         <StorageManager />
         <HardwarePanel />
+        <UpdatesCard />
         <AboutPanel />
       </main>
       <Footer />

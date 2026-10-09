@@ -7,6 +7,7 @@ import i18n from '../src/i18n';
 import { AppUpdateProvider, useAppUpdate } from '../src/hooks/use-app-update';
 import { UpdateBanner } from '../src/components/layout/update-banner';
 import { beginJob, endJob } from '../src/lib/jobs';
+import { resetDesktopUpdateStore } from '../src/lib/desktop-update-store';
 
 // The virtual module only exists under the PWA plugin's dev/build pipeline —
 // swap in a double. applyUpdate deliberately does NOT use the plugin's
@@ -119,6 +120,9 @@ beforeEach(async () => {
   root = createRoot(container);
   h.opts = {};
   reload = vi.fn();
+  // The desktop-update phases now live in a module-global store — phases
+  // would leak across tests without a reset.
+  resetDesktopUpdateStore();
   Reflect.deleteProperty(window, 'location');
   Object.defineProperty(window, 'location', { configurable: true, value: { reload } });
   if (!i18n.isInitialized) {
