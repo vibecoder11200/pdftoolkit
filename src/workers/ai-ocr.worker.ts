@@ -327,7 +327,7 @@ export class AdapterUnavailableError extends Error {
   }
 }
 
-const GPU_LOST_PATTERN = /device lost|GPUDevice|lost the device|Destroying a GPU/i;
+const GPU_LOST_PATTERN = /device lost|lost the device|Destroying a GPU/i;
 
 const OCR_PROMPT =
   'Convert this document page to markdown. Preserve headings and tables. Keep Vietnamese diacritics.';
@@ -410,9 +410,16 @@ export class RealEngine implements EngineLike {
     onProgress: ComlinkCallback<DownloadProgress>,
     opts?: LoadOptions,
   ): Promise<LoadResult> {
-    if (opts?.device) this.stats.device = opts.device;
+    // Load-SCOPED, never sticky: opts.device is set only for wasm loads, so
+    // an absent device means "this load asks for WebGPU" (powerPreference or
+    // bare). Keying off the previous load's value here made every
+    // wasm→GPU switch silently load wasm again (review P1).
+    this.stats.device = opts?.device ?? 'webgpu';
     this.stats.busy = true;
     const t0 = Date.now();
+    // Declared outside the try so the failure path can release it — a model
+    // create that throws must not orphan the device until GC.
+    let injectedDevice: GPUDevice | null = null;
     try {
       onProgress({ phase: 'downloading', percent: null });
       const T = await this.importTransformers();
@@ -422,7 +429,6 @@ export class RealEngine implements EngineLike {
       // ignores env.webgpu.powerPreference — the only reliable adapter
       // selector is a device WE request and inject per session
       // (webgpuRegisterDevice, ORT ≥ 1.25).
-      let injectedDevice: GPUDevice | null = null;
       let fingerprint: string | null = null;
       if (this.stats.device === 'webgpu') {
         if (!this.gpu) throw new AdapterUnavailableError(opts?.powerPreference, 'navigator.gpu missing in worker');
@@ -471,6 +477,12 @@ export class RealEngine implements EngineLike {
       this.stats.adapterFingerprint = fingerprint;
       onProgress({ phase: 'done', percent: 100 });
       return { loadMs: Date.now() - t0, device: this.stats.device, adapterFingerprint: fingerprint };
+    } catch (err) {
+      if (injectedDevice && !this.model) {
+        this.ownedDevice = null;
+        injectedDevice.destroy?.();
+      }
+      throw err;
     } finally {
       this.stats.busy = false;
     }

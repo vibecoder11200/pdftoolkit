@@ -262,10 +262,16 @@ export function HardwarePanel() {
     setApplying(true);
     setError(null);
     try {
+      // The client resolves its load request from the PERSISTED store, so
+      // the new choice must be written first — but a failed apply rolls the
+      // store back: it must never claim a device the engine is not using
+      // (review P2 — the status line would otherwise lie until the next
+      // idle dispose).
       setGpuChoice(draftChoice);
       const client = sharedAiClient({ mock: isAiMock() });
       await client.applyGpuChoice();
     } catch (err) {
+      setGpuChoice(storedChoice);
       if (err instanceof EngineBusyError) {
         setError(t('settings.gpu_busy_error'));
       } else {
@@ -274,7 +280,7 @@ export function HardwarePanel() {
     } finally {
       setApplying(false);
     }
-  }, [applying, draftChoice, jobActive, t]);
+  }, [applying, draftChoice, storedChoice, jobActive, t]);
 
   const measure = useCallback(
     async (adapter: DiscoveredAdapter) => {
@@ -339,10 +345,12 @@ export function HardwarePanel() {
   // resolveTier flags staleness itself (a fresh measured record cannot be
   // stale by construction — the fingerprint matched to get there).
   const stale = resolution?.stale ?? false;
+  const storedAdapterChoice =
+    storedChoice !== 'auto' && storedChoice.kind === 'adapter' ? storedChoice : null;
   const storedWarning =
-    storedChoice !== 'auto' && storedChoice.kind === 'adapter' && discovery
-      ? resolveChoice(storedChoice, discovery).warning
-      : null;
+    storedAdapterChoice && discovery ? resolveChoice(storedAdapterChoice, discovery).warning : null;
+  // The missing-adapter notice interpolates WHICH fingerprint went away.
+  const staleFingerprint = storedAdapterChoice?.fingerprint ?? '';
 
   return (
     <section aria-labelledby="settings-hardware" className="mt-10">
@@ -378,7 +386,7 @@ export function HardwarePanel() {
               <legend className="text-sm font-bold">{t('settings.gpu_pick_title')}</legend>
               {storedWarning === 'missing-adapter' && (
                 <p className="rounded-lg border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400" role="status">
-                  {t('settings.gpu_missing')}
+                  {t('settings.gpu_missing', { label: staleFingerprint })}
                 </p>
               )}
               <ul className="grid gap-2">

@@ -144,6 +144,22 @@ describe('GPU failure classification (message-based — C1)', () => {
     expect(info?.to).toBe('cpu');
   });
 
+  it('a probe crash inside the classifier never masks the original GPU failure', async () => {
+    const api = fakeApi({
+      loadEngine: vi.fn(async () => {
+        throw new Error('WebGPU device lost (unknown): internal');
+      }),
+    });
+    const { client } = makeClient(api);
+    stubGpuSeams(client, async () => null);
+    (client as unknown as { options: AiClientOptions }).options.probeAdapters = async () => {
+      throw new Error('probe exploded');
+    };
+    // The GPU failure (chain + degrade) must survive — not the probe error.
+    await expect(client.ensureLoaded('glm-ocr', () => undefined)).rejects.toThrow(GpuLostError);
+    expect(getGpuFallback()?.to).toBe('cpu');
+  });
+
   it('init-fail with NO other adapter degrades to wasm in place (no crash-budget touch)', async () => {
     const api = fakeApi({
       loadEngine: vi.fn(async (_id: string, _p: unknown, opts?: { device?: string }) => {
@@ -206,6 +222,42 @@ describe('precedence state machine (H3/H2)', () => {
     expect(loadOptsOf(api)).toMatchObject({ powerPreference: 'low-power' }); // pin outranks choice mid-recovery
     await client.ensureLoaded('glm-ocr', () => undefined);
     expect(loadOptsOf(api)).toMatchObject({ powerPreference: 'high-performance' }); // cleared after success
+  });
+
+  it('degrade outranks an active recovery pin (poisoned webgpu must not re-load GPU)', async () => {
+    const api = fakeApi();
+    const { client } = makeClient(api);
+    (client as unknown as { degradeToWasm: boolean }).degradeToWasm = true;
+    (client as unknown as { pinPowerPreference: string | undefined }).pinPowerPreference = 'low-power';
+    stubGpuSeams(client, async () => ({ kind: 'gpu', powerPreference: 'high-performance', fingerprint: 'nvidia|ada|0' }));
+    await client.ensureLoaded('glm-ocr', () => undefined);
+    expect(loadOptsOf(api)).toMatchObject({ device: 'wasm' });
+    expect(loadOptsOf(api)).not.toHaveProperty('powerPreference');
+  });
+
+  it('Windows collapse (crbug 369219127): both probes the SAME card → no hop, straight to wasm', async () => {
+    const api = fakeApi({
+      loadEngine: vi.fn(async (_id: string, _p: unknown, opts?: { device?: string }) => {
+        if (opts?.device !== 'wasm') {
+          throw new Error('Failed to get a WebGPU adapter (high-performance): requestAdapter returned null');
+        }
+        return { loadMs: 5, device: 'wasm' as const, adapterFingerprint: null };
+      }),
+    });
+    // hp and lp resolve to the SAME adapter (the collapsed single-card
+    // machine): hopping to lp would be cosmetic — the candidate skip branch.
+    const card = { probe: 'high-performance' as const, info: {}, fingerprint: 'nvidia|ada|4050', isFallbackAdapter: false, maxBufferSize: null };
+    const discovery = {
+      adapters: [card],
+      probes: { hp: card, lp: { ...card, probe: 'low-power' as const } },
+    };
+    const { client, workers } = makeClient(api);
+    stubGpuSeams(client, async () => ({ kind: 'gpu', powerPreference: 'high-performance', fingerprint: 'nvidia|ada|4050' }), discovery);
+    await expect(client.ensureLoaded('glm-ocr', () => undefined)).rejects.toThrow(/requestAdapter returned null/);
+    expect(workers).toHaveLength(1); // NO respawn — the only candidate IS the used card
+    expect(getGpuFallback()?.to).toBe('cpu'); // degraded, not cosmetic-hopped
+    await client.ensureLoaded('glm-ocr', () => undefined);
+    expect(loadOptsOf(api)).toMatchObject({ device: 'wasm' });
   });
 
   it('an explicit CPU choice pins device wasm (user outranks everything but recovery)', async () => {
@@ -385,6 +437,48 @@ describe('RealEngine device injection (R1 mechanism)', () => {
     expect(device.destroyed).toBe(true);
     expect(engine.stats.adapterFingerprint).toBeNull();
     expect(engine.stats.loadedAt).toBeNull();
+  });
+
+  it('review P1: device choice is LOAD-SCOPED — wasm → dispose → GPU load probes again', async () => {
+    const { gpu, adapter } = fakeGpuAdapter();
+    const engine = new RealEngine(gpu);
+    const T = {
+      env: { allowLocalModels: false, useBrowserCache: false, useCustomCache: true, customCache: null, backends: { onnx: { wasm: null } } },
+      AutoProcessor: { from_pretrained: vi.fn(async () => ({})) },
+      AutoTokenizer: { from_pretrained: vi.fn(async () => ({})) },
+      AutoModelForImageTextToText: { from_pretrained: vi.fn(async () => ({})) },
+    };
+    (engine as unknown as { importTransformers: () => Promise<unknown> }).importTransformers = async () => T;
+    await engine.load(() => undefined, { device: 'wasm' });
+    expect(engine.stats.device).toBe('wasm');
+    await engine.dispose();
+    // The sticky-stats bug: the GPU-pref load carried no device and silently
+    // stayed wasm (requestAdapter never called) — apply-without-restart was
+    // dead for every wasm→GPU transition.
+    const result: LoadResult = await engine.load(() => undefined, { powerPreference: 'high-performance' });
+    expect(gpu.requestAdapter).toHaveBeenCalledWith({ powerPreference: 'high-performance' });
+    expect(adapter.requestDevice).toHaveBeenCalled();
+    expect(result.device).toBe('webgpu');
+    expect(engine.stats.device).toBe('webgpu');
+  });
+
+  it('review P3: a failed model load releases the injected device (no orphan)', async () => {
+    const { gpu, device } = fakeGpuAdapter();
+    const engine = new RealEngine(gpu);
+    const T = {
+      env: { allowLocalModels: false, useBrowserCache: false, useCustomCache: true, customCache: null, backends: { onnx: { wasm: null } } },
+      AutoProcessor: { from_pretrained: vi.fn(async () => ({})) },
+      AutoTokenizer: { from_pretrained: vi.fn(async () => ({})) },
+      AutoModelForImageTextToText: {
+        from_pretrained: vi.fn(async () => {
+          throw new Error('model boom');
+        }),
+      },
+    };
+    (engine as unknown as { importTransformers: () => Promise<unknown> }).importTransformers = async () => T;
+    await expect(engine.load(() => undefined, { powerPreference: 'high-performance' })).rejects.toThrow('model boom');
+    expect(device.destroyed).toBe(true);
+    expect(engine.stats.busy).toBe(false);
   });
 });
 

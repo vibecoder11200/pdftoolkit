@@ -195,7 +195,9 @@ export function createBenchmarkStore(
         for (const k of keys) {
           if (k.startsWith(V2_PREFIX)) {
             const rest = k.slice(V2_PREFIX.length);
-            const slash = rest.indexOf('/');
+            // lastIndexOf: the FINGERPRINT never contains '/', but a future
+            // modelId might (HF-style org/repo) — split at the final slash.
+            const slash = rest.lastIndexOf('/');
             if (slash <= 0) continue;
             const modelId = rest.slice(0, slash);
             const fingerprint = rest.slice(slash + 1);

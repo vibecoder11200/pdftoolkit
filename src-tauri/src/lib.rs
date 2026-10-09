@@ -98,8 +98,9 @@ const GPU_FORCE_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 /// Compile-time constant. NEVER build this string from file content.
 const GPU_FORCE_ARG: &str = "--use-webgpu-power-preference=force-high-performance";
 /// Marker for the flag-restart child (A4): a child launched by
-/// restart_with_flag skips single-instance registration so it becomes the
-/// primary instance while the dying parent still holds the mutex.
+/// restart_with_gpu_force skips single-instance registration so it becomes
+/// the primary instance while the dying parent still holds the mutex.
+/// Consumed by take_flag_restart_marker() in main(), never read in run().
 const GPU_FLAG_RESTART_MARKER: &str = "PDFTOOLKIT_GPU_FLAG_RESTART";
 
 #[derive(serde::Deserialize)]
@@ -143,12 +144,19 @@ fn read_force_flag() -> bool {
     flag
 }
 
-/// Called from main() BEFORE the webview is created. Windows only.
-pub fn apply_gpu_force_env() {
-    // The flag-restart child consumes and clears its marker here.
-    if std::env::var(GPU_FLAG_RESTART_MARKER).is_ok() {
+/// Read-and-CLEAR the flag-restart child marker. MUST run in main() BEFORE
+/// apply_gpu_force_env() — the captured boolean is what run() gates the
+/// single-instance plugin on, because by then the env var is gone.
+pub fn take_flag_restart_marker() -> bool {
+    let is_child = std::env::var(GPU_FLAG_RESTART_MARKER).is_ok();
+    if is_child {
         std::env::remove_var(GPU_FLAG_RESTART_MARKER);
     }
+    is_child
+}
+
+/// Called from main() BEFORE the webview is created. Windows only.
+pub fn apply_gpu_force_env() {
     if !cfg!(windows) {
         return;
     }
@@ -171,9 +179,16 @@ fn set_gpu_force(flag: bool) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
+/// `None` = unsupported platform (non-Windows desktop) — the settings toggle
+/// must not render (its `null` JS shape). `Some(read_force_flag())` on
+/// Windows, including `Some(false)` when the file is absent/invalid.
 #[tauri::command]
-fn get_gpu_force() -> bool {
-    read_force_flag()
+fn get_gpu_force() -> Option<bool> {
+    if gpu_force_file().is_some() {
+        Some(read_force_flag())
+    } else {
+        None
+    }
 }
 
 /// A4 restart strategy — NOT bare plugin relaunch(): single-instance is
@@ -204,14 +219,14 @@ fn restart_with_gpu_force(flag: bool) -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(is_flag_restart_child: bool) {
     let builder = tauri::Builder::default();
     // MUST be the first plugin (single-instance docs): a second launch
     // forwards its argv to THIS callback and exits — the OS "open with"
-    // path for an already-running app. A flag-restart child SKIPS it (it
-    // consumed its marker env in apply_gpu_force_env) so it can become the
-    // primary instance while this dying process still holds the mutex.
-    let is_flag_restart_child = std::env::var(GPU_FLAG_RESTART_MARKER).is_ok();
+    // path for an already-running app. A flag-restart child SKIPS it (its
+    // marker was captured by take_flag_restart_marker in main() — the env
+    // var itself is already cleared) so it can become the primary instance
+    // while this dying process still holds the mutex.
     let builder = if is_flag_restart_child {
         builder
     } else {
@@ -376,5 +391,18 @@ mod tests {
         assert_eq!(body_false, "{\"force\":false}");
         assert!(parse_force_flag(body_true));
         assert!(!parse_force_flag(body_false));
+    }
+
+    // A4: the marker is CAPTURED ONCE — present ⇒ true and cleared, absent
+    // ⇒ false. run() must receive this captured bool: after main() has taken
+    // the marker, the env var is gone and an env check there would always
+    // read "not a child" (the dead-code bug this pins against).
+    #[test]
+    fn restart_marker_is_taken_once_and_cleared() {
+        std::env::remove_var(GPU_FLAG_RESTART_MARKER);
+        assert!(!take_flag_restart_marker());
+        std::env::set_var(GPU_FLAG_RESTART_MARKER, "1");
+        assert!(take_flag_restart_marker());
+        assert!(!take_flag_restart_marker());
     }
 }

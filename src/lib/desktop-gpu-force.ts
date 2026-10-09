@@ -13,7 +13,8 @@ export async function getGpuForce(): Promise<boolean | null> {
   if (!isTauri()) return null;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke<boolean>('get_gpu_force');
+    // Rust returns Option<bool>: null = non-Windows desktop (toggle hidden).
+    return await invoke<boolean | null>('get_gpu_force');
   } catch {
     return null;
   }

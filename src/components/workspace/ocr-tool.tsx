@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Dropzone } from '../ui/dropzone';
 import { useDropFiles } from '../../hooks/use-tool-files';
@@ -31,6 +32,7 @@ import {
   type AiTuning,
 } from '../../lib/ai-preflight';
 import {
+  adapterDisplayLabel,
   probeAdapters,
   resolveCurrentChoice,
   type AdapterDiscovery,
@@ -77,8 +79,9 @@ const isAiMock = () =>
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('ai-mock');
 
 /**
- * Honest "requesting X" text for the status line — adapter-reported driver
- * strings render as plain React text only (SEC-3).
+ * Honest "requesting X" text for the status line — the adapter label is
+ * adapterDisplayLabel (shared with Settings; adapter-reported driver strings
+ * render as plain React text only, SEC-3).
  */
 function gpuRequestLabel(
   request: ResolvedGpuChoice | null,
@@ -88,11 +91,7 @@ function gpuRequestLabel(
   if (!request) return t('ocr.gpu_status_unknown');
   if (request.kind === 'cpu') return t('ocr.gpu_status_cpu');
   const adapter = discovery?.adapters.find((a) => a.fingerprint === request.fingerprint);
-  if (!adapter) return request.fingerprint;
-  const parts = [adapter.info.vendor, adapter.info.architecture, adapter.info.device]
-    .filter(Boolean)
-    .join(' · ');
-  return parts || adapter.info.description || adapter.fingerprint;
+  return adapter ? adapterDisplayLabel(adapter) : request.fingerprint;
 }
 
 export function OcrTool() {
@@ -173,9 +172,10 @@ export function OcrTool() {
   // Live "requesting X" status (phase 4): the RESOLVED request for the
   // current choice — the app can only REQUEST; the OS may deliver another
   // adapter (the honest phrasing never claims otherwise). Re-probes when
-  // the choice changes, no app restart.
+  // the choice changes, no app restart. Tesseract never shows the line, so
+  // it probes only for the AI engine (fresh at the moment it renders).
   useEffect(() => {
-    if (step !== 'config') return;
+    if (step !== 'config' || engine !== 'ai') return;
     let cancelled = false;
     void (async () => {
       try {
@@ -192,7 +192,7 @@ export function OcrTool() {
     return () => {
       cancelled = true;
     };
-  }, [step, gpuChoice]);
+  }, [step, engine, gpuChoice]);
 
   // Phase-3 preflight estimate for the resolved target.
   useEffect(() => {
@@ -541,12 +541,12 @@ export function OcrTool() {
                   target: gpuRequestLabel(gpuRequest, gpuDiscovery, t),
                 })}
               </span>
-              <a
-                href="/settings"
+              <Link
+                to="/settings"
                 className="rounded border border-border-strong px-2 py-0.5 hover:bg-surface-hover"
               >
                 {t('ocr.gpu_status_change')}
-              </a>
+              </Link>
             </div>
             {gpuFallback && (
               <p className="rounded-lg border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400" role="status">

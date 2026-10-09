@@ -229,7 +229,14 @@ export class AiWorkerClient {
     if (!lost && !WEBGPU_INIT_FAIL_RE.test(message)) return err;
     if (this.gpuHopCount < MAX_GPU_HOPS) {
       const probe = this.options.probeAdapters ?? probeAdapters;
-      const discovery = await probe();
+      // A probe failure must never mask the GPU failure that brought us
+      // here — treat it as "nothing discoverable" (straight to wasm).
+      let discovery: AdapterDiscovery;
+      try {
+        discovery = await probe();
+      } catch {
+        discovery = { adapters: [], probes: { hp: null, lp: null } };
+      }
       const { hp, lp } = discovery.probes;
       // The adapter the engine was actually USING (bare request ≈ the
       // default/high-performance slot — Dawn maps bare to the same
