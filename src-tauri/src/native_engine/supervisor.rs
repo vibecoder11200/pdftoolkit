@@ -418,6 +418,35 @@ fn quarantine_probe(paths: &EnginePaths, fake_script: Option<&str>) -> Result<()
     }
 }
 
+/// One-shot device probe (R2.3 / R4.1 `native_engine_probe`): spawn the
+/// engine with `--list-devices`, collect the `VulkanN: name` lines, exit
+/// code 0 required. Result is CACHED by the ipc caller until the next
+/// install — this is diagnostics, never a gating path.
+pub fn probe_devices(paths: &EnginePaths, fake_script: Option<&str>) -> Vec<String> {
+    let mut cmd = std::process::Command::new(&paths.engine_exe);
+    cmd.arg("--list-devices")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Some(script) = fake_script {
+        cmd.env("NATIVE_ENGINE_FAKE_CHILD", script);
+    }
+    let Ok(out) = cmd.output() else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let l = l.trim();
+            (l.contains(':') && !l.is_empty()).then(|| l.to_string())
+        })
+        .filter(|l| !l.starts_with("Available devices"))
+        .collect()
+}
+
 // ------------------------------ session task ------------------------------
 
 struct StartOutcome {

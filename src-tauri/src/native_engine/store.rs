@@ -76,6 +76,41 @@ pub fn model_dir(app_local_data_dir: &Path) -> PathBuf {
     normalize(&models_dir(app_local_data_dir).join("GLM-OCR"))
 }
 
+/// Production EnginePaths resolution (R4.1): the target platform's engine
+/// dir + the manifest's model/mmproj file names. The `state.paths` test
+/// override takes precedence when set (ipc::paths_for).
+pub fn resolve_paths(app_local_data_dir: &Path) -> super::EnginePaths {
+    let engine_dir = engine_dir(app_local_data_dir, super::manifest::target_engine_key());
+    let model_dir = model_dir(app_local_data_dir);
+    let (model, mmproj) = split_model_files(
+        &super::manifest::manifest()
+            .model
+            .files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    super::EnginePaths {
+        engine_exe: engine_dir.join(super::install::SERVER_BINARY),
+        engine_dir,
+        model: model_dir.join(&model),
+        mmproj: model_dir.join(&mmproj),
+    }
+}
+
+/// The mmproj file is the one whose name carries the `mmproj` prefix; the
+/// text model is the other (manifest order is not load-bearing).
+fn split_model_files(paths: &[String]) -> (String, String) {
+    match paths {
+        [a, b] if b.starts_with("mmproj") => (a.clone(), b.clone()),
+        [a, b] => (b.clone(), a.clone()),
+        _ => (
+            "GLM-OCR-Q8_0.gguf".into(),
+            "mmproj-GLM-OCR-Q8_0.gguf".into(),
+        ),
+    }
+}
+
 fn sanitize_key(key: &str) -> String {
     key.chars()
         .map(|c| {

@@ -24,6 +24,9 @@ import {
   type AiRunClient,
 } from '../../lib/ai-run';
 import { sharedAiClient } from '../../lib/ai-worker-client';
+import { getNativeStatus, sharedNativeClient, type AiNativeClient } from '../../lib/ai-native-client';
+import { isTauri } from '../../lib/platform';
+import type { NativeStatus } from '../../lib/native-types';
 import { convertEngineOutput } from '../../lib/ai-markdown';
 import {
   AI_TUNING_PRESETS,
@@ -56,8 +59,12 @@ import type { RasterImageData } from '../../workers/pdf.worker';
 
 type LangChoice = 'auto' | OcrLangs;
 type Step = 'pick' | 'config' | 'running' | 'done';
-type Engine = 'tesseract' | 'ai';
+// v0.6.0: 'ai-native' = the llama.cpp sidecar engine (desktop-only, R4.4).
+type Engine = 'tesseract' | 'ai' | 'ai-native';
 type AiPhase = 'idle' | 'downloading' | 'loading' | 'running' | 'done' | 'error';
+
+// The native option exists ONLY on desktop (review F1: web never sees it).
+const isDesktop = isTauri();
 
 const DPI_CHOICES = [150, 200, 300] as const;
 // Per-page seconds at A4 from the phase-4b benchmarks (~0.5s/page at 200dpi,
@@ -126,6 +133,10 @@ export function OcrTool() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiCrashedAt, setAiCrashedAt] = useState<number | null>(null);
   const [aiTab, setAiTab] = useState<'md' | 'txt' | 'html'>('md');
+  // Native engine state (v0.6.0 R4.4): availability is its OWN state —
+  // enginePresent/modelPresent from native_engine_status — never the WebGPU
+  // tier verdict (review F1's :440 fork).
+  const [nativeStatus, setNativeStatus] = useState<NativeStatus | null>(null);
   // GPU selection state (plan 261009-0836 phases 3+4)
   const gpuChoice = useGpuChoice();
   const gpuFallback = useGpuFallback();
@@ -137,7 +148,7 @@ export function OcrTool() {
 
   const abortRef = useRef(false);
   const dropAllRef = useRef(false);
-  const clientRef = useRef<AiRunClient | null>(null);
+  const clientRef = useRef<{ kind: Engine; client: AiRunClient } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -175,7 +186,19 @@ export function OcrTool() {
   // the choice changes, no app restart. Tesseract never shows the line, so
   // it probes only for the AI engine (fresh at the moment it renders).
   useEffect(() => {
-    if (step !== 'config' || engine !== 'ai') return;
+    if (step !== 'config' || engine === 'tesseract') return;
+    // Native fork (R4.4 :178): the probe is native_engine_status — the
+    // WebGPU adapter discovery below never runs for the sidecar engine.
+    if (engine === 'ai-native') {
+      let cancelled = false;
+      void (async () => {
+        const st = await getNativeStatus();
+        if (!cancelled) setNativeStatus(st);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -213,16 +236,31 @@ export function OcrTool() {
   }, [dpi, lang, pageCount, t]);
 
   const aiClient = useCallback((): AiRunClient => {
-    if (!clientRef.current) {
-      clientRef.current = sharedAiClient({ mock: isAiMock() });
+    // Client selection forks per engine (R4.4 ~:222): the native client is
+    // a lazy-chunk singleton (its @tauri-apps import is dynamic), the web
+    // client keeps the worker. A stale ref of the OTHER engine swaps here.
+    const kind: Engine = engine === 'ai-native' ? 'ai-native' : 'ai';
+    if (!clientRef.current || clientRef.current.kind !== kind) {
+      const entry = {
+        kind,
+        client:
+          kind === 'ai-native'
+            ? (sharedNativeClient() as AiRunClient)
+            : sharedAiClient({ mock: isAiMock() }),
+      };
+      clientRef.current = entry;
+      return entry.client;
     }
-    return clientRef.current;
-  }, []);
+    return clientRef.current.client;
+  }, [engine]);
 
   const runAi = useCallback(
     async (startPage: number, keep: AiPageResult[], tuning: AiTuning = AI_TUNING_PRESETS.full) => {
       if (files.length === 0) return;
-      beginJob('ai-ocr');
+      // Per-engine job id (R4.4 :225/:282): the updater confirm + Settings
+      // delete gating ride this id.
+      const jobId = engine === 'ai-native' ? 'native-ocr' : 'ai-ocr';
+      beginJob(jobId);
       setStep('running');
       setAiError(null);
       setAiCrashedAt(null);
@@ -231,6 +269,7 @@ export function OcrTool() {
       setAiResults(keep);
       abortRef.current = false;
       const client = aiClient();
+      const nativeClient = engine === 'ai-native' ? (client as AiNativeClient) : null;
       const bytes = files[0].bytes;
       const canvas = document.createElement('canvas');
       const scale = AI_DPI / 72;
@@ -239,6 +278,13 @@ export function OcrTool() {
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('canvas 2d context unavailable');
         const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // The ONE dataUrl mechanism (R4.3/review F4): canvas-native PNG of
+        // the SAME pixels the web engine sees, attached only for native.
+        if (nativeClient) {
+          const raster = { data: image.data, width: image.width, height: image.height } as RasterImageData & { dataUrl?: string };
+          raster.dataUrl = canvas.toDataURL('image/png');
+          return raster;
+        }
         return { data: image.data, width: image.width, height: image.height };
       };
       try {
@@ -257,7 +303,12 @@ export function OcrTool() {
               setAiPhase('running');
               setAiPage({ current: c, total });
             },
-            onToken: () => setAiTokens((n) => n + 1),
+            // Web fires per token (count callbacks); native frames batch —
+            // the count lives on the client (review F4).
+            onToken: () =>
+              nativeClient
+                ? setAiTokens(nativeClient.tokenCount)
+                : setAiTokens((n) => n + 1),
             onCrash: (failedAtPage) => setAiCrashedAt(failedAtPage),
           },
           {
@@ -279,10 +330,10 @@ export function OcrTool() {
         setAiPhase('error');
         setStep('done');
       } finally {
-        endJob('ai-ocr');
+        endJob(jobId);
       }
     },
-    [aiClient, files, pageCount],
+    [aiClient, engine, files, pageCount],
   );
 
   /**
@@ -308,7 +359,7 @@ export function OcrTool() {
     // The config step renders BEFORE the async page-count probe resolves —
     // never start with a stale/zero count (assertPageCountOk would throw).
     if (pageCount < 1 || pageCount > OCR_PAGE_CAP) return;
-    if (engine === 'ai') {
+    if (engine !== 'tesseract') {
       void runAi(1, [], AI_TUNING_PRESETS[aiTuning]);
       return;
     }
@@ -438,6 +489,16 @@ export function OcrTool() {
     // the mock seam (F8) runs on any machine — the tier gate is for the
     // real engine only
     const aiUnavailable = !isAiMock() && tier?.tier === 'none';
+    // Native availability is NOT the WebGPU verdict (review F1 :440): the
+    // sidecar runs happily on a tier-'none' machine. Uninstalled ≠
+    // unavailable — selecting it triggers the first-use download flow.
+    const nativeInstalled =
+      !!nativeStatus && nativeStatus.enginePresent && nativeStatus.modelPresent;
+    const engineChoices: Engine[] = [
+      'tesseract',
+      'ai',
+      ...(isDesktop ? (['ai-native'] as Engine[]) : []),
+    ];
     return (
       <section className="grid gap-4">
         <header className="grid gap-1">
@@ -456,12 +517,20 @@ export function OcrTool() {
         )}
         <fieldset className="grid gap-2">
           <legend className="text-sm font-bold">{t('ocr.engine_q')}</legend>
-          {(['tesseract', 'ai'] as Engine[]).map((choice) => (
+          {engineChoices.map((choice) => {
+            const nativeChoice = choice === 'ai-native';
+            return (
             <label
               key={choice}
               className={`grid gap-1 rounded-lg border px-3.5 py-2.5 text-sm ${
                 engine === choice ? 'border-accent bg-surface-card' : 'border-border-strong'
-              } ${choice === 'ai' && aiUnavailable ? 'opacity-60' : ''}`}
+              } ${
+                // Native keys off ITS availability, never aiUnavailable
+                // (review F1 :464).
+                (choice === 'ai' && aiUnavailable) || (nativeChoice && !nativeInstalled)
+                  ? 'opacity-60'
+                  : ''
+              }`}
             >
               <span className="flex min-h-6 items-center gap-2 font-semibold">
                 <input
@@ -470,15 +539,28 @@ export function OcrTool() {
                   checked={engine === choice}
                   onChange={() => setEngine(choice)}
                 />
-                {choice === 'tesseract' ? t('ocr.engine_tesseract') : t('ocr.engine_ai')}
+                {choice === 'tesseract'
+                  ? t('ocr.engine_tesseract')
+                  : nativeChoice
+                    ? t('ocr.engine_native')
+                    : t('ocr.engine_ai')}
                 {choice === 'ai' && aiLabel?.cached && (
+                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-normal text-accent">
+                    {t('ocr.ai_state_ready')}
+                  </span>
+                )}
+                {nativeChoice && nativeInstalled && (
                   <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-normal text-accent">
                     {t('ocr.ai_state_ready')}
                   </span>
                 )}
               </span>
               <span className="text-xs text-text-muted">
-                {choice === 'tesseract' ? t('ocr.engine_tesseract_hint') : t('ocr.engine_ai_hint')}
+                {choice === 'tesseract'
+                  ? t('ocr.engine_tesseract_hint')
+                  : nativeChoice
+                    ? t('ocr.engine_native_hint')
+                    : t('ocr.engine_ai_hint')}
               </span>
               {choice === 'ai' && tier && (
                 <span className="text-xs text-text-muted">
@@ -488,8 +570,19 @@ export function OcrTool() {
                     : ` · ${t('ocr.tier_estimate')}`}
                 </span>
               )}
+              {nativeChoice && nativeStatus?.backend && nativeStatus.backend !== 'unknown' && (
+                <span className="text-xs text-text-muted">
+                  {t(
+                    nativeStatus.cpuFallback
+                      ? 'ocr.native_backend_cpu_fallback'
+                      : 'ocr.native_backend',
+                    { backend: nativeStatus.backend },
+                  )}
+                </span>
+              )}
             </label>
-          ))}
+            );
+          })}
         </fieldset>
         {engine === 'tesseract' && (
           <>
@@ -527,6 +620,11 @@ export function OcrTool() {
             </fieldset>
             <p className="text-sm text-text-muted">{estimate}</p>
           </>
+        )}
+        {engine === 'ai-native' && (
+          <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
+            {t('ocr.native_notice')}
+          </p>
         )}
         {engine === 'ai' && (
           <>
@@ -589,11 +687,20 @@ export function OcrTool() {
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={tooManyPages || pageCount < 1 || (engine === 'ai' && aiUnavailable)}
+            disabled={
+              tooManyPages ||
+              pageCount < 1 ||
+              // WebGPU-only verdict — native never inherits it (review F1).
+              (engine === 'ai' && aiUnavailable)
+            }
             className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent disabled:opacity-50"
             onClick={start}
           >
-            {engine === 'ai' && !aiLabel?.cached ? t('ocr.run_ai_download') : t('ocr.run')}
+            {engine === 'ai' && !aiLabel?.cached
+              ? t('ocr.run_ai_download')
+              : engine === 'ai-native' && !nativeInstalled
+                ? t('ocr.run_native_download')
+                : t('ocr.run')}
           </button>
           <button
             type="button"
@@ -611,7 +718,9 @@ export function OcrTool() {
   }
 
   if (step === 'running') {
-    if (engine === 'ai') {
+    // The AI progress view is engine-agnostic (aiPhase/aiPage/aiTokens are
+    // shared slots — R4.4): native runs through the exact same UI.
+    if (engine !== 'tesseract') {
       const pct = aiPage.total > 0 ? Math.round((aiPage.current / aiPage.total) * 100) : 0;
       return (
         <section className="grid gap-4" aria-busy>
@@ -706,9 +815,10 @@ export function OcrTool() {
     );
   }
 
-  // done — AI results (v1: text) or tesseract results (partial soft-cancel
-  // looks the same, with a note).
-  if (engine === 'ai') {
+  // done — AI/native results (v1: text; native enters the SAME junction —
+  // AiPageResult.text → convertEngineOutput → deliverBytes, scout §7) or
+  // tesseract results (partial soft-cancel looks the same, with a note).
+  if (engine !== 'tesseract') {
     const text = aiResults
       .slice()
       .sort((a, b) => a.page - b.page)
@@ -768,7 +878,21 @@ export function OcrTool() {
           </div>
         )}
         {aiError && aiCrashedAt === null && (
-          <p role="alert" className="text-sm text-tone-red">{t('ocr.ai_error', { message: aiError })}</p>
+          <>
+            <p role="alert" className="text-sm text-tone-red">{t('ocr.ai_error', { message: aiError })}</p>
+            {/* One-click fallback (R4.7): an explicit user action, never a
+                silent engine switch. */}
+            {engine === 'ai-native' && (
+              <button
+                type="button"
+                data-testid="ocr-native-fallback"
+                className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
+                onClick={() => setEngine('ai')}
+              >
+                {t('ocr.fallback_in_app')}
+              </button>
+            )}
+          </>
         )}
         <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={t('ocr.engine_ai')}>
           {tabs.map((tab) => (

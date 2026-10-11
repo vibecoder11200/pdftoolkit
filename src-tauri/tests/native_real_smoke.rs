@@ -220,6 +220,66 @@ async fn real_download_extract_and_start_reaches_ready() {
     shutdown_all(&state).await;
 }
 
+/// Phase 4 real smoke: the OCR proxy's chat-completions request shape (R4.2)
+/// against the REAL b11553 server — SSE stream, image_url data-URI, token
+/// frames, and the result metrics. The spike measured 202.7 tok/s on this
+/// machine with the same request family; this test proves OUR proxy code
+/// speaks it.
+#[tokio::test]
+#[ignore = "real engine + GPU required; run with --ignored on the dev machine"]
+async fn real_ocr_proxy_streams_tokens_from_the_real_server() {
+    let Some(paths) = spike_paths() else {
+        eprintln!("spike artifacts missing — smoke skipped");
+        return;
+    };
+    let state = Arc::new(NativeEngineState::new());
+    *state.startup_timeout_base.lock().unwrap() = Duration::from_secs(45);
+    let EnginePhase::Ready { port, .. } = start(state.clone(), paths, true, None)
+        .await
+        .expect("engine must reach Ready")
+    else {
+        unreachable!()
+    };
+    // 1×1 PNG (a real, decodable image — llama-server runs the mmproj on it).
+    let png = format!(
+        "{}iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        pdftoolkit_lib::native_engine::ocr::IMAGE_DATAURI_PREFIX
+    );
+    let frames = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = frames.clone();
+    let api_key = state.api_key.lock().unwrap().clone().unwrap();
+    let client = reqwest::Client::builder().build().unwrap();
+    let r = pdftoolkit_lib::native_engine::ocr::ocr_request(
+        &client,
+        &format!("http://127.0.0.1:{port}"),
+        &api_key,
+        &png,
+        pdftoolkit_lib::native_engine::ocr::OCR_PROMPT,
+        256,
+        false,
+        &move |f| sink.lock().unwrap().push(f),
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("real proxy call must succeed");
+    let n: u32 = frames
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|f: &pdftoolkit_lib::native_engine::ocr::TokenFrame| f.token_delta)
+        .sum();
+    println!(
+        "OCR text={:?} ms={} firstTokenMs={} genTokens={} frames_token_sum={}",
+        r.text.chars().take(60).collect::<String>(),
+        r.ms,
+        r.first_token_ms,
+        r.gen_tokens,
+        n
+    );
+    assert!(r.first_token_ms <= r.ms);
+    shutdown_all(&state).await;
+}
+
 fn temp_root(tag: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("pdftk-real-{tag}-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&d);

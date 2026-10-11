@@ -164,9 +164,16 @@ export interface BenchmarkRecord {
   /** Decode throughput of the MEASURED pass (warmup discarded). */
   tokPerSecWarm: number;
   firstTokenColdMs: number | null;
-  condition: 'webgpu' | 'wasm';
+  /** v0.6.0 gains 'native' (sidecar runs — R4.5): never compared against
+   *  the WebGPU tier; the fingerprint key 'native' keeps native records
+   *  from colliding with webgpu records of the same machine (review F2). */
+  condition: 'webgpu' | 'wasm' | 'native';
   measuredAt: number;
   adapterFingerprint: string;
+  /** v0.6.0 (review F14): the sidecar backend of a native run — a
+   *  cpu-fallback native measurement is never mistaken for an accelerated
+   *  one. Absent on webgpu/wasm records. */
+  backend?: 'vulkan' | 'cuda' | 'metal' | 'cpu';
 }
 
 export interface BenchmarkStore {
@@ -278,14 +285,16 @@ export interface BenchmarkExecutor {
   }>;
 }
 
-/** Persist a measured record derived from a real page run (phase 4a). */
+/** Persist a measured record derived from a real page run (phase 4a).
+ *  `backend` arrives only from native runs (review F14). */
 export async function saveBenchmarkRecord(
   modelId: string,
-  condition: 'webgpu' | 'wasm',
+  condition: 'webgpu' | 'wasm' | 'native',
   fingerprint: string,
   tokPerSecWarm: number,
   firstTokenColdMs: number | null,
   store: BenchmarkStore,
+  backend?: 'vulkan' | 'cuda' | 'metal' | 'cpu',
 ): Promise<BenchmarkRecord> {
   const rec: BenchmarkRecord = {
     modelId,
@@ -294,6 +303,7 @@ export async function saveBenchmarkRecord(
     condition,
     measuredAt: Date.now(),
     adapterFingerprint: fingerprint,
+    ...(backend ? { backend } : {}),
   };
   await store.save(rec);
   return rec;
@@ -301,7 +311,7 @@ export async function saveBenchmarkRecord(
 
 export async function runBenchmark(
   modelId: string,
-  condition: 'webgpu' | 'wasm',
+  condition: 'webgpu' | 'wasm' | 'native',
   fingerprint: string,
   executor: BenchmarkExecutor,
   store: BenchmarkStore,

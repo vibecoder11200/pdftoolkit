@@ -282,7 +282,14 @@ pub fn run(is_flag_restart_child: bool) {
             initial_open_files,
             get_gpu_force,
             set_gpu_force,
-            restart_with_gpu_force
+            restart_with_gpu_force,
+            native_engine::ipc::native_engine_status,
+            native_engine::ipc::native_engine_probe,
+            native_engine::ipc::native_engine_download,
+            native_engine::ipc::native_cancel,
+            native_engine::ipc::native_engine_delete,
+            native_engine::ipc::native_engine_start,
+            native_engine::ipc::native_ocr_page
         ])
         .manage(std::sync::Arc::new(native_engine::NativeEngineState::new()))
         .setup(|app| {

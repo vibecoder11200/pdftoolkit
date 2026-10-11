@@ -15,7 +15,9 @@ pub mod download;
 pub mod fake_child;
 pub mod flow;
 pub mod install;
+pub mod ipc;
 pub mod manifest;
+pub mod ocr;
 pub mod store;
 pub mod supervisor;
 #[cfg(unix)]
@@ -126,7 +128,8 @@ pub enum EngineError {
 }
 
 impl EngineError {
-    /// Stable short key — phase 5 i18n keys are derived from this.
+    /// Stable short key — phase 5 i18n keys are derived from this and the
+    /// JS native-errors mapping consumes it (ipc::CommandError.kind).
     pub fn key(&self) -> &'static str {
         match self {
             EngineError::Quarantined { .. } => "quarantined",
@@ -139,6 +142,25 @@ impl EngineError {
             EngineError::StartTimeout => "start-timeout",
             EngineError::Spawn(_) => "spawn",
             EngineError::DownloadFailed { .. } => "download",
+        }
+    }
+}
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineError::Quarantined { path } => {
+                write!(f, "engine binary missing or blocked: {path}")
+            }
+            EngineError::Oom => write!(f, "engine ran out of memory during load"),
+            EngineError::LoadFailed(s) => write!(f, "engine failed to load: {s}"),
+            EngineError::BackendFault(s) => write!(f, "engine backend fault: {s}"),
+            EngineError::Crashed(code) => write!(f, "engine crashed (exit {code})"),
+            EngineError::BlockedByOs => write!(f, "engine launch was blocked by the OS"),
+            EngineError::OsTooOld(s) => write!(f, "system too old for the engine: {s}"),
+            EngineError::StartTimeout => write!(f, "engine startup timed out"),
+            EngineError::Spawn(s) => write!(f, "engine spawn failed: {s}"),
+            EngineError::DownloadFailed { reason } => write!(f, "download failed: {reason}"),
         }
     }
 }
@@ -242,6 +264,14 @@ pub struct NativeEngineState {
     /// Probe devices from `--list-devices` (phase 4 `native_engine_probe`),
     /// cached until next install.
     pub probe_devices: Mutex<Vec<String>>,
+    /// Single in-flight OCR page slot (R4.2): concurrent `native_ocr_page`
+    /// commands QUEUE on this mutex (Q3 closed by design); the idle timer
+    /// consults `page_in_flight`, never this lock.
+    pub page_slot: tokio::sync::Mutex<()>,
+    /// Cancel flag of the CURRENT in-flight page — `native_cancel('ocr')`
+    /// flips it (Tauri has no invoke-cancellation framework support,
+    /// tauri#8351: a separate command is the pattern).
+    pub page_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
 }
 
 #[derive(Debug, Clone)]
@@ -270,6 +300,8 @@ impl NativeEngineState {
             downloads: tokio::sync::Mutex::new(flow::DownloadRegistry::default()),
             status: Mutex::new(None),
             probe_devices: Mutex::new(Vec::new()),
+            page_slot: tokio::sync::Mutex::new(()),
+            page_cancel: Mutex::new(None),
         }
     }
 }

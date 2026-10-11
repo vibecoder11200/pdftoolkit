@@ -13,6 +13,11 @@ import type { RasterImageData } from '../workers/pdf.worker';
 import type { OcrPageOptions } from '../workers/ai-ocr.worker';
 import { AI_MODEL_ID, type DownloadProgress } from './ai-models';
 import { WorkerCrashError } from './ai-worker-client';
+// Native-engine errors subclass WorkerCrashError (dependency-free module,
+// v0.6.0 phase 4 review F4) — the classifier below matches them through the
+// base class; the explicit instanceof is belt-and-suspenders for the typed
+// mapping.
+import { NativeEngineError } from './native-errors';
 import {
   adapterFingerprint,
   detectHardware,
@@ -39,13 +44,21 @@ export interface AiRunEvents {
   onTierAfter?: (tier: TierResolution) => void;
 }
 
-/** Structural client surface — AiWorkerClient satisfies it; tests fake it. */
+/** Structural client surface — AiWorkerClient satisfies it; tests fake it.
+ *  v0.6.0 phase 4: AiNativeClient also satisfies it over the Rust sidecar
+ *  (`device: 'native'`, `adapterFingerprint: 'native'` — non-NULL, review
+ *  F2 — and `backend` feeds the benchmark backend dimension, review F14). */
 export interface AiRunClient {
   ensureLoaded(
     modelId: string,
     onProgress: (p: DownloadProgress) => void,
     loadOpts?: { override?: import('./gpu-choice').ResolvedGpuChoice },
-  ): Promise<{ loadMs: number; device: 'webgpu' | 'wasm' | 'mock'; adapterFingerprint: string | null }>;
+  ): Promise<{
+    loadMs: number;
+    device: 'webgpu' | 'wasm' | 'mock' | 'native';
+    adapterFingerprint: string | null;
+    backend?: 'vulkan' | 'cuda' | 'metal' | 'cpu';
+  }>;
   downloadModel(
     modelId: string,
     onProgress: (p: DownloadProgress) => void,
@@ -132,8 +145,10 @@ export async function runAiPages(
   // The condition must match the device THIS run actually loaded with:
   // after a GPU-loss degrade the client pins 'wasm', and recording WASM
   // throughput as 'webgpu' would let the staleness check trust it forever
-  // (permanently wrong tier label).
-  const condition: 'webgpu' | 'wasm' = load.device === 'wasm' ? 'wasm' : 'webgpu';
+  // (permanently wrong tier label). v0.6.0: native sidecar runs record
+  // 'native' — never compared against the WebGPU tier (R4.5).
+  const condition: 'webgpu' | 'wasm' | 'native' =
+    load.device === 'wasm' ? 'wasm' : load.device === 'native' ? 'native' : 'webgpu';
   const needsBenchmark =
     (opts.benchmarkRecord ?? true) &&
     (!existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== condition);
@@ -166,6 +181,7 @@ export async function runAiPages(
             r.tokPerSec,
             firstColdMs,
             store,
+            load.backend,
           );
           events.onTierAfter?.(resolveTier(await detectHardware(), rec));
         } catch {
@@ -179,6 +195,7 @@ export async function runAiPages(
       // crash-like: the resume UI must still fire.
       const isCrash =
         err instanceof WorkerCrashError ||
+        err instanceof NativeEngineError ||
         (err instanceof Error &&
           (err.message.includes('AI worker crashed') || err.message.includes('Engine not loaded')));
       if (isCrash) {
