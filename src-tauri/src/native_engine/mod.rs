@@ -10,8 +10,13 @@
 // Windows updater's `std::process::exit(0)`), and `restart_with_gpu_force`
 // pre-exit. The Windows Job Object (kill-on-close) and the mandatory Unix
 // startup stray sweep are the backstops that survive even a panicking app.
+pub mod download;
 #[cfg(debug_assertions)]
 pub mod fake_child;
+pub mod flow;
+pub mod install;
+pub mod manifest;
+pub mod store;
 pub mod supervisor;
 #[cfg(unix)]
 pub mod unix_group;
@@ -230,6 +235,8 @@ pub struct NativeEngineState {
     pub idle_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Resolved paths (phase 3 store; test override until then).
     pub paths: Mutex<Option<EnginePaths>>,
+    /// Single-flight download registry, keyed by kind (review F9).
+    pub downloads: tokio::sync::Mutex<flow::DownloadRegistry>,
     /// Backend engagement verdict + diagnostics from the last start.
     pub status: Mutex<Option<EngineStatus>>,
     /// Probe devices from `--list-devices` (phase 4 `native_engine_probe`),
@@ -260,6 +267,7 @@ impl NativeEngineState {
             session: Mutex::new(None),
             idle_task: Mutex::new(None),
             paths: Mutex::new(None),
+            downloads: tokio::sync::Mutex::new(flow::DownloadRegistry::default()),
             status: Mutex::new(None),
             probe_devices: Mutex::new(Vec::new()),
         }

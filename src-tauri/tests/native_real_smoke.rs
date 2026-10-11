@@ -7,6 +7,7 @@ use pdftoolkit_lib::native_engine::supervisor::{shutdown_all, start};
 use pdftoolkit_lib::native_engine::{EnginePaths, EnginePhase, NativeEngineState};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 fn spike_paths() -> Option<EnginePaths> {
     // Repo root = parent of src-tauri (the test's cwd is src-tauri/).
@@ -152,4 +153,75 @@ async fn real_llama_server_reaches_ready_then_survives_a_kill_and_teardown_reaps
         std::thread::sleep(Duration::from_millis(150));
     }
     println!("TEARDOWN clean — zero orphans");
+}
+
+/// Phase 3 real smoke: the ACTUAL download+extract+start flow against the
+/// committed manifest pins (33 MB engine from GitHub; models reused from
+/// the spike dir when present). Resumable across runs via the .part design.
+#[tokio::test]
+#[ignore = "real downloads (33 MB engine) + GPU; run with --ignored"]
+async fn real_download_extract_and_start_reaches_ready() {
+    let app_data = temp_root("real-download");
+    let state = Arc::new(NativeEngineState::new());
+    *state.startup_timeout_base.lock().unwrap() = Duration::from_secs(45);
+    let noop = |_: pdftoolkit_lib::native_engine::download::ProgressFrame| {};
+
+    // Engine: the REAL manifest pin — download + extract + marker.
+    let n = pdftoolkit_lib::native_engine::flow::download_kind(
+        &state.downloads,
+        pdftoolkit_lib::native_engine::store::Kind::Engine,
+        &app_data,
+        &noop,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("engine download+install");
+    println!("ENGINE installed ({n} bytes)");
+
+    // Models: reuse the spike dir's GGUFs when present (saves 1.4 GB).
+    let engine_key = pdftoolkit_lib::native_engine::manifest::target_engine_key();
+    let engine_dir = pdftoolkit_lib::native_engine::store::engine_dir(&app_data, engine_key);
+    let model_dir = pdftoolkit_lib::native_engine::store::model_dir(&app_data);
+    std::fs::create_dir_all(&model_dir).unwrap();
+    let spike =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../temp/native-engine-spike");
+    for f in ["GLM-OCR-Q8_0.gguf", "mmproj-GLM-OCR-Q8_0.gguf"] {
+        let dest = model_dir.join(f);
+        if !dest.is_file() && std::fs::copy(spike.join(f), &dest).is_ok() {
+            println!("MODEL {f} reused from spike dir");
+        }
+    }
+    let model_start = std::time::Instant::now();
+    let mn = pdftoolkit_lib::native_engine::flow::download_kind(
+        &state.downloads,
+        pdftoolkit_lib::native_engine::store::Kind::Model,
+        &app_data,
+        &noop,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("model download");
+    println!(
+        "MODEL ready ({mn} bytes, {} s)",
+        model_start.elapsed().as_secs()
+    );
+
+    // Start the REAL engine from the freshly extracted dir → Ready.
+    let paths = pdftoolkit_lib::native_engine::EnginePaths {
+        engine_exe: engine_dir.join(pdftoolkit_lib::native_engine::install::SERVER_BINARY),
+        engine_dir,
+        model: model_dir.join("GLM-OCR-Q8_0.gguf"),
+        mmproj: model_dir.join("mmproj-GLM-OCR-Q8_0.gguf"),
+    };
+    let phase = pdftoolkit_lib::native_engine::supervisor::start(state.clone(), paths, true, None)
+        .await
+        .expect("freshly-installed engine must reach Ready");
+    println!("PHASE {phase:?}");
+    shutdown_all(&state).await;
+}
+
+fn temp_root(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("pdftk-real-{tag}-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&d);
+    d
 }

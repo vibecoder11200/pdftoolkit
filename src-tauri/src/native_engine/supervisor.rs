@@ -793,6 +793,23 @@ pub async fn start(
             path: paths.engine_exe.to_string_lossy().into_owned(),
         });
     }
+    // Per-file tamper check (review F8, R3.2): when an install marker with a
+    // per-file sha256 map exists, EVERY start re-verifies the on-disk files
+    // (cheap: ~35 MB engine). A mismatch means the engine was altered or
+    // partially removed — classified as Quarantined so the UI's
+    // re-download flow offers a way out (presence flips false).
+    if let Some(marker) = super::store::read_marker(&paths.engine_dir) {
+        let bad = super::install::verify_installed_files(&paths.engine_dir, &marker);
+        if !bad.is_empty() {
+            return Err(EngineError::Quarantined {
+                path: format!(
+                    "{} (engine files missing or altered: {})",
+                    paths.engine_exe.to_string_lossy(),
+                    bad.first().map(String::as_str).unwrap_or("?")
+                ),
+            });
+        }
+    }
     clear_restart_budget(&state);
     *state.shutdown.lock().unwrap() = tokio_util::sync::CancellationToken::new();
     {
