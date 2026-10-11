@@ -12,6 +12,10 @@
 // inert by construction — the unit tests below pin that.
 use tauri::{Emitter, Manager, WindowEvent};
 
+// pub: the integration tests (src-tauri/tests/) drive the supervision
+// module directly, and the fake-child hook in main.rs routes through it.
+pub mod native_engine;
+
 /// Filter argv down to real files (drops the exe path and junk args), lossy-
 /// encoding non-UTF8 paths exactly like the emit payload will.
 fn files_from_args(args: &[String]) -> Vec<std::path::PathBuf> {
@@ -174,7 +178,11 @@ fn set_gpu_force(flag: bool) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let tmp = path.with_extension("json.tmp");
-    let body = if flag { "{\"force\":true}" } else { "{\"force\":false}" };
+    let body = if flag {
+        "{\"force\":true}"
+    } else {
+        "{\"force\":false}"
+    };
     std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
@@ -196,9 +204,17 @@ fn get_gpu_force() -> Option<bool> {
 /// then exits, so a plain relaunch can close the app without reopening.
 /// Instead: write the flag, spawn the current exe DETACHED with the
 /// skip-single-instance marker, then exit. The child becomes primary.
+///
+/// v0.6.0 phase 2 (review F6): this is the FOURTH exit path —
+/// `std::process::exit` bypasses RunEvent, CloseRequested AND (on Unix) the
+/// supervisor's Drop, so `shutdown_all` MUST run before the exit(0).
 #[tauri::command]
-fn restart_with_gpu_force(flag: bool) -> Result<(), String> {
+async fn restart_with_gpu_force(
+    flag: bool,
+    state: tauri::State<'_, std::sync::Arc<native_engine::NativeEngineState>>,
+) -> Result<(), String> {
     set_gpu_force(flag)?;
+    native_engine::supervisor::shutdown_all(&state).await;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(exe);
     cmd.env(GPU_FLAG_RESTART_MARKER, "1");
@@ -241,6 +257,19 @@ pub fn run(is_flag_restart_child: bool) {
         // Phase 3: auto-update (minisign-signed, latest.json channel) + the
         // process plugin the JS relaunch() call goes through.
         .plugin(tauri_plugin_process::init())
+        // v0.6.0 phase 2 — DEVIATION from the plan's review F5, verified
+        // against tauri-plugin-updater 2.13.1 source: `on_before_exit` exists
+        // ONLY on `UpdaterBuilder` (updater.rs:407); the app-facing plugin
+        // `Builder` (lib.rs:156) has NO setter for it, and `UpdaterExt`'s
+        // blanket impl blocks overriding `updater_builder`. The updater's
+        // `std::process::exit(0)` therefore CANNOT be hooked via the public
+        // API. The engine invariant still holds through the pre-decided
+        // fallback (phase 2 Risk 1): the engine child lives in a
+        // KILL_ON_JOB_CLOSE Job Object, so the kernel reaps it at the exact
+        // moment our process dies on `exit(0)` — hook or no hook — and the
+        // startup stray sweep (below) removes any leftovers the next launch
+        // might still find. The engine dir is under LOCALAPPDATA, which the
+        // NSIS /UPDATE flow never touches.
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Save flow (rc probe): native Save-As dialog for every deliver;
         // plugin-fs writes the bytes to the picked path. The dialog plugin
@@ -255,32 +284,76 @@ pub fn run(is_flag_restart_child: bool) {
             set_gpu_force,
             restart_with_gpu_force
         ])
+        .manage(std::sync::Arc::new(native_engine::NativeEngineState::new()))
+        .setup(|app| {
+            // Stray sweep at startup (R2.7): MANDATORY on Unix (review F6 —
+            // `std::process::exit` in the restart path skips the supervisor's
+            // Drop), logged escalation on Windows (Risk 1's third line — also
+            // the net under the updater's unhookable `exit(0)`, see the
+            // updater plugin comment above).
+            let engine_dir = app
+                .path()
+                .app_local_data_dir()
+                .map(|d| d.join("pdftoolkit-native").join("engines"));
+            if let Ok(dir) = engine_dir {
+                let _ = std::fs::create_dir_all(&dir);
+                native_engine::startup_sweep(&dir);
+            }
+            Ok(())
+        })
         .on_window_event(|window, event| {
             // Drag-drop: the webview keeps default navigation disabled
             // (dragDropEnabled), Tauri hands us the paths. Highlight
             // over/enter/leave is handled JS-side (onDragDropEvent); only
             // the actual Drop delivers files.
             if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                let payload = grant_and_collect(window.app_handle(), &paths);
+                let payload = grant_and_collect(window.app_handle(), paths);
                 deliver_paths(window.app_handle(), payload, "desktop://drop-files");
+            }
+            // v0.6.0 phase 2 teardown layer 2 (R2.7): the LAST window closing
+            // ends the app — tear the engine down alongside (bounded wait;
+            // layer 1 below is the backstop).
+            if let WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle();
+                if app.webview_windows().len() <= 1 {
+                    let state: tauri::State<std::sync::Arc<native_engine::NativeEngineState>> =
+                        app.state();
+                    tauri::async_runtime::block_on(native_engine::supervisor::shutdown_all(
+                        state.inner(),
+                    ));
+                }
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // macOS Finder "Open with" while running.
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                let paths: Vec<std::path::PathBuf> = urls
-                    .iter()
-                    .filter_map(|url| url.to_file_path().ok())
-                    .collect();
-                let payload = grant_and_collect(app, &paths);
-                deliver_paths(app, payload, "desktop://open-files");
+            // v0.6.0 phase 2 teardown layer 1 (R2.7): the event loop's exit
+            // arms tear the engine down (graceful, bounded — see
+            // shutdown_all), with the blocking kill as the final belt.
+            match event {
+                // macOS Finder "Open with" while running.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Opened { urls } => {
+                    let paths: Vec<std::path::PathBuf> = urls
+                        .iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .collect();
+                    let payload = grant_and_collect(app, &paths);
+                    deliver_paths(app, payload, "desktop://open-files");
+                }
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                    let state: tauri::State<std::sync::Arc<native_engine::NativeEngineState>> =
+                        app.state();
+                    tauri::async_runtime::block_on(native_engine::supervisor::shutdown_all(
+                        state.inner(),
+                    ));
+                    native_engine::blocking_kill_active_child();
+                }
+                _ => {}
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let _ = (app, event);
+                let _ = (app, &event);
             }
         });
 }
@@ -367,7 +440,10 @@ mod tests {
     // SEC-1: the exported browser argument is the compile-time constant.
     #[test]
     fn force_arg_is_the_exact_constant() {
-        assert_eq!(GPU_FORCE_ARG, "--use-webgpu-power-preference=force-high-performance");
+        assert_eq!(
+            GPU_FORCE_ARG,
+            "--use-webgpu-power-preference=force-high-performance"
+        );
     }
 
     #[test]
@@ -385,8 +461,16 @@ mod tests {
         // The write path is the command (filesystem-free here): the two
         // possible bodies are pinned so the file can never carry anything
         // else.
-        let body_true = if true { "{\"force\":true}" } else { "{\"force\":false}" };
-        let body_false = if false { "{\"force\":true}" } else { "{\"force\":false}" };
+        let body_true = if true {
+            "{\"force\":true}"
+        } else {
+            "{\"force\":false}"
+        };
+        let body_false = if false {
+            "{\"force\":true}"
+        } else {
+            "{\"force\":false}"
+        };
         assert_eq!(body_true, "{\"force\":true}");
         assert_eq!(body_false, "{\"force\":false}");
         assert!(parse_force_flag(body_true));

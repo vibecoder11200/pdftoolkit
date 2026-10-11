@@ -21,6 +21,23 @@ tauri-plugin-fs = "^2.4"
 tauri-plugin-process = "^2"
 tauri-plugin-single-instance = "^2"
 tauri-plugin-updater = "^2"
+# native_engine (v0.6.0 phase 2): sidecar supervision runtime.
+tokio = { version = "1", features = ["process", "io-util", "fs", "macros", "rt", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+rand = "0.9"
+
+[target.'cfg(windows)'.dependencies]
+# Job Object + suspended-spawn resume (win_job.rs). 0.52 matches the tree.
+windows-sys = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [profile.release]
 codegen-units = 1
