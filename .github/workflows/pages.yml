@@ -33,6 +33,10 @@ jobs:
       # F21: the committed manifest must still match HuggingFace (revision,
       # sha256 per file, license ∈ {MIT, Apache-2.0}) before anything builds.
       - run: node scripts/gen-ai-model-manifest.mjs --check
+      # v0.6.0 phase 1: the native OCR engine pins (llama.cpp b11553 + GGUF)
+      # must still match the GitHub release digests / HF LFS pointers. API-only
+      # — never downloads engine binaries in CI.
+      - run: node scripts/sync-native-engine.mjs --check
       - run: npm run build
       # Fixtures are gitignored (reproducible) — generate the 1/10MB pair.
       - run: node tests/fixtures/gen.mjs

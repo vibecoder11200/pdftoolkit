@@ -94,6 +94,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
+      # v0.6.0 phase 1: a release must never ship against a drifted engine
+      # pin (API-only check — zero engine downloads; must NOT disturb the
+      # 4-platform-key assert in build-latest-json.mjs).
+      - name: Verify native engine manifest pins (llama.cpp + GGUF sha256)
+        run: node scripts/sync-native-engine.mjs --check
       - name: Compose and upload latest.json (single writer, asserts 4 platform keys + version sync)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
