@@ -221,13 +221,33 @@ fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<Vec<MarkerFile>, InstallE
         let header_type = entry.header().entry_type();
         match header_type {
             tar::EntryType::Regular => {}
-            tar::EntryType::Symlink | tar::EntryType::Link => {
+            tar::EntryType::Symlink => {
+                let raw = entry
+                    .path()
+                    .map_err(|e| InstallError::Archive(e.to_string()))?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let raw = strip_top_component(&raw);
+                let rel = validate_rel_path(&raw)?;
+                let link_target = entry
+                    .link_name()
+                    .map_err(|e| InstallError::Archive(e.to_string()))?
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                install_symlink(dest, &rel, &link_target)?;
+                // Structure, not payload: the link is deliberately NOT
+                // marker-covered — the versioned file it points at is a
+                // hashed regular entry of the same manifest-pinned archive,
+                // and start-time re-verification owns payload integrity.
+                continue;
+            }
+            tar::EntryType::Link => {
                 return Err(InstallError::HostileEntry {
                     path: entry
                         .path()
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap_or_default(),
-                    reason: "symlink/hardlink in untrusted archive",
+                    reason: "hardlink in untrusted archive",
                 });
             }
             tar::EntryType::Directory => continue,
@@ -266,6 +286,110 @@ fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<Vec<MarkerFile>, InstallE
         });
     }
     Ok(files)
+}
+
+/// Safe-symlink install (first real-CI run fix): the macOS/Linux engine
+/// tars carry ordinary versioning links (`libmtmd.so` → `libmtmd.so.0.8.x`),
+/// so the blanket symlink rejection made those engines UNINSTALLABLE. A
+/// RELATIVE target that resolves inside the engine dir is created as pure
+/// structure; absolute targets, `..` escapes, links under existing symlinks,
+/// and hardlinks stay hostile. Windows has no symlink branch at all — its
+/// engine zip never carries links, so the blanket rejection remains there.
+fn install_symlink(dest: &Path, rel: &Path, target: &str) -> Result<(), InstallError> {
+    #[cfg(unix)]
+    {
+        use std::path::Component;
+        if PathBuf::from(target).is_absolute() {
+            return Err(InstallError::HostileEntry {
+                path: rel.to_string_lossy().into_owned(),
+                reason: "absolute symlink target",
+            });
+        }
+        // Resolve the target against the LINK'S directory (POSIX link
+        // semantics), lexically — no on-disk symlink is ever followed while
+        // validating — and require the result to stay inside dest.
+        let mut depth: Vec<std::ffi::OsString> = rel
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(p) => Some(p.to_os_string()),
+                Component::CurDir => None,
+                // `..` in the link's own path is already rejected by
+                // validate_rel_path; anything else has no place here.
+                _ => None,
+            })
+            .collect();
+        for c in Path::new(target).components() {
+            match c {
+                Component::Normal(p) => depth.push(p.to_os_string()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if depth.pop().is_none() {
+                        return Err(InstallError::HostileEntry {
+                            path: rel.to_string_lossy().into_owned(),
+                            reason: "symlink target escapes engine dir",
+                        });
+                    }
+                }
+                _ => {
+                    return Err(InstallError::HostileEntry {
+                        path: rel.to_string_lossy().into_owned(),
+                        reason: "absolute symlink target",
+                    })
+                }
+            }
+        }
+        // A previously-created in-tree link must not be able to relocate
+        // this one — neither the link's own ancestors nor the resolved
+        // target's may themselves be symlinks.
+        reject_symlinked_ancestors(dest, &depth)?;
+        let link_depth: Vec<std::ffi::OsString> = rel
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(p) => Some(p.to_os_string()),
+                Component::CurDir => None,
+                _ => None,
+            })
+            .collect();
+        reject_symlinked_ancestors(dest, &link_depth)?;
+        let link = dest.join(rel);
+        let _ = std::fs::remove_file(&link); // idempotent re-extract
+        std::os::unix::fs::symlink(target, &link).map_err(InstallError::Io)
+    }
+    #[cfg(windows)]
+    {
+        let _ = (dest, target);
+        Err(InstallError::HostileEntry {
+            path: rel.to_string_lossy().into_owned(),
+            reason: "symlink in untrusted archive",
+        })
+    }
+}
+
+/// Walk `rel_parts` under `dest` and reject the first existing entry that is
+/// itself a symlink (defense-in-depth: keeps a prior in-tree link from
+/// relocating anything created after it).
+#[cfg(unix)]
+fn reject_symlinked_ancestors(
+    dest: &Path,
+    rel_parts: &[std::ffi::OsString],
+) -> Result<(), InstallError> {
+    let mut probe = dest.to_path_buf();
+    for part in rel_parts {
+        probe.push(part);
+        if let Ok(meta) = std::fs::symlink_metadata(&probe) {
+            if meta.is_symlink() {
+                return Err(InstallError::HostileEntry {
+                    path: probe.to_string_lossy().into_owned(),
+                    reason: "path goes through an in-tree symlink",
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Strip the leading `llama-b11553/` folder component (macOS/Linux tars
@@ -458,8 +582,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn hostile_tar_symlink_is_rejected() {
+    fn link_tar_bytes(link_name: &str, target: &str) -> Vec<u8> {
         let mut tar_buf = Vec::new();
         {
             let mut b = tar::Builder::new(&mut tar_buf);
@@ -467,14 +590,17 @@ mod tests {
             h.set_size(0);
             h.set_entry_type(tar::EntryType::Symlink);
             h.set_cksum();
-            b.append_link(&mut h, "evil-link", "/etc/passwd").unwrap();
+            b.append_link(&mut h, link_name, target).unwrap();
             b.finish().unwrap();
         }
-        let bytes = {
-            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-            std::io::Write::write_all(&mut gz, &tar_buf).unwrap();
-            gz.finish().unwrap()
-        };
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(&mut gz, &tar_buf).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn hostile_tar_symlink_absolute_target_is_rejected() {
+        let bytes = link_tar_bytes("evil-link", "/etc/passwd");
         let dest = tempdir("tar-link");
         let err = extract_and_install(
             bytes,
@@ -486,16 +612,80 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(
-                err,
-                InstallError::HostileEntry {
-                    reason: "symlink/hardlink in untrusted archive",
-                    ..
-                }
-            ),
+            matches!(err, InstallError::HostileEntry { .. }),
             "got {err:?}"
         );
         assert!(!dest.join("evil-link").exists());
+    }
+
+    #[test]
+    fn hostile_tar_symlink_escape_is_rejected() {
+        let bytes = link_tar_bytes("evil-link", "../../outside");
+        let dest = tempdir("tar-link-escape");
+        let err = extract_and_install(
+            bytes,
+            &dest,
+            "k",
+            "t",
+            "e".repeat(64).as_str(),
+            InstallMode::Replace,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, InstallError::HostileEntry { .. }),
+            "got {err:?}"
+        );
+    }
+
+    /// The REAL engine tars carry versioning links (libmtmd.so →
+    /// libmtmd.so.0.x) — they must install as in-tree structure without
+    /// entering the marker's hash map (unix only: creation has no Windows
+    /// branch by design).
+    #[cfg(unix)]
+    #[test]
+    fn benign_tar_symlink_installs_within_engine_dir() {
+        let mut tar_buf = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_buf);
+            let mut h = tar::Header::new_gnu();
+            h.set_size(4);
+            h.set_entry_type(tar::EntryType::Regular);
+            h.set_cksum();
+            b.append_data(&mut h, "llama-b11553/libmtmd.so.1", vec![0u8; 4])
+                .unwrap();
+            let mut lh = tar::Header::new_gnu();
+            lh.set_size(0);
+            lh.set_entry_type(tar::EntryType::Symlink);
+            lh.set_cksum();
+            b.append_link(&mut lh, "llama-b11553/libmtmd.so", "libmtmd.so.1")
+                .unwrap();
+            b.finish().unwrap();
+        }
+        let bytes = {
+            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            std::io::Write::write_all(&mut gz, &tar_buf).unwrap();
+            gz.finish().unwrap()
+        };
+        let dest = tempdir("tar-link-benign");
+        let marker = extract_and_install(
+            bytes,
+            &dest,
+            "k",
+            "t",
+            "e".repeat(64).as_str(),
+            InstallMode::Replace,
+        )
+        .unwrap();
+        let link_path = dest.join("libmtmd.so");
+        let meta = std::fs::symlink_metadata(&link_path).expect("link created");
+        assert!(meta.is_symlink());
+        assert_eq!(
+            std::fs::read_link(&link_path).unwrap().to_string_lossy(),
+            "libmtmd.so.1"
+        );
+        // The link is structure; only the regular file is hash-covered.
+        assert_eq!(marker.files.len(), 1);
+        assert_eq!(marker.files[0].path, "libmtmd.so.1");
     }
 
     #[test]
