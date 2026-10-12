@@ -299,7 +299,7 @@ fn install_symlink(dest: &Path, rel: &Path, target: &str) -> Result<(), InstallE
     #[cfg(unix)]
     {
         use std::path::Component;
-        if PathBuf::from(target).is_absolute() {
+        if std::path::PathBuf::from(target).is_absolute() {
             return Err(InstallError::HostileEntry {
                 path: rel.to_string_lossy().into_owned(),
                 reason: "absolute symlink target",
@@ -651,7 +651,7 @@ mod tests {
             h.set_size(4);
             h.set_entry_type(tar::EntryType::Regular);
             h.set_cksum();
-            b.append_data(&mut h, "llama-b11553/libmtmd.so.1", vec![0u8; 4])
+            b.append_data(&mut h, "llama-b11553/libmtmd.so.1", &[0u8; 4][..])
                 .unwrap();
             let mut lh = tar::Header::new_gnu();
             lh.set_size(0);
