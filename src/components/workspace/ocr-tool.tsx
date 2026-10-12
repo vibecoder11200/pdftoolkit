@@ -27,6 +27,8 @@ import { sharedAiClient } from '../../lib/ai-worker-client';
 import { getNativeStatus, sharedNativeClient, type AiNativeClient } from '../../lib/ai-native-client';
 import { isTauri } from '../../lib/platform';
 import type { NativeStatus } from '../../lib/native-types';
+import { NativeSuggestCard } from './native-suggest';
+import { toNativeEngineError } from '../../lib/native-errors';
 import { convertEngineOutput } from '../../lib/ai-markdown';
 import {
   AI_TUNING_PRESETS,
@@ -65,6 +67,21 @@ type AiPhase = 'idle' | 'downloading' | 'loading' | 'running' | 'done' | 'error'
 
 // The native option exists ONLY on desktop (review F1: web never sees it).
 const isDesktop = isTauri();
+// R5.8 CPU-fallback gate ack — session memory (no new storage key). A
+// restart re-gates once: honesty over convenience, per the plan's
+// "per-install ack implied by continue".
+let cpuFallbackAcked = false;
+
+// R5.7 classified banner copy: typed error name → i18n key.
+const NATIVE_ERROR_KEYS: Record<string, string> = {
+  OomError: 'ocr.native_err_oom',
+  QuarantinedError: 'ocr.native_err_quarantined',
+  CrashedError: 'ocr.native_err_crashed',
+  DownloadFailedError: 'ocr.native_err_download',
+  StartTimeoutError: 'ocr.native_err_start_timeout',
+  BlockedByOsError: 'ocr.native_err_os_blocked',
+  OsTooOldError: 'ocr.native_err_os_too_old',
+};
 
 const DPI_CHOICES = [150, 200, 300] as const;
 // Per-page seconds at A4 from the phase-4b benchmarks (~0.5s/page at 200dpi,
@@ -137,6 +154,8 @@ export function OcrTool() {
   // enginePresent/modelPresent from native_engine_status — never the WebGPU
   // tier verdict (review F1's :440 fork).
   const [nativeStatus, setNativeStatus] = useState<NativeStatus | null>(null);
+  // R5.8: the CPU-fallback first-run gate (continue/abort choice).
+  const [cpuGate, setCpuGate] = useState(false);
   // GPU selection state (plan 261009-0836 phases 3+4)
   const gpuChoice = useGpuChoice();
   const gpuFallback = useGpuFallback();
@@ -293,6 +312,18 @@ export function OcrTool() {
         await downloadIfNeeded(client, AI_MODEL_ID, (p) => {
           setAiDownload({ percent: p.percent, started: true });
         });
+        if (nativeClient) {
+          // Idempotent start (Rust no-ops when Ready): this both loads the
+          // engine and surfaces the parsed cpuFallback verdict (R5.8) BEFORE
+          // any page runs. The gate never silently degrades.
+          await client.ensureLoaded(AI_MODEL_ID, () => {});
+          const st = await getNativeStatus();
+          if (st?.cpuFallback && !cpuFallbackAcked) {
+            setCpuGate(true);
+            setStep('config');
+            return;
+          }
+        }
         setAiPhase('loading');
         const out = await runAiPages(
           client,
@@ -326,7 +357,15 @@ export function OcrTool() {
         setAiPhase('done');
         setStep('done');
       } catch (err) {
-        setAiError(err instanceof Error ? err.message : String(err));
+        if (nativeClient) {
+          // Classified banner copy (R5.7): the typed error's NAME picks the
+          // i18n key; the message rides as {{detail}}.
+          const mapped = toNativeEngineError(err);
+          const key = NATIVE_ERROR_KEYS[mapped.name];
+          setAiError(key ? t(key, { detail: mapped.message }) : mapped.message);
+        } else {
+          setAiError(err instanceof Error ? err.message : String(err));
+        }
         setAiPhase('error');
         setStep('done');
       } finally {
@@ -625,6 +664,42 @@ export function OcrTool() {
           <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
             {t('ocr.native_notice')}
           </p>
+        )}
+        {/* Smart suggestion (R5.1/D3): desktop-only, weak-engine triggers,
+            dismissable; CTA selects the native radio. */}
+        <NativeSuggestCard onUse={() => setEngine('ai-native')} />
+        {/* R5.8 CPU-fallback first-run gate: explicit continue/abort, never a
+            silent CPU degrade. */}
+        {engine === 'ai-native' && cpuGate && (
+          <div className="grid gap-2 rounded-lg border border-amber-600/40 bg-amber-500/10 px-3.5 py-3 text-sm" role="alert" data-testid="native-cpu-gate">
+            <p className="font-semibold">{t('ocr.native_cpu_gate_title')}</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400">{t('ocr.native_cpu_gate_body')}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="native-cpu-gate-continue"
+                className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent"
+                onClick={() => {
+                  cpuFallbackAcked = true;
+                  setCpuGate(false);
+                  void runAi(1, [], AI_TUNING_PRESETS[aiTuning]);
+                }}
+              >
+                {t('ocr.native_cpu_gate_continue')}
+              </button>
+              <button
+                type="button"
+                data-testid="native-cpu-gate-abort"
+                className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm"
+                onClick={() => {
+                  setCpuGate(false);
+                  setEngine('ai');
+                }}
+              >
+                {t('ocr.native_cpu_gate_abort')}
+              </button>
+            </div>
+          </div>
         )}
         {engine === 'ai' && (
           <>

@@ -27,7 +27,7 @@ async function clearAiModel(deps: StorageDeps): Promise<void> {
   await deps.deleteCacheStore(AI_CACHE_STORE);
 }
 
-const ROW_ORDER: StorageRowId[] = ['ai-model', 'ocr-assets', 'ocr-idb', 'precache'];
+const ROW_ORDER: StorageRowId[] = ['ai-model', 'ocr-assets', 'ocr-idb', 'precache', 'native-engine'];
 
 function rowTitleKey(id: StorageRowId): string {
   return `settings.row_${id.replace(/-/g, '_')}`;
@@ -84,6 +84,8 @@ export function StorageManager() {
         } else if (id === 'precache') {
           await deletePrecacheAndReload(deps);
           return;
+        } else if (id === 'native-engine') {
+          await deps.deleteNativeEngine();
         }
         refresh();
       } finally {

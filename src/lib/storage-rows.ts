@@ -34,7 +34,7 @@ const OWNED_CACHE_STORES = new Set([AI_CACHE_STORE, OCR_CACHE_NAME]);
 const OWNED_DBS = new Set([TESSERACT_IDB_NAME, BENCHMARK_DB]);
 const PRECACHE_PREFIX = 'workbox-precache-v2-';
 
-export type StorageRowId = 'ai-model' | 'ocr-assets' | 'ocr-idb' | 'precache';
+export type StorageRowId = 'ai-model' | 'ocr-assets' | 'ocr-idb' | 'precache' | 'native-engine';
 
 export interface StorageRow {
   id: StorageRowId;
@@ -67,6 +67,11 @@ export interface StorageDeps {
   /** Bytes inside the tesseract IDB, or null when the db has no data. */
   ocrIdbBytes(): Promise<number | null>;
   aiModelBytes(): Promise<number>;
+  /** v0.6.0 (desktop only, review F12): engine+cuda+model bytes and
+   *  presence from native_engine_status. */
+  nativeEngineBytes(): Promise<{ bytes: number; present: boolean }>;
+  /** Frees the whole native install (engine + cuda + model), bytes freed. */
+  deleteNativeEngine(): Promise<number>;
   deleteCacheStore(name: string): Promise<boolean>;
   deleteDatabase(name: string): Promise<void>;
 }
@@ -127,6 +132,16 @@ export async function collectStorageSnapshot(deps: StorageDeps): Promise<Storage
     } else {
       rows.push({ id: 'precache', bytes: 0, present: false, disabled: false });
     }
+  } else {
+    // The native-engine row is DESKTOP-only (review F12, mirroring the
+    // precache gate): engine + cuda + model bytes under the local-data root.
+    const native = await deps.nativeEngineBytes();
+    rows.push({
+      id: 'native-engine',
+      bytes: native.bytes,
+      present: native.present,
+      disabled: false,
+    });
   }
 
   const unknownCaches = cacheNames.filter(
@@ -150,6 +165,11 @@ export async function deleteOcrRuntime(deps: StorageDeps): Promise<void> {
 /** Delete only the gunzipped IDB copies (the cache store keeps the pins). */
 export async function deleteOcrIdb(deps: StorageDeps): Promise<void> {
   await deps.deleteDatabase(TESSERACT_IDB_NAME);
+}
+
+/** Delete the native-engine row: stop + free engine/cuda/model (R5.4). */
+export async function deleteNativeEngineRow(deps: StorageDeps): Promise<number> {
+  return await deps.deleteNativeEngine();
 }
 
 /** Byte size of a Cache API store, content-length first, body fallback. */
@@ -248,6 +268,16 @@ export function defaultStorageDeps(): StorageDeps {
     },
     ocrIdbBytes: measureTesseractIdb,
     aiModelBytes: cachedModelBytes,
+    async nativeEngineBytes() {
+      if (!isTauri()) return { bytes: 0, present: false };
+      const { getNativeStorageInfo } = await import('./ai-native-client');
+      return await getNativeStorageInfo();
+    },
+    async deleteNativeEngine() {
+      if (!isTauri()) return 0;
+      const { nativeEngineDeleteAll } = await import('./ai-native-client');
+      return await nativeEngineDeleteAll();
+    },
     async deleteCacheStore(name) {
       try {
         return typeof caches === 'undefined' ? false : await caches.delete(name);

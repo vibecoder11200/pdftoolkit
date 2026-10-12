@@ -94,11 +94,10 @@ describe('native client state machine', () => {
     });
     const client = new AiNativeClient();
     await client.downloadModel('glm-ocr', () => {});
-    expect(order.map(([cmd, kind]) => `${cmd}:${kind ?? '-'}`)).toEqual([
-      'native_engine_status:-',
-      'native_engine_download:engine',
-      'native_engine_download:model',
-    ]);
+    const downloads = order.filter(([cmd]) => cmd === 'native_engine_download');
+    expect(downloads.map(([, kind]) => kind)).toEqual(['engine', 'model']);
+    // Engine download happens only AFTER the presence reads, never before.
+    expect(order[0][0]).toBe('native_engine_status');
   });
 
   it('downloadModel maps Channel frames onto the DownloadProgress shape', async () => {

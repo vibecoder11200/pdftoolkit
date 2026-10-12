@@ -200,6 +200,38 @@ function AdapterRow({
   );
 }
 
+/** The native sidecar's benchmark record (fingerprint 'native', R5.5):
+ *  labeled by its RECORDED backend — a cpu-fallback run says CPU, never
+ *  Vulkan (review F14 honesty). Renders nothing on web or when unmeasured. */
+function NativeBenchRow() {
+  const { t } = useTranslation();
+  const [rec, setRec] = useState<BenchmarkRecord | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void createBenchmarkStore()
+      .loadAll()
+      .then((all) => {
+        const r = all[AI_MODEL_ID]?.['native'];
+        if (!cancelled && r && r.condition === 'native') setRec(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!rec) return null;
+  const backend = rec.backend ?? 'cpu';
+  return (
+    <p className="text-xs text-text-muted" data-testid="settings-bench-native">
+      {t('settings.native_bench', {
+        tokens: rec.tokPerSecWarm,
+        backend: backend.toUpperCase(),
+        date: new Date(rec.measuredAt).toLocaleString(),
+      })}
+    </p>
+  );
+}
+
 export function HardwarePanel() {
   const { t } = useTranslation();
   const [state, setState] = useState<HardwareState | null>(null);
@@ -556,6 +588,10 @@ export function HardwarePanel() {
           ) : (
             <p className="text-xs text-text-muted">{t('settings.hw_no_bench')}</p>
           )}
+          {/* v0.6.0 (R5.5): the native sidecar's OWN record — fingerprint
+              'native', honest backend label. Never a measure button (native
+              benchmarks happen through real tool runs, same as web). */}
+          <NativeBenchRow />
           {stale ? (
             <p className="text-xs text-amber-600" data-testid="settings-bench-stale">
               {t('settings.hw_stale')}

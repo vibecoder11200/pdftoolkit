@@ -3,6 +3,7 @@ import {
   OCR_CACHE_NAME,
   TESSERACT_IDB_NAME,
   collectStorageSnapshot,
+  deleteNativeEngineRow,
   deleteOcrIdb,
   deleteOcrRuntime,
   type StorageDeps,
@@ -32,6 +33,8 @@ function makeDeps(over: Partial<StorageDeps> = {}): StorageDeps {
     dbNames: async () => [],
     ocrIdbBytes: async () => null,
     aiModelBytes: async () => 0,
+    nativeEngineBytes: async () => ({ bytes: 0, present: false }),
+    deleteNativeEngine: async () => 0,
     deleteCacheStore: async () => true,
     deleteDatabase: async () => undefined,
     ...over,
@@ -96,9 +99,33 @@ describe('collectStorageSnapshot — owned allowlist rows', () => {
     expect(snap.rows.find((r) => r.id === 'precache')?.disabled).toBe(true);
   });
 
-  it('desktop (tauri): the precache row does not exist at all', async () => {
+  it('desktop (tauri): the precache row does not exist at all; native-engine does', async () => {
     const snap = await collectStorageSnapshot(makeDeps({ tauri: true, cacheNames: async () => [OUR_PRECACHE] }));
-    expect(snap.rows.map((r) => r.id)).toEqual(['ai-model', 'ocr-assets', 'ocr-idb']);
+    expect(snap.rows.map((r) => r.id)).toEqual(['ai-model', 'ocr-assets', 'ocr-idb', 'native-engine']);
+  });
+
+  it('desktop native-engine row: sizes sum + presence from the status read (R5.4)', async () => {
+    const snap = await collectStorageSnapshot(
+      makeDeps({
+        tauri: true,
+        nativeEngineBytes: async () => ({ bytes: 33_000_000 + 1_400_000_000, present: true }),
+      }),
+    );
+    expect(snap.rows.find((r) => r.id === 'native-engine')).toMatchObject({
+      present: true,
+      bytes: 33_000_000 + 1_400_000_000,
+    });
+    // Web never sees the row (deps.tauri gate, review F12).
+    const web = await collectStorageSnapshot(makeDeps());
+    expect(web.rows.find((r) => r.id === 'native-engine')).toBeUndefined();
+  });
+
+  it('deleteNativeEngine is the row delete flow (bytes freed returned)', async () => {
+    let called = 0;
+    await deleteNativeEngineRow(
+      makeDeps({ deleteNativeEngine: async () => (called += 1_000) }),
+    );
+    expect(called).toBe(1_000);
   });
 });
 

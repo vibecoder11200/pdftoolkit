@@ -60,6 +60,29 @@ export async function getNativeStatus(): Promise<NativeStatus | null> {
   }
 }
 
+/** Storage-manager row inputs (R5.4): total install bytes + presence. */
+export async function getNativeStorageInfo(): Promise<{ bytes: number; present: boolean }> {
+  if (!isTauri()) return { bytes: 0, present: false };
+  const st = await getNativeStatus();
+  if (!st) return { bytes: 0, present: false };
+  return {
+    bytes: st.sizes.engine + st.sizes.cuda + st.sizes.model,
+    present: st.enginePresent || st.modelPresent || st.cudaPresent,
+  };
+}
+
+/** Storage-manager delete (R5.4): stop the engine, free all three installs. */
+export async function nativeEngineDeleteAll(): Promise<number> {
+  if (!isTauri()) return 0;
+  const { invoke } = await core();
+  await invoke('native_cancel', { kind: 'engine' }).catch(() => {});
+  let freed = 0;
+  for (const kind of ['model', 'engine', 'cuda'] as const) {
+    freed += await invoke<number>('native_engine_delete', { kind }).catch(() => 0);
+  }
+  return freed;
+}
+
 export class AiNativeClient implements AiRunClient {
   /** Cumulative token count of the current run. The web onToken fires PER
    *  TOKEN; native frames batch ~40ms of tokens (review F4), so consumers
@@ -111,25 +134,44 @@ export class AiNativeClient implements AiRunClient {
     onProgress: (p: DownloadProgress) => void,
   ): Promise<{ bytes: number; downloaded: number }> {
     this.ensureDesktop();
-    const { invoke } = await core();
-    const status = await invoke<NativeStatus>('native_engine_status').catch(
-      (e: unknown) => {
-        throw toNativeEngineError(e);
-      },
-    );
     let downloaded = 0;
     let total = 0;
-    if (!status.enginePresent) {
-      const r = await this.downloadKind('engine', onProgress);
+    if (!(await this.isCached(_modelId))) {
+      if (!(await this.engineInstalled())) {
+        const r = await this.downloadEngine(onProgress);
+        downloaded += r.downloaded;
+        total += r.bytes;
+      }
+      const r = await this.downloadModelOnly(onProgress);
       downloaded += r.downloaded;
-      total += r.total;
-    }
-    if (!status.modelPresent) {
-      const r = await this.downloadKind('model', onProgress);
-      downloaded += r.downloaded;
-      total += r.total;
+      total += r.bytes;
     }
     return { bytes: total, downloaded };
+  }
+
+  private async engineInstalled(): Promise<boolean> {
+    const status = await getNativeStatus();
+    return !!status && status.enginePresent;
+  }
+
+  /** Settings-card per-kind buttons (R5.2) — same single-flight registry. */
+  async downloadEngine(onProgress: (p: DownloadProgress) => void): Promise<{ bytes: number; downloaded: number }> {
+    this.ensureDesktop();
+    const r = await this.downloadKind('engine', onProgress);
+    return { bytes: r.total, downloaded: r.downloaded };
+  }
+
+  async downloadModelOnly(onProgress: (p: DownloadProgress) => void): Promise<{ bytes: number; downloaded: number }> {
+    this.ensureDesktop();
+    const r = await this.downloadKind('model', onProgress);
+    return { bytes: r.total, downloaded: r.downloaded };
+  }
+
+  /** CUDA opt-in add-on (R5.2): the cuda-12.4 engine zip + cudart DLLs. */
+  async downloadCuda(onProgress: (p: DownloadProgress) => void): Promise<{ bytes: number; downloaded: number }> {
+    this.ensureDesktop();
+    const r = await this.downloadKind('cuda', onProgress);
+    return { bytes: r.total, downloaded: r.downloaded };
   }
 
   private downloadKind(
@@ -208,6 +250,31 @@ export class AiNativeClient implements AiRunClient {
       },
     );
     return model + engine;
+  }
+
+  /** Settings-card per-kind delete (R5.2): cancel-then-delete, bytes freed.
+   *  A running engine is stopped first (the Rust delete refuses otherwise). */
+  async deleteKind(kind: NativeDownloadKind): Promise<number> {
+    this.ensureDesktop();
+    const { invoke } = await core();
+    await invoke('native_cancel', { kind }).catch(() => {});
+    return await invoke<number>('native_engine_delete', { kind }).catch((e: unknown) => {
+      throw toNativeEngineError(e);
+    });
+  }
+
+  /** One-shot `--list-devices` diagnostics (R4.1), cached Rust-side. */
+  async probeDevices(): Promise<string[]> {
+    this.ensureDesktop();
+    const { invoke } = await core();
+    return await invoke<string[]>('native_engine_probe').catch(() => []);
+  }
+
+  /** Manual graceful stop (native_cancel 'engine' on a running engine). */
+  async stop(): Promise<void> {
+    this.ensureDesktop();
+    const { invoke } = await core();
+    await invoke('native_cancel', { kind: 'engine' }).catch(() => {});
   }
 
   async ocrPage(
