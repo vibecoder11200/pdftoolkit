@@ -224,6 +224,12 @@ This project is indexed by GitNexus as **pdftoolkit** (2860 symbols, 7168 relati
   and rejects unnormalized/`\\?\` paths (store::normalize). llamaTag is
   pinned (`PINNED_LLAMA_TAG`) and asserted against the manifest in cargo
   tests + against the authenticated `/props` `build_info` at every start.
+- Startup classification (`classify_startup_exit`): the stderr-tail
+  keywords (`classify_stderr_tail`) outrank BOTH the unix signal and the
+  exit code on every platform — a real GGML assert dies via `abort()`
+  (SIGABRT on unix) with the telltale line on stderr, and the signal
+  branch must not mask it as `Crashed(-6)`. Only a SIGKILL with an empty
+  tail keeps its special `BlockedByOs` meaning.
 - Desktop native e2e specs are `*.desktop.e2e.spec.ts` and MUST use the
   `tests/helpers/tauri-mock.ts` seam (registry-based `transformCallback` +
   `{message,index}`/`{end,index}` frame shapes — byte-compat with the real

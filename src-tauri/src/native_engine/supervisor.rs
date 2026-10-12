@@ -305,6 +305,40 @@ fn tail_contains(tail: &VecDeque<String>, needles: &[&str]) -> bool {
     needles.iter().any(|n| joined.contains(n))
 }
 
+/// Stderr-keyword classification, shared by the signal and exit-code paths:
+/// the tail says WHY the engine died, so it outranks the raw signal/code on
+/// BOTH platforms (a real GGML assert aborts → SIGABRT on unix — without
+/// this ordering the signal branch would mask it as `Crashed(-6)`).
+fn classify_stderr_tail(tail: &VecDeque<String>) -> Option<EngineError> {
+    if tail_contains(tail, LOADER_KEYWORDS) {
+        let detail = tail
+            .iter()
+            .find(|l| {
+                l.to_lowercase().contains("glibc")
+                    || l.to_lowercase().contains("shared object")
+                    || l.to_lowercase().contains("image not found")
+            })
+            .cloned()
+            .unwrap_or_default();
+        return Some(EngineError::OsTooOld(detail));
+    }
+    if tail_contains(tail, OOM_KEYWORDS) {
+        return Some(EngineError::Oom);
+    }
+    if tail_contains(tail, &["ggml_assert", "backend error"]) {
+        let detail = tail
+            .iter()
+            .find(|l| {
+                l.to_lowercase().contains("ggml_assert")
+                    || l.to_lowercase().contains("backend error")
+            })
+            .cloned()
+            .unwrap_or_default();
+        return Some(EngineError::BackendFault(detail));
+    }
+    None
+}
+
 /// Phase-aware classification (spike 5.9): on Windows a FORCED KILL is exit
 /// code 1 with an empty tail — indistinguishable from a load failure by code
 /// alone. Exit DURING startup → load-failure classes; exit AFTER Ready →
@@ -320,35 +354,15 @@ fn classify_startup_exit(
         if sig == libc::SIGKILL && tail.is_empty() {
             return EngineError::BlockedByOs;
         }
+        if let Some(e) = classify_stderr_tail(tail) {
+            return e;
+        }
         return EngineError::Crashed(-sig);
     }
+    if let Some(e) = classify_stderr_tail(tail) {
+        return e;
+    }
     let code = status.code().unwrap_or(-1);
-    if tail_contains(tail, LOADER_KEYWORDS) {
-        let detail = tail
-            .iter()
-            .find(|l| {
-                l.to_lowercase().contains("glibc")
-                    || l.to_lowercase().contains("shared object")
-                    || l.to_lowercase().contains("image not found")
-            })
-            .cloned()
-            .unwrap_or_default();
-        return EngineError::OsTooOld(detail);
-    }
-    if tail_contains(tail, OOM_KEYWORDS) {
-        return EngineError::Oom;
-    }
-    if tail_contains(tail, &["ggml_assert", "backend error"]) {
-        let detail = tail
-            .iter()
-            .find(|l| {
-                l.to_lowercase().contains("ggml_assert")
-                    || l.to_lowercase().contains("backend error")
-            })
-            .cloned()
-            .unwrap_or_default();
-        return EngineError::BackendFault(detail);
-    }
     if code == 0 {
         return EngineError::LoadFailed("engine exited cleanly during startup".into());
     }
