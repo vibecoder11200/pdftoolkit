@@ -84,10 +84,11 @@ export async function nativeEngineDeleteAll(): Promise<number> {
 }
 
 export class AiNativeClient implements AiRunClient {
-  /** Cumulative token count of the current run. The web onToken fires PER
-   *  TOKEN; native frames batch ~40ms of tokens (review F4), so consumers
-   *  read the count from here instead of counting callbacks. Monotonic
-   *  across pages of a run; reset only by a fresh page load of the app. */
+  /** Cumulative token count across ALL runs of this app session. Native
+   *  frames batch ~40ms of tokens (review F4), so consumers read the count
+   *  from here instead of counting callbacks. Monotonic across pages AND
+   *  runs — snapshot a baseline at run start and render the delta
+   *  (review P2-2), or a second run inherits the first run's total. */
   tokenCount = 0;
 
   private ensureDesktop(): void {

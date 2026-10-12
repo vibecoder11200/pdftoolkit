@@ -163,8 +163,7 @@ pub fn remove_dir_freed(dir: &Path) -> std::io::Result<u64> {
 
 pub fn dir_size(dir: &Path) -> std::io::Result<u64> {
     let mut total = 0u64;
-    let stack = vec![dir.to_path_buf()];
-    let mut stack = stack;
+    let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&d) else {
             continue;

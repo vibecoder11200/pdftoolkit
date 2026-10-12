@@ -51,84 +51,42 @@ fn shared_client() -> &'static reqwest::Client {
 }
 
 /// Download + install one kind. A second call while one is running attaches
-/// to it (same outcome; no second writer, review F9).
+/// to it (same outcome; no second writer, review F9). Cancellation goes
+/// through the registry token: `native_cancel`/`delete` call `cancel_kind`,
+/// which flips the ACTIVE download's token.
 pub async fn download_kind(
     registry: &tokio::sync::Mutex<DownloadRegistry>,
     kind: Kind,
     app_local_data_dir: &std::path::Path,
     on_frame: &(dyn Fn(ProgressFrame) + Send + Sync),
-    external_cancel: &CancellationToken,
 ) -> Result<u64, String> {
     // Single-flight: attach if one is already running for this kind.
     {
         let reg = registry.lock().await;
         if let Some(active) = reg.active(kind) {
-            let mut rx = active.outcome.clone();
             drop(reg);
-            loop {
-                if matches!(*rx.borrow(), Outcome::Running) {
-                    if rx.changed().await.is_err() {
-                        return Err("download watcher dropped".into());
-                    }
-                } else {
-                    break;
-                }
-            }
-            return match rx.borrow().clone() {
-                Outcome::Done(n) => Ok(n),
-                Outcome::Failed(e) => Err(e),
-                Outcome::Cancelled => Err("download cancelled".into()),
-                Outcome::Running => Err("download state confused".into()),
-            };
+            return await_outcome(active.outcome.clone()).await;
         }
     }
 
     let token = CancellationToken::new();
-    // External cancel (native_cancel) flips the ACTIVE download's token too.
-    let ext = external_cancel.clone();
-    let linked = CancellationToken::new();
-    tokio::spawn({
-        let linked = linked.clone();
-        async move {
-            tokio::select! {
-                _ = ext.cancelled() => linked.cancel(),
-                _ = linked.cancelled() => {}
-            }
-        }
-    });
-
     let (tx, rx) = watch::channel(Outcome::Running);
     let mut reg = registry.lock().await;
     // Re-check under the lock (two callers may race past the first check).
     if let Some(active) = reg.active(kind) {
         drop(reg);
-        let mut rx2 = active.outcome.clone();
-        loop {
-            if matches!(*rx2.borrow(), Outcome::Running) {
-                if rx2.changed().await.is_err() {
-                    return Err("download watcher dropped".into());
-                }
-            } else {
-                break;
-            }
-        }
-        return match rx2.borrow().clone() {
-            Outcome::Done(n) => Ok(n),
-            Outcome::Failed(e) => Err(e),
-            Outcome::Cancelled => Err("download cancelled".into()),
-            Outcome::Running => Err("download state confused".into()),
-        };
+        return await_outcome(active.outcome.clone()).await;
     }
     reg.inner.insert(
         kind,
         ActiveDownload {
-            token: linked.clone(),
+            token: token.clone(),
             outcome: rx.clone(),
         },
     );
     drop(reg);
 
-    let result = run_kind(kind, app_local_data_dir, on_frame, &linked).await;
+    let result = run_kind(kind, app_local_data_dir, on_frame, &token).await;
     let outcome = match &result {
         Ok(n) => Outcome::Done(*n),
         Err(DownloadError::Cancelled) => Outcome::Cancelled,
@@ -136,10 +94,27 @@ pub async fn download_kind(
     };
     tx.send_replace(outcome);
     registry.lock().await.inner.remove(&kind);
-    // Keep the linked token alive in the registry only while running; the
-    // external link task ends when either side cancels.
-    let _ = token; // per-call token unused beyond linkage clarity
     result.map_err(|e| e.to_string())
+}
+
+/// The attach path shared by both single-flight checks: wait until the
+/// watched download leaves Running, then map its outcome to a Result.
+async fn await_outcome(mut rx: watch::Receiver<Outcome>) -> Result<u64, String> {
+    loop {
+        if matches!(*rx.borrow(), Outcome::Running) {
+            if rx.changed().await.is_err() {
+                return Err("download watcher dropped".into());
+            }
+        } else {
+            break;
+        }
+    }
+    match rx.borrow().clone() {
+        Outcome::Done(n) => Ok(n),
+        Outcome::Failed(e) => Err(e),
+        Outcome::Cancelled => Err("download cancelled".into()),
+        Outcome::Running => Err("download state confused".into()),
+    }
 }
 
 /// Cancel + AWAIT the in-flight download of `kind` (delete's first step,
@@ -323,7 +298,7 @@ async fn download_to_vec(
     on_frame: &(dyn Fn(ProgressFrame) + Send + Sync),
     token: &CancellationToken,
 ) -> Result<Vec<u8>, DownloadError> {
-    let bytes_on_disk = download::download_file(
+    download::download_file(
         shared_client(),
         url,
         staging,
@@ -333,6 +308,5 @@ async fn download_to_vec(
         token,
     )
     .await?;
-    let _ = bytes_on_disk;
-    std::fs::read(staging).map_err(DownloadError::Io)
+    tokio::fs::read(staging).await.map_err(DownloadError::Io)
 }

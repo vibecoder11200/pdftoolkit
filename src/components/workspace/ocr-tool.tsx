@@ -28,7 +28,7 @@ import { getNativeStatus, sharedNativeClient, type AiNativeClient } from '../../
 import { isTauri } from '../../lib/platform';
 import type { NativeStatus } from '../../lib/native-types';
 import { NativeSuggestCard } from './native-suggest';
-import { toNativeEngineError } from '../../lib/native-errors';
+import { NativeEngineError, toNativeEngineError } from '../../lib/native-errors';
 import { convertEngineOutput } from '../../lib/ai-markdown';
 import {
   AI_TUNING_PRESETS,
@@ -119,7 +119,7 @@ function gpuRequestLabel(
 }
 
 export function OcrTool() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { files, error, add, clear } = useDropFiles();
   const [step, setStep] = useState<Step>('pick');
   const [engine, setEngine] = useState<Engine>('tesseract');
@@ -289,6 +289,9 @@ export function OcrTool() {
       abortRef.current = false;
       const client = aiClient();
       const nativeClient = engine === 'ai-native' ? (client as AiNativeClient) : null;
+      // The native counter accumulates across runs (it lives on the shared
+      // client) — render the delta from this run's baseline (review P2-2).
+      const tokenBase = nativeClient ? nativeClient.tokenCount : 0;
       const bytes = files[0].bytes;
       const canvas = document.createElement('canvas');
       const scale = AI_DPI / 72;
@@ -338,7 +341,7 @@ export function OcrTool() {
             // the count lives on the client (review F4).
             onToken: () =>
               nativeClient
-                ? setAiTokens(nativeClient.tokenCount)
+                ? setAiTokens(nativeClient.tokenCount - tokenBase)
                 : setAiTokens((n) => n + 1),
             onCrash: (failedAtPage) => setAiCrashedAt(failedAtPage),
           },
@@ -359,10 +362,16 @@ export function OcrTool() {
       } catch (err) {
         if (nativeClient) {
           // Classified banner copy (R5.7): the typed error's NAME picks the
-          // i18n key; the message rides as {{detail}}.
+          // i18n key; the message rides as {{detail}}. Untyped CommandError
+          // kinds fall through to a kind-derived key (review P2-3).
           const mapped = toNativeEngineError(err);
-          const key = NATIVE_ERROR_KEYS[mapped.name];
-          setAiError(key ? t(key, { detail: mapped.message }) : mapped.message);
+          const kind = mapped instanceof NativeEngineError ? mapped.kind : undefined;
+          const key =
+            NATIVE_ERROR_KEYS[mapped.name] ??
+            (kind ? `ocr.native_err_${kind.replace(/-/g, '_')}` : null);
+          setAiError(
+            key && i18n.exists(key) ? t(key, { detail: mapped.message }) : mapped.message,
+          );
         } else {
           setAiError(err instanceof Error ? err.message : String(err));
         }

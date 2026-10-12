@@ -191,7 +191,6 @@ async fn real_download_extract_and_start_reaches_ready() {
         pdftoolkit_lib::native_engine::store::Kind::Engine,
         &app_data,
         &noop,
-        &CancellationToken::new(),
     )
     .await
     .expect("engine download+install");
@@ -216,7 +215,6 @@ async fn real_download_extract_and_start_reaches_ready() {
         pdftoolkit_lib::native_engine::store::Kind::Model,
         &app_data,
         &noop,
-        &CancellationToken::new(),
     )
     .await
     .expect("model download");

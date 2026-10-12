@@ -75,7 +75,7 @@ pub struct NativeStatus {
     pub last_error: Option<CommandError>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SizeBreakdown {
     pub engine: u64,
@@ -188,6 +188,22 @@ pub async fn native_engine_status(
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| store::model_dir(&ald));
+    // Three recursive directory walks (up to GBs) — one blocking task, off
+    // the async workers.
+    let sizes = {
+        let (engine_dir, cuda_dir, model_dir) = (
+            paths.engine_dir.clone(),
+            cuda_dir.clone(),
+            model_dir.clone(),
+        );
+        tokio::task::spawn_blocking(move || SizeBreakdown {
+            engine: store::dir_size(&engine_dir).unwrap_or(0),
+            cuda: store::dir_size(&cuda_dir).unwrap_or(0),
+            model: store::dir_size(&model_dir).unwrap_or(0),
+        })
+        .await
+        .unwrap_or_default()
+    };
     Ok(NativeStatus {
         phase: phase_key(&phase).into(),
         backend,
@@ -196,11 +212,7 @@ pub async fn native_engine_status(
         engine_present: store::engine_present(&paths.engine_dir, super::install::SERVER_BINARY),
         model_present: store::model_present(&model_dir, &model_file_names()),
         cuda_present: store::engine_present(&cuda_dir, super::install::SERVER_BINARY),
-        sizes: SizeBreakdown {
-            engine: store::dir_size(&paths.engine_dir).unwrap_or(0),
-            cuda: store::dir_size(&cuda_dir).unwrap_or(0),
-            model: store::dir_size(&model_dir).unwrap_or(0),
-        },
+        sizes,
         last_error,
     })
 }
@@ -219,7 +231,12 @@ pub async fn native_engine_probe(
         }
     }
     let paths = paths_for(&state, &app)?;
-    let devices = supervisor::probe_devices(&paths, None);
+    // Spawns a process and can take seconds — off the async workers.
+    let paths_for_probe = paths.clone();
+    let devices =
+        tokio::task::spawn_blocking(move || supervisor::probe_devices(&paths_for_probe, None))
+            .await
+            .unwrap_or_default();
     *state.probe_devices.lock().unwrap() = devices.clone();
     Ok(devices)
 }
@@ -235,18 +252,11 @@ pub async fn native_engine_download(
     let on_frame = move |f: ProgressFrame| {
         let _ = on_progress.send(f);
     };
-    // Cancellation flows through the registry's linked token
-    // (native_cancel → flow::cancel_kind); this per-call token is a never-
-    // cancelled placeholder by design.
-    flow::download_kind(
-        &state.downloads,
-        kind,
-        &ald,
-        &on_frame,
-        &CancellationToken::new(),
-    )
-    .await
-    .map_err(|reason| CommandError::of("download", reason))
+    // Cancellation goes through the registry token (native_cancel →
+    // flow::cancel_kind), not a per-call argument.
+    flow::download_kind(&state.downloads, kind, &ald, &on_frame)
+        .await
+        .map_err(|reason| CommandError::of("download", reason))
 }
 
 /// THE one cancel command (R4.1, review M5): kind 'ocr' cancels the
@@ -373,9 +383,12 @@ pub async fn native_ocr_page(
     };
 
     let cancel = CancellationToken::new();
-    *state.page_cancel.lock().unwrap() = Some(cancel.clone());
     supervisor::begin_page(state.inner());
     let _slot = state.page_slot.lock().await;
+    // Registered only once the slot is OURS: page_cancel is THE cancel
+    // target for the page now running — a queued caller must never
+    // overwrite the in-flight page's token (review P2-1).
+    *state.page_cancel.lock().unwrap() = Some(cancel.clone());
     let on_frame = move |f: TokenFrame| {
         let _ = on_token.send(f);
     };
@@ -417,6 +430,10 @@ pub async fn native_ocr_page(
         other => other,
     };
     supervisor::end_page(state.inner());
-    *state.page_cancel.lock().unwrap() = None;
+    // Clear only while it is still ours (native_cancel took the token).
+    let mut pc = state.page_cancel.lock().unwrap();
+    if pc.as_ref() == Some(&cancel) {
+        *pc = None;
+    }
     result.map_err(CommandError::from)
 }

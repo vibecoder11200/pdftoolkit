@@ -11,6 +11,11 @@ import { WorkerCrashError } from './ai-worker-client';
  * changes.
  */
 export class NativeEngineError extends WorkerCrashError {
+  /** The IPC CommandError kind this error was mapped from ('load-failed',
+   *  'busy', …) — unset on locally-constructed errors. UI surfaces derive
+   *  an i18n key from it when the name-based map misses (review P2-3). */
+  kind?: string;
+
   constructor(message: string, cause?: unknown) {
     super(cause);
     this.name = 'NativeEngineError';
@@ -80,23 +85,28 @@ export function toNativeEngineError(err: unknown): Error {
   const shape = err as { kind?: unknown; detail?: unknown };
   if (shape && typeof shape === 'object' && typeof shape.kind === 'string') {
     const detail = typeof shape.detail === 'string' ? shape.detail : null;
-    switch (shape.kind) {
+    const kind: string = shape.kind;
+    const withKind = (e: NativeEngineError): NativeEngineError => {
+      e.kind = kind;
+      return e;
+    };
+    switch (kind) {
       case 'quarantined':
-        return new QuarantinedError(detail);
+        return withKind(new QuarantinedError(detail));
       case 'oom':
-        return new OomError();
+        return withKind(new OomError());
       case 'crashed':
-        return new CrashedError(detail);
+        return withKind(new CrashedError(detail));
       case 'download':
-        return new DownloadFailedError(detail);
+        return withKind(new DownloadFailedError(detail));
       case 'start-timeout':
-        return new StartTimeoutError();
+        return withKind(new StartTimeoutError());
       case 'os-blocked':
-        return new BlockedByOsError();
+        return withKind(new BlockedByOsError());
       case 'os-too-old':
-        return new OsTooOldError(detail);
+        return withKind(new OsTooOldError(detail));
       default:
-        return new NativeEngineError(detail ?? `Native engine error: ${shape.kind}`, err);
+        return withKind(new NativeEngineError(detail ?? `Native engine error: ${kind}`, err));
     }
   }
   if (err instanceof Error) return err;

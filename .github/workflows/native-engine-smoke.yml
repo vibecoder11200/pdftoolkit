@@ -75,11 +75,13 @@ jobs:
           done
           ls -la temp/native-engine-spike
 
-      # (a) The phase 2/3/4 suites run NATIVELY on this OS — today those
-      # paths are only compile-checked off-Windows.
-      - name: cargo test (native supervision + storage + proxy suites)
+      # (a) The phase 2/3/4 suites run NATIVELY on this OS — the lib tests
+      # too (tar/symlink extraction, manifest pin drift, SSE parser,
+      # downloader resume): review P1-1, those used to run only on Windows
+      # while macOS/Linux engines ship as tar.gz.
+      - name: cargo test (lib + native supervision + storage suites)
         working-directory: src-tauri
-        run: cargo test --test native_supervision --test native_storage
+        run: cargo test --lib --test native_supervision --test native_storage
 
       # (b) REAL engine smoke: Ready (authenticated probe) → one OCR page →
       # teardown → ZERO orphan llama-server processes (R6.6 enumeration).

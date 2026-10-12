@@ -54,8 +54,12 @@ test('home renders at / with desktop intake active (basename follows desktop roo
   await page.goto('/');
   await page.getByRole('button', { name: 'Kéo PDF hoặc ảnh vào đây' }).waitFor();
   await expect(page.getByTestId('footer-version')).toContainText(PKG_VERSION);
-  const cmds = (await readCalls(page)).map((c) => c.cmd);
-  expect(cmds).toContain('initial_open_files');
+  // The intake invoke rides three awaited dynamic imports after mount —
+  // poll for it instead of racing first render (any chunk-graph shift can
+  // flip that coin; the phase-6 cancel/deliver asserts needed the same).
+  await expect
+    .poll(async () => (await readCalls(page)).map((c) => c.cmd))
+    .toContain('initial_open_files');
 });
 
 test('deep link /tools/ocr renders (no basename blank-window regression)', async ({ page }) => {

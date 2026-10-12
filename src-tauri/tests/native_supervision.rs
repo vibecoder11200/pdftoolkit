@@ -395,7 +395,9 @@ async fn idle_dispose_never_fires_under_a_busy_page() {
         state.last_error.lock().unwrap()
     );
     supervisor::end_page(&state);
-    // Next idle tick (re-armed at end_page) disposes.
+    // end_page only decrements the busy counter — the re-arm comes from the
+    // idle timer itself: its tick fired while busy and re-armed, and the
+    // NEXT tick (counter now 0, still Ready) disposes.
     let phase = wait_phase(&state, 5, |p| matches!(p, EnginePhase::Stopped)).await;
     assert!(matches!(phase, EnginePhase::Stopped));
 }

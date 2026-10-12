@@ -252,7 +252,7 @@ fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<Vec<MarkerFile>, InstallE
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if rel.to_string_lossy() == super::install::SERVER_BINARY {
+            if rel.to_string_lossy() == SERVER_BINARY {
                 let mut perms = std::fs::metadata(&target)
                     .map_err(InstallError::Io)?
                     .permissions();

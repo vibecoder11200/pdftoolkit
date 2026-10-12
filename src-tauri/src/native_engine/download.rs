@@ -161,9 +161,18 @@ pub async fn download_file(
         if part.is_file() {
             // F10: stream the existing prefix through the hasher so the
             // final digest covers the WHOLE file (no post-completion pass).
-            let mut f = std::fs::File::open(&part).map_err(DownloadError::Io)?;
-            std::io::copy(&mut f, &mut hash).map_err(DownloadError::Io)?;
-            resumed = part_len;
+            // Off the async workers — the .part can be gigabytes.
+            let prefix = part.clone();
+            (hash, resumed) =
+                tokio::task::spawn_blocking(move || -> std::io::Result<(Sha256, u64)> {
+                    let mut f = std::fs::File::open(&prefix)?;
+                    let mut h = Sha256::new();
+                    std::io::copy(&mut f, &mut h)?;
+                    Ok((h, part_len))
+                })
+                .await
+                .map_err(|e| DownloadError::Io(std::io::Error::other(e.to_string())))?
+                .map_err(DownloadError::Io)?;
         }
     }
 

@@ -47,29 +47,17 @@ async fn single_flight_second_call_attaches_to_the_running_download() {
 
     let reg2 = registry.clone();
     let app_data2 = app_data.clone();
-    let first = tokio::spawn(async move {
-        flow::download_kind(
-            &reg2,
-            Kind::Model,
-            &app_data2,
-            &noop,
-            &CancellationToken::new(),
-        )
-        .await
-    });
+    let first =
+        tokio::spawn(
+            async move { flow::download_kind(&reg2, Kind::Model, &app_data2, &noop).await },
+        );
     // Give the first call a beat to attach, then a SECOND call must attach
     // to the SAME download (not start a second writer).
     let reg3 = registry.clone();
-    let second = tokio::spawn(async move {
-        flow::download_kind(
-            &reg3,
-            Kind::Model,
-            &app_data,
-            &noop,
-            &CancellationToken::new(),
-        )
-        .await
-    });
+    let second =
+        tokio::spawn(
+            async move { flow::download_kind(&reg3, Kind::Model, &app_data, &noop).await },
+        );
     tokio::time::sleep(Duration::from_millis(150)).await;
     // Exactly ONE active entry for the kind.
     assert_eq!(registry.lock().await.inner.len(), 1);
