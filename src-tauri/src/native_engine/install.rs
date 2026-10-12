@@ -341,9 +341,10 @@ fn install_symlink(dest: &Path, rel: &Path, target: &str) -> Result<(), InstallE
             }
         }
         // A previously-created in-tree link must not be able to relocate
-        // this one — neither the link's own ancestors nor the resolved
-        // target's may themselves be symlinks.
-        reject_symlinked_ancestors(dest, &depth)?;
+        // this one — no ANCESTOR of the link's own path may be a symlink.
+        // (The resolved TARGET is allowed to be/point through symlinks:
+        // llama.cpp tars chain versioning links, e.g. libggml.so →
+        // libggml.so.0 → libggml.so.0.9.5.)
         let link_depth: Vec<std::ffi::OsString> = rel
             .parent()
             .unwrap_or_else(|| Path::new(""))
@@ -651,13 +652,20 @@ mod tests {
             h.set_size(4);
             h.set_entry_type(tar::EntryType::Regular);
             h.set_cksum();
-            b.append_data(&mut h, "llama-b11553/libmtmd.so.1", &[0u8; 4][..])
+            b.append_data(&mut h, "llama-b11553/libmtmd.so.1.2", &[0u8; 4][..])
                 .unwrap();
+            // llama.cpp tars chain versioning links: .so → .so.1 → payload
             let mut lh = tar::Header::new_gnu();
             lh.set_size(0);
             lh.set_entry_type(tar::EntryType::Symlink);
             lh.set_cksum();
-            b.append_link(&mut lh, "llama-b11553/libmtmd.so", "libmtmd.so.1")
+            b.append_link(&mut lh, "llama-b11553/libmtmd.so.1", "libmtmd.so.1.2")
+                .unwrap();
+            let mut lh2 = tar::Header::new_gnu();
+            lh2.set_size(0);
+            lh2.set_entry_type(tar::EntryType::Symlink);
+            lh2.set_cksum();
+            b.append_link(&mut lh2, "llama-b11553/libmtmd.so", "libmtmd.so.1")
                 .unwrap();
             b.finish().unwrap();
         }
@@ -683,9 +691,17 @@ mod tests {
             std::fs::read_link(&link_path).unwrap().to_string_lossy(),
             "libmtmd.so.1"
         );
-        // The link is structure; only the regular file is hash-covered.
+        // The chain link THROUGH another symlink is exactly the real-tar
+        // shape — it must install too.
+        let chain_path = dest.join("libmtmd.so.1");
+        assert!(std::fs::symlink_metadata(&chain_path).unwrap().is_symlink());
+        assert_eq!(
+            std::fs::read_link(&chain_path).unwrap().to_string_lossy(),
+            "libmtmd.so.1.2"
+        );
+        // Links are structure; only the regular payload file is covered.
         assert_eq!(marker.files.len(), 1);
-        assert_eq!(marker.files[0].path, "libmtmd.so.1");
+        assert_eq!(marker.files[0].path, "libmtmd.so.1.2");
     }
 
     #[test]
