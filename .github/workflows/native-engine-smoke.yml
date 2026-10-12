@@ -1,0 +1,88 @@
+# Native engine smoke (v0.6.0 phase 6, R6.9): the ONLY macOS/Linux runtime
+# validation — native cargo tests + a REAL llama-server run per the committed
+# manifest. Deliberately downloads real assets (nightly + release-gate only,
+# NEVER on PRs — outside the e2e budget; review F13). Resolves the
+# Gatekeeper/quarantine (macOS) and loader/glibc (Linux) unknowns the Windows
+# spike cannot reach, and exercises the BlockedByOs/OsTooOld classifiers
+# against reality.
+name: native-engine-smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *' # nightly 03:00 UTC
+  workflow_call: # release-blocking: desktop-release.yml publish needs this
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # arm64 → macos-arm64/metal
+            key: macos-arm64/metal
+          - os: ubuntu-latest # x64 → linux-x64/vulkan (GPU-less: silent CPU fallback is EXPECTED — the run must still reach Ready)
+            key: linux-x64/vulkan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pins from the committed manifest
+        id: pins
+        shell: bash
+        run: |
+          KEY='${{ matrix.key }}'
+          ENGINE_URL=$(node -e "const m=require('./scripts/native-engine-manifest.json');console.log(m.engines['$KEY'].url)")
+          ENGINE_SHA=$(node -e "const m=require('./scripts/native-engine-manifest.json');console.log(m.engines['$KEY'].sha256)")
+          REV=$(node -e "console.log(require('./scripts/native-engine-manifest.json').model.revision)")
+          MODEL_URL=$(node -e "const m=require('./scripts/native-engine-manifest.json');console.log('https://huggingface.co/'+m.model.repo+'/resolve/'+m.model.revision+'/'+m.model.files[0].path)")
+          MMPROJ_URL=$(node -e "const m=require('./scripts/native-engine-manifest.json');console.log('https://huggingface.co/'+m.model.repo+'/resolve/'+m.model.revision+'/'+m.model.files[1].path)")
+          echo "engine_url=$ENGINE_URL" >> "$GITHUB_OUTPUT"
+          echo "engine_sha=$ENGINE_SHA" >> "$GITHUB_OUTPUT"
+          echo "model_rev=$REV" >> "$GITHUB_OUTPUT"
+          echo "model_url=$MODEL_URL" >> "$GITHUB_OUTPUT"
+          echo "mmproj_url=$MMPROJ_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GLM-OCR GGUFs (1.4 GB — keyed by the manifest revision)
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: model-cache
+          key: glm-ocr-gguf-${{ steps.pins.outputs.model_rev }}
+
+      - name: Lay out the spike dir the real smoke expects
+        shell: bash
+        run: |
+          mkdir -p temp/native-engine-spike/engine model-cache
+          curl -L --fail -o engine.asset "${{ steps.pins.outputs.engine_url }}"
+          echo "${{ steps.pins.outputs.engine_sha }}  engine.asset" > engine.sha256
+          # macOS ships `shasum`, not `sha256sum`.
+          sha256sum -c engine.sha256 || shasum -a 256 -c engine.sha256
+          # macOS/Linux tars carry a top folder (llama-<tag>/) — flatten.
+          tar xzf engine.asset -C temp/native-engine-spike/engine --strip-components=1
+          ls temp/native-engine-spike/engine | head
+
+      - name: Fetch GGUFs (cache hit skips the download)
+        shell: bash
+        run: |
+          for f in GLM-OCR-Q8_0.gguf mmproj-GLM-OCR-Q8_0.gguf; do
+            if [ ! -f "model-cache/$f" ]; then
+              if [ "$f" = "GLM-OCR-Q8_0.gguf" ]; then URL='${{ steps.pins.outputs.model_url }}'; else URL='${{ steps.pins.outputs.mmproj_url }}'; fi
+              curl -L --fail -o "model-cache/$f" "$URL"
+            fi
+            cp "model-cache/$f" "temp/native-engine-spike/$f"
+          done
+          ls -la temp/native-engine-spike
+
+      # (a) The phase 2/3/4 suites run NATIVELY on this OS — today those
+      # paths are only compile-checked off-Windows.
+      - name: cargo test (native supervision + storage + proxy suites)
+        working-directory: src-tauri
+        run: cargo test --test native_supervision --test native_storage
+
+      # (b) REAL engine smoke: Ready (authenticated probe) → one OCR page →
+      # teardown → ZERO orphan llama-server processes (R6.6 enumeration).
+      - name: real llama-server smoke (Ready → OCR page → zero orphans)
+        working-directory: src-tauri
+        run: cargo test --test native_real_smoke -- --ignored --test-threads 1

@@ -84,8 +84,14 @@ jobs:
           includeUpdaterJson: false
           args: --target ${{ matrix.target }}
 
+  native-smoke:
+    # v0.6.0 phase 6 (R6.9, validation V3): no app-v* release ships without
+    # a green REAL-engine pass on macOS and Linux — the run validates the
+    # Gatekeeper/glibc classifier paths the Windows spike cannot reach.
+    uses: ./.github/workflows/native-engine-smoke.yml
+
   publish:
-    needs: build
+    needs: [build, native-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **pdftoolkit** (2008 symbols, 4907 relationships, 164 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **pdftoolkit** (2860 symbols, 7168 relationships, 237 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -189,6 +189,48 @@ This project is indexed by GitNexus as **pdftoolkit** (2008 symbols, 4907 relati
   measured vs the hard 17MB precache budget) — `src/lib/ocr.ts` fetches them
   same-origin on first use into a Cache API store (web: offline after the
   first OCR run; desktop: always on disk via the bundle).
+
+### Native OCR engine invariants (v0.6.0, llama.cpp sidecar)
+
+- **The updater `on_before_exit` hook is MANDATORY for any child-process
+  feature** (Windows `exit(0)` bypasses RunEvent). DOCUMENTED DEVIATION:
+  tauri-plugin-updater 2.13.1 exposes `on_before_exit` ONLY on
+  `UpdaterBuilder` (updater.rs:407), never on the app-facing plugin
+  `Builder`, and `UpdaterExt::updater_builder()` is blanket-impl'd
+  (cannot override) — see the long comment at the plugin registration in
+  `src-tauri/src/lib.rs`. The engine invariant holds through the pre-decided
+  fallback: the child lives in a KILL_ON_JOB_CLOSE Job Object (kernel reaps
+  it at the exact moment the process dies on `exit(0)`), plus the startup
+  stray sweep. Do NOT "fix" the bare `.build()` without re-reading that
+  comment.
+- `restart_with_gpu_force` MUST call `shutdown_all` before its `exit(0)`s,
+  and the Unix startup stray sweep is mandatory (`std::process::exit` skips
+  the supervisor's Drop — review F6 of the v0.6.0 plan).
+- Engine binaries + GGUFs are pinned in `scripts/native-engine-manifest.json`
+  (committed; `scripts/sync-native-engine.mjs` re-pins API-only, `--check`
+  gates CI). NEVER commit engine/model binaries; NEVER precache them (17MB
+  SW budget). Extracted files are hash-mapped in `installed.json` markers
+  and re-verified at EVERY engine start (quarantine = tamper detection).
+- Engine storage lives under `app_local_data_dir()/pdftoolkit-native/` —
+  NEVER roaming `app_data_dir` (1.4GB must not sync).
+- The sidecar CSP is UNCHANGED by design: the webview never fetches the
+  sidecar — all traffic is proxied through Rust (`native_engine::ocr`), so
+  NO connect-src addition is ever needed. A PR touching the CSP triple
+  (index.html meta / desktop-csp plugin / tauri.conf.json) "for the native
+  engine" is a smell.
+- llama-server argv is FROZEN from the phase 1 spike (`SERVER_ARGS_TAIL` in
+  `native_engine/mod.rs`): b11553 removed `--no-log-colors` (→
+  `--log-colors off`), needs `--verbose` for the device/engagement lines,
+  and rejects unnormalized/`\\?\` paths (store::normalize). llamaTag is
+  pinned (`PINNED_LLAMA_TAG`) and asserted against the manifest in cargo
+  tests + against the authenticated `/props` `build_info` at every start.
+- Desktop native e2e specs are `*.desktop.e2e.spec.ts` and MUST use the
+  `tests/helpers/tauri-mock.ts` seam (registry-based `transformCallback` +
+  `{message,index}`/`{end,index}` frame shapes — byte-compat with the real
+  Channel is pinned by `tests/tauri-mock-channel.spec.ts` running the REAL
+  Channel class). Never a bespoke `__TAURI_INTERNALS__` in new specs.
+  `tests/src-purity.spec.ts` is the src↛tests import gate (tsconfig is a
+  single project — tsc does NOT enforce the boundary).
 
 ## 5. GitHub Pages deploy
 

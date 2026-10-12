@@ -840,6 +840,9 @@ export function OcrTool() {
                 className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
                 onClick={() => {
                   abortRef.current = true;
+                  // Native pages also flip the Rust CancellationToken so the
+                  // in-flight page rejects now instead of at the boundary.
+                  if (engine === 'ai-native') void sharedNativeClient().cancelPage();
                 }}
               >
                 {t('ocr.cancel_soft')}
@@ -956,13 +959,17 @@ export function OcrTool() {
           <>
             <p role="alert" className="text-sm text-tone-red">{t('ocr.ai_error', { message: aiError })}</p>
             {/* One-click fallback (R4.7): an explicit user action, never a
-                silent engine switch. */}
+                silent engine switch — it lands back in config ready to run
+                the in-app engine. */}
             {engine === 'ai-native' && (
               <button
                 type="button"
                 data-testid="ocr-native-fallback"
                 className="min-h-9 w-fit rounded-lg border border-border-strong px-3.5 text-sm"
-                onClick={() => setEngine('ai')}
+                onClick={() => {
+                  setEngine('ai');
+                  setStep('config');
+                }}
               >
                 {t('ocr.fallback_in_app')}
               </button>

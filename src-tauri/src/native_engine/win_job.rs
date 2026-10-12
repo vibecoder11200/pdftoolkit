@@ -114,11 +114,26 @@ pub fn close_handle(handle: isize) {
 /// child (a sweep runs at app START, before any new child of THIS process
 /// exists — see mod.rs).
 pub fn sweep_strays(engine_dir: &std::path::Path) {
+    for pid in enumerate_strays(engine_dir) {
+        unsafe {
+            let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if h != 0 {
+                TerminateProcess(h, 1);
+                CloseHandle(h);
+            }
+        }
+    }
+}
+
+/// Count-only variant (R6.6 orphan enumeration): pids of stray llama-server
+/// children running from OUR engine dir, alive right now. Never kills.
+pub fn enumerate_strays(engine_dir: &std::path::Path) -> Vec<u32> {
     let dir = engine_dir.to_string_lossy().to_lowercase();
+    let mut strays = Vec::new();
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot == 0 {
-            return;
+            return strays;
         }
         let mut entry: PROCESSENTRY32W = std::mem::zeroed();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
@@ -129,11 +144,7 @@ pub fn sweep_strays(engine_dir: &std::path::Path) {
                 if name.eq_ignore_ascii_case("llama-server.exe") {
                     if let Some(path) = process_image_path(entry.th32ProcessID) {
                         if path.to_string_lossy().to_lowercase().starts_with(&dir) {
-                            let h = OpenProcess(PROCESS_TERMINATE, 0, entry.th32ProcessID);
-                            if h != 0 {
-                                TerminateProcess(h, 1);
-                                CloseHandle(h);
-                            }
+                            strays.push(entry.th32ProcessID);
                         }
                     }
                 }
@@ -144,6 +155,7 @@ pub fn sweep_strays(engine_dir: &std::path::Path) {
         }
         CloseHandle(snapshot);
     }
+    strays
 }
 
 fn process_image_path(pid: u32) -> Option<std::path::PathBuf> {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSyncExternalStore } from 'react';
 import { aiTierEstimate } from '../lib/ai-run';
+import type { TierResolution } from '../lib/capability';
 import { getNativeStatus } from '../lib/ai-native-client';
 import {
   isNativeSuggestDismissed,
@@ -22,6 +23,19 @@ import { isTauri } from '../lib/platform';
  * non-activity read R4.6): the card mounts HIDDEN and reveals — it must
  * never flash ON then OFF (the wrong direction is a UI lie).
  */
+
+/** The D3 trigger rule, pure (truth-table tested). */
+export function nativeSuggestEligible(tier: TierResolution | null): boolean {
+  if (!tier) return false;
+  const rec = tier.benchmark;
+  const webMeasuredSlow =
+    tier.source === 'measured' &&
+    rec !== undefined &&
+    rec.condition !== 'native' &&
+    rec.tokPerSecWarm < 12;
+  return tier.tier === 'cpu' || tier.tier === 'none' || webMeasuredSlow;
+}
+
 export function useNativeSuggestVisible(): boolean {
   const dismissed = useSyncExternalStore(subscribeNativeSuggest, isNativeSuggestDismissed);
   const [visible, setVisible] = useState(false);
@@ -37,14 +51,7 @@ export function useNativeSuggestVisible(): boolean {
     void (async () => {
       let eligible = false;
       try {
-        const tier = await aiTierEstimate();
-        const rec = tier.benchmark;
-        const webMeasuredSlow =
-          tier.source === 'measured' &&
-          rec !== undefined &&
-          rec.condition !== 'native' &&
-          rec.tokPerSecWarm < 12;
-        eligible = tier.tier === 'cpu' || tier.tier === 'none' || webMeasuredSlow;
+        eligible = nativeSuggestEligible(await aiTierEstimate().catch(() => null));
       } catch {
         eligible = false;
       }

@@ -68,6 +68,57 @@ pub fn sweep_strays(engine_dir: &Path) {
     }
 }
 
+/// Count-only variant (R6.6 orphan enumeration): pids of OUR leftover
+/// children, alive right now. Never kills.
+pub fn enumerate_strays(engine_dir: &Path) -> Vec<i32> {
+    #[cfg(target_os = "linux")]
+    {
+        let dir_str = engine_dir.to_string_lossy().into_owned();
+        let mut strays = Vec::new();
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return strays;
+        };
+        for entry in entries.flatten() {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<i32>() else {
+                continue;
+            };
+            if pid == std::process::id() as i32 {
+                continue;
+            }
+            let proc_dir = std::path::PathBuf::from("/proc").join(pid.to_string());
+            let environ = std::fs::read_to_string(proc_dir.join("environ")).unwrap_or_default();
+            let cmdline = std::fs::read_to_string(proc_dir.join("cmdline")).unwrap_or_default();
+            let marker_prefix = format!("{}=", super::CHILD_MARKER_ENV);
+            let ours = environ.split('\0').any(|kv| kv.starts_with(&marker_prefix))
+                || cmdline.contains(&dir_str);
+            if ours {
+                strays.push(pid);
+            }
+        }
+        strays
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("pgrep")
+            .args(["-f"])
+            .arg(engine_dir.as_os_str())
+            .output()
+            .ok();
+        out.map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|l| l.trim().parse::<i32>().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = engine_dir;
+        Vec::new()
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn sweep_linux(engine_dir: &Path) {
     let dir_str = engine_dir.to_string_lossy().into_owned();

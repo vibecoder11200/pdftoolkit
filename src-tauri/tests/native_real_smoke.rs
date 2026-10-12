@@ -98,6 +98,7 @@ async fn real_llama_server_reaches_ready_then_survives_a_kill_and_teardown_reaps
     let state = Arc::new(NativeEngineState::new());
     // Spike cold start was 6.1 s — 4× + slack; the liveness anchor covers it.
     *state.startup_timeout_base.lock().unwrap() = Duration::from_secs(45);
+    let engine_dir = paths.engine_dir.clone();
     let phase = start(state.clone(), paths, true, None)
         .await
         .expect("real engine must reach Ready");
@@ -109,11 +110,16 @@ async fn real_llama_server_reaches_ready_then_survives_a_kill_and_teardown_reaps
         status.backend, status.devices, status.cpu_fallback
     );
     assert!(
-        matches!(
-            status.backend,
-            pdftoolkit_lib::native_engine::Backend::Vulkan
-        ),
-        "the motivating machine must engage the RTX 3050 via Vulkan"
+        // CI runners are GPU-less: the Vulkan build silently falls back to
+        // CPU (spike-documented) — engagement must still be PARSED, just
+        // not necessarily a GPU backend. The dev machine pins Vulkan.
+        std::env::var("CI").is_ok()
+            || matches!(
+                status.backend,
+                pdftoolkit_lib::native_engine::Backend::Vulkan
+            ),
+        "the motivating machine must engage the RTX 3050 via Vulkan (got {:?})",
+        status.backend
     );
 
     // Kill mid-run (Task Manager equivalence) → classified restart → Ready.
@@ -153,6 +159,19 @@ async fn real_llama_server_reaches_ready_then_survives_a_kill_and_teardown_reaps
         std::thread::sleep(Duration::from_millis(150));
     }
     println!("TEARDOWN clean — zero orphans");
+
+    // System-level orphan enumeration (R6.6): zero stray llama-server
+    // children from OUR engine dir after teardown — the whole-suite proof
+    // (normal exit AND the kill→restart path above both landed here).
+    #[cfg(windows)]
+    let strays = pdftoolkit_lib::native_engine::win_job::enumerate_strays(&engine_dir);
+    #[cfg(unix)]
+    let strays = pdftoolkit_lib::native_engine::unix_group::enumerate_strays(&engine_dir);
+    assert!(
+        strays.is_empty(),
+        "stray engine processes after teardown: {strays:?}"
+    );
+    println!("ORPHAN ENUMERATION clean (system process table)");
 }
 
 /// Phase 3 real smoke: the ACTUAL download+extract+start flow against the

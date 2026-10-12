@@ -277,6 +277,14 @@ export class AiNativeClient implements AiRunClient {
     await invoke('native_cancel', { kind: 'engine' }).catch(() => {});
   }
 
+  /** Cancels the in-flight OCR page (native_cancel 'ocr' — the Rust
+   *  CancellationToken; never the engine itself, R4.1). */
+  async cancelPage(): Promise<void> {
+    this.ensureDesktop();
+    const { invoke } = await core();
+    await invoke('native_cancel', { kind: 'ocr' }).catch(() => {});
+  }
+
   async ocrPage(
     image: RasterImageData,
     onToken: (chunk: string) => void,
