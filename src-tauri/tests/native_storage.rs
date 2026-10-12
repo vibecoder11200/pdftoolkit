@@ -150,7 +150,10 @@ async fn tampered_engine_files_flip_start_to_quarantined_presence_flips_false() 
     // presence false (marker AND exe required, review F8).
     let app_data = tempdir("tamper");
     let dir = store::engine_dir(&app_data, "win-x64/vulkan");
-    let archive = zip_bytes(vec![("llama-server.exe", vec![7; 200])]);
+    // SERVER_BINARY is per-platform ("llama-server.exe" / "llama-server") —
+    // the tamper flow must hold on BOTH (the smoke runs this suite on
+    // macOS/Linux too).
+    let archive = zip_bytes(vec![(install::SERVER_BINARY, vec![7; 200])]);
     install::extract_and_install(
         archive,
         &dir,

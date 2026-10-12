@@ -75,6 +75,15 @@ jobs:
           done
           ls -la temp/native-engine-spike
 
+      # The lib target compiles the whole tauri app — Linux needs the same
+      # webkit/gtk dev packages the desktop-release build legs install
+      # (first CI run failed at glib-sys without them).
+      - name: Install Linux webkit deps (compiles the tauri lib)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       # (a) The phase 2/3/4 suites run NATIVELY on this OS — the lib tests
       # too (tar/symlink extraction, manifest pin drift, SSE parser,
       # downloader resume): review P1-1, those used to run only on Windows
