@@ -40,6 +40,13 @@ export interface WorkerApi {
   qpdfCheck(bytes: Uint8Array): Promise<void>;
   zipStore(entries: { name: string; bytes: Uint8Array }[]): Promise<Uint8Array>;
   /**
+   * OCR → DOCX export (v0.7.0 phase 4). The docx chunks (~430 KB gz) load
+   * on the FIRST export call, never at worker boot; the build itself runs
+   * here, off the main thread (hostile OCR markdown cannot hang the UI
+   * thread — ai-markdown's mathSafe pre-check bounds the LaTeX first).
+   */
+  markdownToDocx(pages: import('../lib/markdown-docx').DocxPages): Promise<Uint8Array>;
+  /**
    * Real-cert signing (v0.3.0 phase 5). The P12 is parsed HERE: the private
    * key never leaves the worker. The password crosses comlink by structured
    * clone — accepted (documented in docs/ENGINE-API.md), the UI wipes its
@@ -73,6 +80,10 @@ const api: WorkerApi = {
   decryptPdf: (bytes, password) => decryptPdf(bytes, password),
   qpdfCheck: (bytes) => qpdfCheck(bytes),
   zipStore: async (entries) => zipStore(entries),
+  markdownToDocx: async (pages) => {
+    const { markdownToDocx } = await import('../lib/markdown-docx');
+    return markdownToDocx(pages);
+  },
   inspectCertificateKey: (p12, password) =>
     import('../engine/p12').then((m) => m.inspectCertificateKey(p12, password)),
   signWithCertificate: (pdfBytes, p12, password) =>

@@ -238,6 +238,40 @@ This project is indexed by GitNexus as **pdftoolkit** (2860 symbols, 7168 relati
   `tests/src-purity.spec.ts` is the src↛tests import gate (tsconfig is a
   single project — tsc does NOT enforce the boundary).
 
+### OCR output invariants (v0.7.0)
+
+- **Sandwich PDF** (`src/lib/ocr-sandwich.ts`): the invisible text layer is
+  ALWAYS the subset Roboto via `drawText(..., { opacity: 0 })` — never raw
+  `pushOperators`/Tr 3 (the `fontKey` trap: `font.name` instead of the mangled
+  `page.fontKey` renders fine and is silently unsearchable). The build is
+  CLICK-TIME from `files[0].bytes` + `aiResults[i].text` — never from bytes
+  retained through the run loop, and never from the joined done-view artifact
+  (its `--- N trang ---` separators are locale-dependent). The canvas is the
+  module's OWN — never the run's shared canvas. Text layer carries DISPLAY
+  text (`displayLines`), not markdown syntax.
+- **DOCX export** (`src/lib/markdown-docx.ts`): `docx` chunks are lazy and
+  only load inside the PDF worker on first export; Packer serialization forks
+  on `Blob` (`toBlob` in the worker, `toBuffer` in node — jszip NODEBUFFER
+  dies in the browser). Math interception happens INSIDE `ai-markdown.ts`'s
+  inline stage (`data-latex` carrier spans, gated by the `mathSafe`
+  length/brace-depth pre-check) — never a whole-string `$`-split (it shreds
+  tables). `latexToMath` failures must never fail the export (docx/html's
+  invalid-math path keeps the literal text).
+- **Prompt parity**: the native `OCR_PROMPT` (`ocr.rs`) and the web worker's
+  twin are byte-locked and ENFORCED by `tests/ocr-prompt-parity.spec.ts`
+  (v0.7.0 A/B verdict: the long instruction prompt BEAT the terse
+  trained-prefix prompts on headings; keep it). Web raster stays capped at
+  1024 long edge (+700 MB RAM verdict); native ships uncapped 150-DPI PNGs.
+  llama.cpp PR #17383 (CUDA rel-pos/window vision ops) is UNMERGED — the
+  optional win-x64/cuda-12.4 leg would run GLM-OCR's vision encoder on CPU;
+  win-x64/vulkan remains the shipped Windows backend.
+- **Page selection**: `runAiPages({ pages })` (sorted selection) replaces the
+  loop enumeration; resume filters it to `>= startPage`; progress/benchmark
+  denominators use the selection count (`completedBefore` counts toward the
+  benchmark record threshold, recorded ONCE per run). The benchmark record
+  predicate is PRESET IDENTITY (`tuning === AI_TUNING_PRESETS.full`), never a
+  literal 1024/4096 comparison.
+
 ## 5. GitHub Pages deploy
 
 - Site: https://vibecoder11200.github.io/pdftoolkit/ — deployed from `main` by

@@ -18,6 +18,19 @@ export async function getTextOfFirstPage(bytes: Uint8Array): Promise<string> {
   }
 }
 
+/** Text of an arbitrary 1-based page (sandwich per-page oracle). */
+export async function getPageText(bytes: Uint8Array, pageNumber: number): Promise<string> {
+  const loadingTask = legacy.getDocument({ data: bytes.slice() });
+  const doc = await loadingTask.promise;
+  try {
+    const page = await doc.getPage(pageNumber);
+    const tc = await page.getTextContent();
+    return tc.items.map((i) => ('str' in i ? String(i.str) : '')).join(' ');
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
 export async function pageCountOf(bytes: Uint8Array): Promise<number> {
   const loadingTask = legacy.getDocument({ data: bytes.slice() });
   const doc = await loadingTask.promise;

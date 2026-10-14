@@ -105,10 +105,15 @@ export async function aiTierEstimate(): Promise<TierResolution> {
 
 /**
  * Run pages sequentially. `startPage` (1-based) enables resume after a
- * crash or a page-boundary cancel. Returns the page-indexed results; after
- * the SECOND completed page of a fresh fingerprint the measured benchmark
- * is persisted and the refined tier surfaces via onTierAfter (T5 — the
- * first real page acted as the discarded warmup).
+ * crash or a page-boundary cancel. `pages` (sorted 1-based selection, page
+ * picker) replaces the full enumeration — resume WITH a selection runs the
+ * remaining SELECTED pages (>= startPage). Returns the page-indexed
+ * results; after the SECOND completed page of a fresh fingerprint the
+ * measured benchmark is persisted and the refined tier surfaces via
+ * onTierAfter (T5 — the first real page acted as the discarded warmup).
+ * With a selection, the record fires when TOTAL completed pages (this run
+ * plus `completedBefore`) reach 2, so 1-page selections paired with a
+ * resume still measure.
  *
  * Phase-3 tuning: `maxLongEdgePerPage`/`maxNewTokensPerPage` thread the
  * preflight presets into every page; `benchmarkRecord` skips persistence
@@ -124,6 +129,12 @@ export async function runAiPages(
   events: AiRunEvents,
   opts: {
     startPage?: number;
+    /** Page-picker selection: sorted 1-based pages replacing the full
+     * loop. Empty → no-op (completedAll, zero results). */
+    pages?: number[];
+    /** Pages completed by earlier invocations of this run (resume) —
+     * counts toward the benchmark record threshold. */
+    completedBefore?: number;
     shouldContinue?: () => boolean;
     maxNewTokensPerPage?: number;
     maxLongEdgePerPage?: number;
@@ -134,6 +145,11 @@ export async function runAiPages(
   const startPage = opts.startPage ?? 1;
   const results: AiPageResult[] = [];
   const store = opts.benchmarkStore ?? createBenchmarkStore();
+  const selection = opts.pages ? [...opts.pages].sort((a, b) => a - b) : null;
+  const queue = selection
+    ? selection.filter((p) => p >= startPage)
+    : Array.from({ length: Math.max(0, pageCount - startPage + 1) }, (_, i) => startPage + i);
+  const total = queue.length;
   const load = await client.ensureLoaded(AI_MODEL_ID, (p) => events.onDownloadProgress?.(p));
   // RED-TEAM H4/A7 (record identity): the record keys on the adapter the
   // ENGINE built its device from — a fresh bare probe can legally differ
@@ -152,25 +168,36 @@ export async function runAiPages(
   const needsBenchmark =
     (opts.benchmarkRecord ?? true) &&
     (!existing || isBenchmarkStale(existing, fingerprint) || existing.condition !== condition);
+  // An empty selection completes nothing honestly (the picker cannot run a
+  // no-document run; the UI guards this too).
+  if (total === 0) return { results, completedAll: true };
 
   let firstColdMs: number | null = null;
-  for (let i = startPage; i <= pageCount; i++) {
+  let benchmarkRecorded = false;
+  for (const page of queue) {
     if (opts.shouldContinue && !opts.shouldContinue()) {
       return { results, completedAll: false };
     }
-    events.onPage?.(i, pageCount);
+    // current = the absolute page number; total = the selection count
+    // (progress denominators reflect what THIS run will do).
+    events.onPage?.(page, total);
     try {
       const r = await client.ocrPage(
-        await renderPage(i),
-        (chunk) => events.onToken?.(i, chunk),
+        await renderPage(page),
+        (chunk) => events.onToken?.(page, chunk),
         {
           maxNewTokens: opts.maxNewTokensPerPage ?? 4096,
           maxLongEdge: opts.maxLongEdgePerPage,
         },
       );
       if (firstColdMs === null) firstColdMs = r.firstTokenMs;
-      results.push({ page: i, text: r.text, ms: r.ms, genTokens: r.genTokens });
-      if (needsBenchmark && results.length === 2 && r.tokPerSec > 0) {
+      results.push({ page, text: r.text, ms: r.ms, genTokens: r.genTokens });
+      if (
+        needsBenchmark &&
+        !benchmarkRecorded &&
+        results.length + (opts.completedBefore ?? 0) >= 2 &&
+        r.tokPerSec > 0
+      ) {
         // Best-effort: private-mode browsers have no IndexedDB — the OCR run
         // must never fail over benchmark bookkeeping.
         try {
@@ -184,6 +211,7 @@ export async function runAiPages(
             load.backend,
           );
           events.onTierAfter?.(resolveTier(await detectHardware(), rec));
+          benchmarkRecorded = true; // once per run — never re-measure per page
         } catch {
           /* estimate-only tiering stays honest in the UI */
         }
@@ -199,7 +227,7 @@ export async function runAiPages(
         (err instanceof Error &&
           (err.message.includes('AI worker crashed') || err.message.includes('Engine not loaded')));
       if (isCrash) {
-        events.onCrash?.(i); // page i never completed — resume from there
+        events.onCrash?.(page); // page never completed — resume from there
       }
       throw err;
     }

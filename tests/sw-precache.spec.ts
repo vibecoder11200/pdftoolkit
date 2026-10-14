@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extractPrecacheEntries } from '../scripts/precache-manifest.mjs';
 
@@ -59,5 +60,20 @@ describe.skipIf(!hasBuild)('dist/sw.js precache pins', () => {
     expect(urls.length, 'dist/index.html should reference base-absolute assets').toBeGreaterThan(0);
     const off = urls.filter((u) => !u.startsWith('/pdftoolkit/'));
     expect(off, `asset URLs outside the web base (desktop-flavored dist? rebuild web first): ${off.join(', ')}`).toEqual([]);
+  });
+
+  it('keeps the precache total under the 17 MB budget (v0.7.0 phase-4 size gate)', () => {
+    // The plan measured ~6.6 MB before the DOCX chunks (~+1.9 MB raw); the
+    // 17 MB budget previously had NO enforcing gate — red-team #14. Sum the
+    // on-disk size of every manifest URL.
+    let total = 0;
+    const missing: string[] = [];
+    for (const url of manifest.keys()) {
+      const file = join('dist', url);
+      if (!existsSync(file)) missing.push(url);
+      else total += statSync(file).size;
+    }
+    expect(missing, 'every precache URL must exist on disk').toEqual([]);
+    expect(total).toBeLessThan(17 * 1024 * 1024);
   });
 });

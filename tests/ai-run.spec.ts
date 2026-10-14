@@ -247,3 +247,46 @@ describe('runAiPages', () => {
     expect(out.completedAll).toBe(true);
   });
 });
+
+describe('runAiPages page selection (v0.7.0 phase 5)', () => {
+  it('runs only the selected pages in order; onPage denominators use the selection count', async () => {
+    const { client, ocrCalls } = fakeClient(5);
+    const onPage = vi.fn();
+    const { results, completedAll } = await runAiPages(client, 5, async () => raster(), { onPage }, { pages: [4, 1, 3] });
+    expect(completedAll).toBe(true);
+    expect(results.map((r) => r.page)).toEqual([1, 3, 4]); // sorted, order preserved
+    expect(ocrCalls).toEqual([1, 2, 3]); // one render per selected page
+    expect(onPage).toHaveBeenNthCalledWith(1, 1, 3);
+    expect(onPage).toHaveBeenNthCalledWith(2, 3, 3);
+    expect(onPage).toHaveBeenNthCalledWith(3, 4, 3);
+  });
+
+  it('selection + resume: startPage filters the selection to the remaining pages', async () => {
+    const { client } = fakeClient(5);
+    const { results } = await runAiPages(client, 5, async () => raster(), {}, { pages: [1, 3, 5], startPage: 3 });
+    expect(results.map((r) => r.page)).toEqual([3, 5]);
+  });
+
+  it('empty selection: honest no-op (no renders, no onPage, completedAll)', async () => {
+    const { client, ocrCalls } = fakeClient(5);
+    const onPage = vi.fn();
+    const { results, completedAll } = await runAiPages(client, 5, async () => raster(), { onPage }, { pages: [] });
+    expect(results).toEqual([]);
+    expect(completedAll).toBe(true);
+    expect(ocrCalls).toEqual([]);
+    expect(onPage).not.toHaveBeenCalled();
+  });
+
+  it('1-page selection after a 1-page resume (completedBefore) still records the benchmark, once', async () => {
+    const { client } = fakeClient(5);
+    const { store, saved } = fakeStore();
+    const onTierAfter = vi.fn();
+    await runAiPages(client, 5, async () => raster(), { onTierAfter }, {
+      pages: [2],
+      completedBefore: 1,
+      benchmarkStore: store,
+    });
+    expect(saved.length).toBe(1);
+    expect(onTierAfter).toHaveBeenCalledTimes(1);
+  });
+});

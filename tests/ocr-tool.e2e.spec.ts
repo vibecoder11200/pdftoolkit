@@ -38,7 +38,7 @@ test('ocr tool: 2-page scan → searchable PDF, zero non-same-origin requests', 
 
   await page.getByRole('button', { name: /Nhận dạng|Recognize|Run/i }).click();
 
-  const downloadButton = page.getByRole('button', { name: /Tải|Download/i });
+  const downloadButton = page.getByRole('button', { name: /Tải PDF|Download searchable/i });
   await expect(downloadButton).toBeVisible({ timeout: 150_000 });
 
   const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);

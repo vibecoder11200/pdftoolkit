@@ -39,8 +39,8 @@ describe('engineTablesToMarkdown', () => {
     const md = engineTablesToMarkdown(raw);
     expect(md).toContain('| a\\|b | c |'); // escaped in the markdown form
     const html = markdownToSafeHtml(md);
-    expect(html).toContain('<td>a|b</td>'); // unescaped back into one cell
-    expect((html.match(/<td>/g) ?? []).length).toBe(2); // not split into 3 columns
+    expect(html).toContain('<th>a|b</th>'); // unescaped back into one cell (header row)
+    expect((html.match(/<t[hd]>/g) ?? []).length).toBe(2); // not split into 3 columns
   });
 });
 
@@ -101,7 +101,7 @@ describe('convertEngineOutput (full pipeline)', () => {
     expect(out.markdown).toContain('| Mã | Tiền |');
     expect(out.markdown).toContain('| BT-1 | 1.000 |');
     expect(out.html).toContain('<!doctype html');
-    expect(out.html).toContain('<td>Mã</td>');
+    expect(out.html).toContain('<th>Mã</th>'); // first row = header (thead synthesis)
     expect(out.html).not.toMatch(/<script/i);
   });
 

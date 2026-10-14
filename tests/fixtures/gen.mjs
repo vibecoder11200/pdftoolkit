@@ -369,7 +369,11 @@ try {
   // lines: [text, pixelSize][] — returns JPEG bytes of one rendered page.
   function renderScanPage(width, height, lines) {
     const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
+    drawScanLines(canvas.getContext('2d'), width, height, lines);
+    return canvas.encode('jpeg', 0.9);
+  }
+
+  function drawScanLines(ctx, width, height, lines) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = '#111111';
@@ -379,7 +383,6 @@ try {
       ctx.fillText(text, Math.round(width * 0.07), y);
       y += Math.round(size * 1.9);
     }
-    return canvas.encode('jpeg', 0.9);
   }
 
   async function makeScanPdf(jpegs, title) {
@@ -400,22 +403,24 @@ try {
   // 2-page fixture: EN page 1 + VN page 2 at 200dpi (1654x2339). The spec
   // renders these back at the same dpi (scale 200/72 ≈ 1:1 pixels) and
   // asserts the searchable-PDF keywords — keep the strings in sync with
-  // tests/ocr-integration.spec.ts.
-  const vnEn = await makeScanPdf(
+  // tests/ocr-integration.spec.ts. The line specs are hoisted so the v0.7.0
+  // A/B golden-page rasters (below) render the SAME content.
+  const VN_EN_LINES = [
     [
-      await renderScanPage(...a4(200), [
-        ['Quarterly report', 64],
-        ['total 42,518 items processed', 44],
-        ['Regional warehouse, Building 7', 38],
-        ['Revenue up 12.4 percent year over year', 38],
-      ]),
-      await renderScanPage(...a4(200), [
-        ['Đặng Thị Thu Lĩnh', 64],
-        ['kế hoạch 2026, Hà Nội', 44],
-        ['Người phối ngẫu số 7', 38],
-        ['Điện thoại: 0912 345 678', 38],
-      ]),
+      ['Quarterly report', 64],
+      ['total 42,518 items processed', 44],
+      ['Regional warehouse, Building 7', 38],
+      ['Revenue up 12.4 percent year over year', 38],
     ],
+    [
+      ['Đặng Thị Thu Lĩnh', 64],
+      ['kế hoạch 2026, Hà Nội', 44],
+      ['Người phối ngẫu số 7', 38],
+      ['Điện thoại: 0912 345 678', 38],
+    ],
+  ];
+  const vnEn = await makeScanPdf(
+    await Promise.all(VN_EN_LINES.map((lines) => renderScanPage(...a4(200), lines))),
     'ocr-scan-vn-en',
   );
   writeFileSync(join(here, 'ocr-scan-vn-en.pdf'), vnEn);
@@ -551,10 +556,161 @@ try {
   );
   writeFileSync(join(here, 'ocr-scan-table.pdf'), tableScan);
 
+  // v0.7.0 phase 1 golden pages: math/LaTeX page + hostile noisy page for the
+  // prompt A/B runner (src-tauri/tests/native_prompt_ab.rs). The math page
+  // tests DELIMITER EMISSION ($...$ / $$...$$) with glyph-drawn math — not
+  // LaTeX correctness (that is phase 4's synthetic-LaTeX concern). The noisy
+  // page (low contrast + skew + speckle) is the hallucination/regression
+  // guard. Ground truth transcriptions live in tests/fixtures/ocr-ab-truth/
+  // (COMMITTED) — keep the strings in sync with what is drawn here.
+  function drawMathPage(ctx, width, height) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    const x0 = Math.round(width * 0.08);
+    let y = Math.round(height * 0.09);
+    ctx.fillStyle = '#111111';
+    ctx.font = `bold ${Math.round(height * 0.032)}px Roboto`;
+    ctx.fillText('CÔNG THỨC TOÁN HỌC', x0, y);
+    y += Math.round(height * 0.05);
+    ctx.font = `bold ${Math.round(height * 0.022)}px Roboto`;
+    ctx.fillText('Tổng và tích phân', x0, y);
+    y += Math.round(height * 0.04);
+    ctx.font = `${Math.round(height * 0.02)}px Roboto`;
+    for (const line of [
+      'Tổng: ∑ i² với i chạy từ 1 đến n',
+      'Tích phân: ∫ x dx từ 0 đến 1 bằng 1/2',
+      'Căn bậc hai: √2 ≈ 1,414 và √3 ≈ 1,732',
+      'Định lý Pytago: a² + b² = c²',
+      'The integral of x dx from 0 to 1 equals one half.',
+    ]) {
+      ctx.fillText(line, x0, y);
+      y += Math.round(height * 0.036);
+    }
+    // Display math: (a + b)/(c + d) as a stacked fraction with a rule.
+    y += Math.round(height * 0.012);
+    const cx = Math.round(width * 0.5);
+    ctx.textAlign = 'center';
+    ctx.fillText('a + b', cx, y);
+    y += Math.round(height * 0.012);
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = Math.max(2, Math.round(height * 0.0022));
+    ctx.beginPath();
+    ctx.moveTo(cx - Math.round(width * 0.06), y);
+    ctx.lineTo(cx + Math.round(width * 0.06), y);
+    ctx.stroke();
+    y += Math.round(height * 0.032);
+    ctx.fillText('c + d', cx, y);
+    ctx.textAlign = 'left';
+    y += Math.round(height * 0.055);
+    ctx.font = `bold ${Math.round(height * 0.02)}px Roboto`;
+    ctx.fillText('Bảng 1. Giá trị căn bậc hai', x0, y);
+    y += Math.round(height * 0.038);
+    const rows = [
+      ['x', 'f(x)'],
+      ['1', '1,0000'],
+      ['2', '1,4142'],
+      ['3', '1,7321'],
+    ];
+    const x1 = Math.round(width * 0.4);
+    const rowH = Math.round(height * 0.03);
+    ctx.font = `${Math.round(height * 0.019)}px Roboto`;
+    for (const [i, row] of rows.entries()) {
+      const cy = y + i * rowH;
+      ctx.fillText(row[0], x0 + 8, cy);
+      ctx.fillText(row[1], x1 + 8, cy);
+    }
+    ctx.strokeStyle = '#555555';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= rows.length; i += 1) {
+      const gy = y + i * rowH;
+      ctx.beginPath();
+      ctx.moveTo(x0, gy);
+      ctx.lineTo(x1 + Math.round(width * 0.25), gy);
+      ctx.stroke();
+    }
+    for (const gx of [x0, x1, x1 + Math.round(width * 0.25)]) {
+      ctx.beginPath();
+      ctx.moveTo(gx, y);
+      ctx.lineTo(gx, y + rows.length * rowH);
+      ctx.stroke();
+    }
+  }
+
+  function drawNoisyPage(ctx, width, height) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate((1.6 * Math.PI) / 180);
+    ctx.translate(-width / 2, -height / 2);
+    ctx.fillStyle = '#8a8a8a'; // low contrast — the hallucination probe
+    const x0 = Math.round(width * 0.08);
+    let y = Math.round(height * 0.12);
+    for (const [text, size] of [
+      ['Hóa đơn bán lẻ', 64],
+      ['Cửa hàng tạp hóa Minh Phát', 44],
+      ['Địa chỉ: 12 Nguyễn Trãi, Hải Dương', 38],
+      ['Số tiền: 1.250.000 VND', 40],
+      ['Xin cảm ơn quý khách!', 38],
+    ]) {
+      ctx.font = `${size}px Roboto`;
+      ctx.fillText(text, x0, y);
+      y += Math.round(size * 1.9);
+    }
+    ctx.restore();
+    // Denser speckle than the table fixture's variant.
+    const rand = mulberry32(20261014);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    const count = Math.round(width * height * 0.0004);
+    for (let i = 0; i < count; i += 1) {
+      ctx.fillRect(Math.round(rand() * width), Math.round(rand() * height), 2, 2);
+    }
+  }
+
+  async function scanPageJpeg(draw) {
+    const [w, h] = a4(200);
+    const canvas = createCanvas(w, h);
+    draw(canvas.getContext('2d'), w, h);
+    return canvas.encode('jpeg', 0.9);
+  }
+  const mathScan = await makeScanPdf([await scanPageJpeg(drawMathPage)], 'ocr-scan-math');
+  writeFileSync(join(here, 'ocr-scan-math.pdf'), mathScan);
+  const noisyScan = await makeScanPdf([await scanPageJpeg(drawNoisyPage)], 'ocr-scan-noisy');
+  writeFileSync(join(here, 'ocr-scan-noisy.pdf'), noisyScan);
+
+  // A/B rasters: per-golden-page PNGs at each matrix cell's long-edge size
+  // (the Rust runner cannot rasterize PDFs — production rasters come from
+  // pdf.js in the webview). Gitignored artifacts under ocr-ab-rasters/;
+  // regenerated by this script. The prompt transfers 1:1 to production; the
+  // raster pipeline (napi-resize vs pdf.js) diverges slightly — noted in the
+  // phase-2 transfer claim.
+  const GOLDEN_PAGES = [
+    ['vn-en-1', VN_EN_LINES[0], drawScanLines],
+    ['vn-en-2', VN_EN_LINES[1], drawScanLines],
+    ['math-1', null, drawMathPage],
+    ['noisy-1', null, drawNoisyPage],
+  ];
+  for (const px of [1024, 1280]) {
+    const dir = join(here, 'ocr-ab-rasters', String(px));
+    mkdirSync(dir, { recursive: true });
+    for (const [stem, lines, draw] of GOLDEN_PAGES) {
+      const [w, h] = a4(200);
+      const scale = px / Math.max(w, h);
+      const canvas = createCanvas(Math.round(w * scale), Math.round(h * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      if (lines) draw(ctx, w, h, lines);
+      else draw(ctx, w, h);
+      writeFileSync(join(dir, `${stem}.png`), await canvas.encode('png'));
+    }
+  }
+
   console.log(JSON.stringify({
     'ocr-scan-vn-en.pdf': vnEn.length,
     'ocr-scan-12p.pdf': scan12.length,
     'ocr-scan-table.pdf': tableScan.length,
+    'ocr-scan-math.pdf': mathScan.length,
+    'ocr-scan-noisy.pdf': noisyScan.length,
   }));
 } catch (e) {
   console.warn(

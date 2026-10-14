@@ -9,8 +9,13 @@
  * anchors. The HTML preview additionally renders inside a sandboxed iframe
  * without allow-scripts (the tool's job).
  *
- * Per the SPIKE (Q5): GLM-OCR emits HTML <table> blocks + plain text lines;
- * headings rarely come back — the markdown layer keeps them when present.
+ * Per the v0.7.0 phase-2 A/B matrix (real engine): the PRIMARY engine table
+ * form is GFM pipe rows (the legacy HTML <table> path stays for older
+ * builds), and `$...$`/`$$...$$` math is emitted natively. The whitelist
+ * HTML is also the DOCX export input contract (markdown-docx.ts): tables
+ * carry thead/th header semantics, and math segments become data-latex
+ * carrier spans that docx/html converts to OMML (its invalid-math path
+ * keeps the literal text when a conversion fails).
  */
 
 export interface ConvertedOutput {
@@ -84,9 +89,28 @@ function cellToText(cellHtml: string): string {
 
 const SAFE_HREF = /^(https?:\/\/|mailto:|#)/i;
 
-/** Inline markdown → whitelist-built HTML on ALREADY-ESCAPED text. */
-function inlineToSafeHtml(escaped: string): string {
-  // bold / italic / inline code — the markers themselves survived escaping
+/**
+ * Hostile-LaTeX guard (OCR math is attacker-controlled scanned content):
+ * bound length + brace nesting before anything reaches a LaTeX→OMML
+ * converter — try/catch handles throws but not pathological hangs. Exported
+ * for the phase-4 unit tests (deep-nesting input trips the pre-check).
+ */
+export function mathSafe(latex: string): boolean {
+  if (latex.length === 0 || latex.length > 500) return false;
+  let depth = 0;
+  for (const ch of latex) {
+    if (ch === '{') {
+      depth += 1;
+      if (depth > 10) return false;
+    } else if (ch === '}') {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return true;
+}
+
+/** Inline markdown formatting (bold/italic/code/links) on escaped text. */
+function inlineFormat(escaped: string): string {
   let out = escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|\W)\*([^*\n]+)\*/g, '$1<em>$2</em>')
@@ -100,11 +124,39 @@ function inlineToSafeHtml(escaped: string): string {
   return out;
 }
 
+/**
+ * Inline markdown → whitelist-built HTML on ALREADY-ESCAPED text. Math
+ * segments split FIRST (phase-4 red-team fix: a `$x$` inside a table cell
+ * must never tear the table apart — the split is per TEXT NODE here): each
+ * becomes a data-latex carrier span (docx/html → OMML; its invalid-math
+ * path keeps the literal delimited source as the fallback text), and only
+ * the plain segments run the emphasis/code/link passes so the inserted
+ * markup is never re-processed.
+ */
+function inlineToSafeHtml(escaped: string): string {
+  return escaped
+    .split(/(\$\$[^$\n]+\$\$|\$[^$\n]+\$)/g)
+    .map((part, i) => {
+      if (i % 2 === 0) return inlineFormat(part);
+      const display = part.startsWith('$$');
+      const tex = part.slice(display ? 2 : 1, display ? -2 : -1);
+      if (!mathSafe(tex)) return inlineFormat(part);
+      return `<span data-latex="${tex}"${display ? ' display="block"' : ''}>${part}</span>`;
+    })
+    .join('');
+}
+
 /** Markdown-subset → whitelist HTML (input line content must be raw text). */
 export function markdownToSafeHtml(markdown: string): string {
   const lines = markdown.split('\n');
   const out: string[] = [];
   let inTable = false;
+  /** Rows emitted in the current table. Row 0 → thead/th (Word header-row
+   *  semantics: docx/html maps th to tableHeader — the repeat-on-new-page
+   *  header); the first body row closes thead and opens tbody. Phase-4
+   *  spike verdict: headerless td-only tables get NO tblHeader, so the
+   *  synthesis happens here at the source. */
+  let tableRows = 0;
   let listOpen: 'ul' | 'ol' | null = null;
 
   const closeList = () => {
@@ -115,8 +167,11 @@ export function markdownToSafeHtml(markdown: string): string {
   };
   const closeTable = () => {
     if (inTable) {
-      out.push('</tbody></table>');
+      // Match the open structure: row 0 never happens while open, a
+      // header-only table never opened tbody.
+      out.push(tableRows <= 1 ? '</thead></table>' : '</tbody></table>');
       inTable = false;
+      tableRows = 0;
     }
   };
 
@@ -137,10 +192,14 @@ export function markdownToSafeHtml(markdown: string): string {
       if (isSeparator) continue;
       if (!inTable) {
         closeList();
-        out.push('<table><tbody>');
+        out.push('<table><thead>');
         inTable = true;
+        tableRows = 0;
       }
-      out.push(`<tr>${cells.map((c) => `<td>${inlineToSafeHtml(escapeHtml(c))}</td>`).join('')}</tr>`);
+      const tag = tableRows === 0 ? 'th' : 'td';
+      if (tableRows === 1) out.push('</thead><tbody>');
+      tableRows += 1;
+      out.push(`<tr>${cells.map((c) => `<${tag}>${inlineToSafeHtml(escapeHtml(c))}</${tag}>`).join('')}</tr>`);
       continue;
     }
     closeTable();

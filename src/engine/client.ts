@@ -50,6 +50,7 @@ export const engine = {
   qpdfCheck: (bytes: Uint8Array) => getWorker().qpdfCheck(owned(bytes) as Uint8Array),
   zipStore: (entries: { name: string; bytes: Uint8Array }[]) =>
     getWorker().zipStore(entries.map((e) => ({ name: e.name, bytes: owned(e.bytes) as Uint8Array }))),
+  markdownToDocx: (pages: import('../lib/markdown-docx').DocxPages) => getWorker().markdownToDocx(pages),
   inspectCertificateKey: (p12: Uint8Array, password: string) =>
     getWorker().inspectCertificateKey(owned(p12) as Uint8Array, password),
   signWithCertificate: (pdfBytes: Uint8Array, p12: Uint8Array, password: string) =>

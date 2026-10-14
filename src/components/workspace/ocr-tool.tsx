@@ -15,6 +15,7 @@ import {
 } from '../../lib/ocr';
 import { deliverBytes } from '../../lib/download';
 import { beginJob, endJob } from '../../lib/jobs';
+import { engine as pdfEngine } from '../../engine/client';
 import { AI_MODEL_ID, isModelCachedLocally } from '../../lib/ai-models';
 import {
   aiTierEstimate,
@@ -45,6 +46,8 @@ import {
 } from '../../lib/gpu-choice';
 import { useGpuChoice } from '../../hooks/use-gpu-choice';
 import { useGpuFallback } from '../../hooks/use-gpu-fallback';
+import { useThumbnails } from '../../hooks/use-thumbnails';
+import { ThumbnailStrip } from './thumbnail-strip';
 import type { TierResolution } from '../../lib/capability';
 import type { RasterImageData } from '../../workers/pdf.worker';
 
@@ -154,6 +157,20 @@ export function OcrTool() {
   // enginePresent/modelPresent from native_engine_status — never the WebGPU
   // tier verdict (review F1's :440 fork).
   const [nativeStatus, setNativeStatus] = useState<NativeStatus | null>(null);
+  // v0.7.0 phase 3: AI-engine sandwich file quality (recognition input is
+  // unaffected — the copy says so) + the click-time build state.
+  const [pdfQuality, setPdfQuality] = useState<'compact' | 'archive'>('compact');
+  const [pdfBuilding, setPdfBuilding] = useState(false);
+  // v0.7.0 phase 4: DOCX export (all engines) — one shared error slot.
+  const [docxBuilding, setDocxBuilding] = useState(false);
+  const [exportError, setExportError] = useState<{ kind: 'pdf' | 'docx'; message: string } | null>(
+    null,
+  );
+  // v0.7.0 phase 5: page-range picker. null = all pages (the default); a
+  // Set holds the selection both engine loops honor. runTotal is the
+  // tesseract progress denominator for the CURRENT run.
+  const [selectedPages, setSelectedPages] = useState<Set<number> | null>(null);
+  const [runTotal, setRunTotal] = useState(0);
   // R5.8: the CPU-fallback first-run gate (continue/abort choice).
   const [cpuGate, setCpuGate] = useState(false);
   // GPU selection state (plan 261009-0836 phases 3+4)
@@ -176,6 +193,9 @@ export function OcrTool() {
         return;
       }
       setStep('config');
+      // A new document invalidates any page selection from the previous one.
+      setSelectedPages(null);
+      setRunTotal(0);
       const bytes = files[0].bytes;
       const count = await getPageCount(bytes);
       setPageCount(count);
@@ -249,10 +269,27 @@ export function OcrTool() {
   }, [step, engine, gpuChoice]);
 
   const estimate = useMemo(() => {
+    // Selection-aware (v0.7.0 phase 5): the estimate covers what will run.
+    const pages = selectedPages?.size ?? pageCount;
     const perPage = ESTIMATE_S_PER_PAGE[dpi] * (lang === 'auto' ? 1.1 : 1);
-    const total = Math.round((perPage * pageCount) / 60);
+    const total = Math.round((perPage * pages) / 60);
     return total >= 1 ? t('ocr.estimate_minutes', { count: total }) : t('ocr.estimate_under_minute');
-  }, [dpi, lang, pageCount, t]);
+  }, [dpi, lang, pageCount, selectedPages, t]);
+
+  // Picker thumbnails (v0.7.0 phase 5): lazy viewport-driven renders,
+  // bounded by OCR_PAGE_CAP — never 4500 canvases.
+  const pickerJobs = useMemo(
+    () =>
+      step === 'config' && files.length > 0 && pageCount > 0 && pageCount <= OCR_PAGE_CAP
+        ? Array.from({ length: pageCount }, (_, i) => ({
+            id: `p${i + 1}`,
+            bytes: files[0].bytes,
+            page: i + 1,
+          }))
+        : [],
+    [step, files, pageCount],
+  );
+  const { urlFor: pickerUrlFor, observe: pickerObserve } = useThumbnails(pickerJobs);
 
   const aiClient = useCallback((): AiRunClient => {
     // Client selection forks per engine (R4.4 ~:222): the native client is
@@ -347,13 +384,21 @@ export function OcrTool() {
           },
           {
             startPage,
+            // Page-picker selection (v0.7.0 phase 5): the sorted selection
+            // replaces the full enumeration; resume-with-selection filters
+            // to the remaining selected pages inside runAiPages.
+            pages: selectedPages ? [...selectedPages].sort((a, b) => a - b) : undefined,
+            // Benchmark honesty across selections: pages completed by earlier
+            // invocations count toward the record threshold.
+            completedBefore: keep.length,
             shouldContinue: () => !abortRef.current,
             // Phase-3 preflight tuning, threaded per page.
             maxNewTokensPerPage: tuning.maxNewTokens,
             maxLongEdgePerPage: tuning.maxLongEdge,
-            // A non-full tuning must not pollute the per-adapter benchmark
-            // records (phase 4 keys measurements by adapter fingerprint).
-            benchmarkRecord: tuning.maxLongEdge === 1024 && tuning.maxNewTokens === 4096,
+            // RED-TEAM tripwire fix: PRESET IDENTITY, not the literal
+            // 1024/4096 predicate — a future preset change must not silently
+            // stop (or fake) benchmark recording.
+            benchmarkRecord: tuning === AI_TUNING_PRESETS.full,
           },
         );
         setAiResults([...keep, ...out.results]);
@@ -381,7 +426,7 @@ export function OcrTool() {
         endJob(jobId);
       }
     },
-    [aiClient, engine, files, pageCount],
+    [aiClient, engine, files, pageCount, selectedPages],
   );
 
   /**
@@ -423,6 +468,12 @@ export function OcrTool() {
     const bytes = files[0].bytes;
     const canvas = document.createElement('canvas');
     const scale = dpi / 72;
+    // Page-picker selection (v0.7.0 phase 5): the sorted selection replaces
+    // the full enumeration; progress denominators reflect it.
+    const queue = selectedPages
+      ? [...selectedPages].sort((a, b) => a - b)
+      : Array.from({ length: pageCount }, (_, i) => i + 1);
+    setRunTotal(queue.length);
 
     void (async () => {
       // F22: a desktop update must confirm before restarting over this job.
@@ -432,11 +483,12 @@ export function OcrTool() {
       let session;
       try {
         if (lang === 'auto') {
-          // Auto (user 2026-10-07): page 1 through BOTH langs, keep the higher
-          // mean confidence. Two sessions, disposed immediately (the +1 page
-          // cost is the documented price of not shipping OSD).
-          setCurrent(1);
-          await renderPageToCanvas(bytes, 1, canvas, scale);
+          // Auto (user 2026-10-07): the FIRST selected page through BOTH
+          // langs, keep the higher mean confidence. Two sessions, disposed
+          // immediately (the +1 page cost is the documented price of not
+          // shipping OSD).
+          setCurrent(queue[0]);
+          await renderPageToCanvas(bytes, queue[0], canvas, scale);
           const [eng, vie] = await Promise.all([
             (async () => {
               const s = await createOcrSession({ langs: 'eng' });
@@ -465,7 +517,7 @@ export function OcrTool() {
         const parts: Uint8Array[] = [];
         const pending: Uint8Array[] = [];
         const collected: PageResult[] = [];
-        for (let page = 1; page <= pageCount; page += 1) {
+        for (const page of queue) {
           if (dropAllRef.current) return;
           setCurrent(page);
           const pageStart = performance.now();
@@ -501,12 +553,66 @@ export function OcrTool() {
         endJob('ocr');
       }
     })();
-  }, [aiTuning, dpi, engine, files, lang, pageCount, runAi]);
+  }, [aiTuning, dpi, engine, files, lang, pageCount, runAi, selectedPages]);
 
   const cancelAiDownload = useCallback(() => {
     void aiClient().cancelDownload();
     abortRef.current = true;
   }, [aiClient]);
+
+  /**
+   * Click-time searchable-PDF build (v0.7.0 phase 3): re-renders each page
+   * from the ORIGINAL file bytes on the sandwich module's own canvas at the
+   * chosen DPI, stacks the per-page engine markdown as invisible display
+   * text, and delivers — nothing is retained from the run loop, so a
+   * partial (post-crash) run exports exactly its completed pages.
+   */
+  const buildPdf = useCallback(async () => {
+    const file = files[0];
+    if (!file || aiResults.length === 0 || pdfBuilding) return;
+    setPdfBuilding(true);
+    setExportError(null);
+    try {
+      const { buildSandwichPdf } = await import('../../lib/ocr-sandwich');
+      const bytes = await buildSandwichPdf(
+        file.bytes,
+        aiResults
+          .slice()
+          .sort((a, b) => a.page - b.page)
+          .map((r) => ({ index: r.page, displayText: r.text })),
+        { dpi: pdfQuality === 'compact' ? 150 : 300 },
+      );
+      const baseName = (file.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
+      await deliverBytes(bytes, `${baseName}-ocr.pdf`, 'download');
+    } catch (err) {
+      setExportError({ kind: 'pdf', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setPdfBuilding(false);
+    }
+  }, [aiResults, files, pdfBuilding, pdfQuality]);
+
+  /**
+   * DOCX export (v0.7.0 phase 4): AI pages go through the markdown →
+   * whitelist-HTML → docx pipeline in the PDF worker (off the main thread);
+   * tesseract pages render as flat paragraphs. Built per-page from the run
+   * results, so a partial run exports exactly its completed pages.
+   */
+  const buildDocx = useCallback(
+    async (flat: boolean, texts: string[], baseName: string) => {
+      if (texts.length === 0 || docxBuilding) return;
+      setDocxBuilding(true);
+      setExportError(null);
+      try {
+        const bytes = await pdfEngine.markdownToDocx({ texts, flat });
+        await deliverBytes(bytes, `${baseName}-ocr.docx`, 'download');
+      } catch (err) {
+        setExportError({ kind: 'docx', message: err instanceof Error ? err.message : String(err) });
+      } finally {
+        setDocxBuilding(false);
+      }
+    },
+    [docxBuilding],
+  );
 
   if (step === 'pick') {
     return (
@@ -632,6 +738,63 @@ export function OcrTool() {
             );
           })}
         </fieldset>
+        {/* v0.7.0 phase 5: page-range picker (ThumbnailStrip reuse) — BOTH
+            engine families honor the selection. Default is ALL pages
+            (selection === null); hidden until the page probe resolves; the
+            strip is bounded by OCR_PAGE_CAP. */}
+        {pageCount > 0 && (
+          <fieldset className="grid gap-2" data-testid="ocr-page-picker">
+            <legend className="text-sm font-bold">{t('ocr.pages_q')}</legend>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-text-muted" data-testid="ocr-pages-count">
+                {selectedPages === null
+                  ? t('ocr.pages_all', { count: pageCount })
+                  : t('ocr.pages_selected', { selected: selectedPages.size, count: pageCount })}
+              </span>
+              <button
+                type="button"
+                data-testid="ocr-pages-all"
+                className="rounded border border-border-strong px-2 py-0.5 hover:bg-surface-hover disabled:opacity-50"
+                onClick={() => setSelectedPages(null)}
+                disabled={selectedPages === null}
+              >
+                {t('ocr.pages_all_action')}
+              </button>
+              <button
+                type="button"
+                data-testid="ocr-pages-clear"
+                className="rounded border border-border-strong px-2 py-0.5 hover:bg-surface-hover disabled:opacity-50"
+                onClick={() => setSelectedPages(new Set())}
+                disabled={selectedPages !== null && selectedPages.size === 0}
+              >
+                {t('ocr.pages_clear')}
+              </button>
+            </div>
+            <ThumbnailStrip
+              pages={Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => ({
+                key: `p${n}`,
+                pageNumber: n,
+                url: pickerUrlFor(`p${n}`),
+                selected: selectedPages === null || selectedPages.has(n),
+              }))}
+              fullscreenTitle={(n) => t('ocr.page_n', { page: n })}
+              closeLabel={t('ocr.pages_fs_close')}
+              register={pickerObserve}
+              onToggle={(pageNumber) => {
+                // Checkbox semantics on an ALL default: the first toggle
+                // materializes the full set, then flips the clicked page.
+                setSelectedPages((prev) => {
+                  const base =
+                    prev ?? new Set(Array.from({ length: pageCount }, (_, i) => i + 1));
+                  const next = new Set(base);
+                  if (next.has(pageNumber)) next.delete(pageNumber);
+                  else next.add(pageNumber);
+                  return next;
+                });
+              }}
+            />
+          </fieldset>
+        )}
         {engine === 'tesseract' && (
           <>
             <fieldset className="grid gap-2">
@@ -673,6 +836,31 @@ export function OcrTool() {
           <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-xs text-text-muted">
             {t('ocr.native_notice')}
           </p>
+        )}
+        {/* v0.7.0: AI-engine-only sandwich FILE quality. Deliberately NOT the
+            tesseract DPI fieldset (recognition fidelity) — different control,
+            different semantics, and the engine input raster never changes. */}
+        {engine !== 'tesseract' && (
+          <fieldset className="grid gap-2" data-testid="ocr-pdf-quality">
+            <legend className="text-sm font-bold">{t('ocr.pdf_quality_q')}</legend>
+            <p className="text-xs text-text-muted">{t('ocr.pdf_quality_hint')}</p>
+            <div className="flex gap-2">
+              {(['compact', 'archive'] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  aria-pressed={pdfQuality === q}
+                  data-testid={`ocr-pdf-quality-${q}`}
+                  className={`min-h-9 rounded-lg border px-3.5 text-sm ${
+                    pdfQuality === q ? 'border-accent bg-surface-card font-semibold' : 'border-border-strong'
+                  }`}
+                  onClick={() => setPdfQuality(q)}
+                >
+                  {t(`ocr.pdf_quality_${q}`)}
+                </button>
+              ))}
+            </div>
+          </fieldset>
         )}
         {/* Smart suggestion (R5.1/D3): desktop-only, weak-engine triggers,
             dismissable; CTA selects the native radio. */}
@@ -774,6 +962,8 @@ export function OcrTool() {
             disabled={
               tooManyPages ||
               pageCount < 1 ||
+              // An explicitly emptied selection cannot start a run.
+              (selectedPages !== null && selectedPages.size === 0) ||
               // WebGPU-only verdict — native never inherits it (review F1).
               (engine === 'ai' && aiUnavailable)
             }
@@ -862,12 +1052,13 @@ export function OcrTool() {
         </section>
       );
     }
-    const pct = pageCount > 0 ? Math.round((current / pageCount) * 100) : 0;
+    const total = runTotal > 0 ? runTotal : pageCount;
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
     return (
       <section className="grid gap-4" aria-busy>
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
           <p className="text-sm font-semibold">
-            {t('ocr.progress_page', { current, count: pageCount })}
+            {t('ocr.progress_page', { current, count: total })}
             {resolvedLang && lang === 'auto' && ` · ${t(`ocr.lang_${resolvedLang.replace('+', '_')}`)}`}
           </p>
           <div className="h-2 overflow-hidden rounded-full bg-surface-card">
@@ -924,8 +1115,15 @@ export function OcrTool() {
     return (
       <section className="grid gap-4">
         <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-sm">
-          {t('ocr.ai_no_searchable')}
+          {t('ocr.ai_pdf_note')}
         </p>
+        {exportError && (
+          <p role="alert" className="text-sm text-tone-red">
+            {t(exportError.kind === 'pdf' ? 'ocr.pdf_error' : 'ocr.docx_error', {
+              message: exportError.message,
+            })}
+          </p>
+        )}
         {aiCrashedAt !== null && (
           <div className="rounded-lg border border-tone-red bg-tone-red-soft px-4 py-3 text-sm" role="alert">
             <p>{t('ocr.ai_resume', { page: aiCrashedAt })}</p>
@@ -1002,6 +1200,35 @@ export function OcrTool() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* The flagship deliver: click-time sandwich build → deliverBytes
+              (desktop Save-As invariant). Busy state during the build; the
+              button stays enabled for partial runs (completed pages only). */}
+          <button
+            type="button"
+            data-testid="ai-download-pdf"
+            disabled={pdfBuilding || aiResults.length === 0}
+            aria-busy={pdfBuilding}
+            className="min-h-9 rounded-lg bg-accent px-3.5 text-sm font-semibold text-text-on-accent disabled:opacity-50"
+            onClick={() => void buildPdf()}
+          >
+            {pdfBuilding ? t('ocr.pdf_building') : t('ocr.download_pdf')}
+          </button>
+          <button
+            type="button"
+            data-testid="ai-download-docx"
+            disabled={docxBuilding || aiResults.length === 0}
+            aria-busy={docxBuilding}
+            className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm disabled:opacity-50"
+            onClick={() =>
+              void buildDocx(
+                false,
+                aiResults.slice().sort((a, b) => a.page - b.page).map((r) => r.text),
+                baseName,
+              )
+            }
+          >
+            {docxBuilding ? t('ocr.docx_building') : t('ocr.download_docx')}
+          </button>
           {(
             [
               ['md', converted.markdown, `${baseName}-ocr.md`, 'text/markdown', t('ocr.download_md')],
@@ -1072,6 +1299,27 @@ export function OcrTool() {
         >
           {t('ocr.download_pdf')}
         </button>
+        <button
+          type="button"
+          data-testid="ocr-download-docx"
+          disabled={docxBuilding || results.length === 0}
+          aria-busy={docxBuilding}
+          className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm disabled:opacity-50"
+          onClick={() =>
+            void buildDocx(
+              true,
+              results.slice().sort((a, b) => a.page - b.page).map((r) => r.text),
+              (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, ''),
+            )
+          }
+        >
+          {docxBuilding ? t('ocr.docx_building') : t('ocr.download_docx')}
+        </button>
+        {exportError && (
+          <p role="alert" className="text-sm text-tone-red">
+            {t('ocr.docx_error', { message: exportError.message })}
+          </p>
+        )}
         <button
           type="button"
           className="min-h-9 rounded-lg border border-border-strong px-3.5 text-sm"
