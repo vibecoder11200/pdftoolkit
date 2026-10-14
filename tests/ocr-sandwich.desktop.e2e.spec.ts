@@ -85,7 +85,8 @@ test('native run with archive quality → Save-As PDF deliver; engine input stay
   const dataUrl = args.imageDataUrl ?? '';
   expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true);
   // PNG IHDR: 8-byte signature + 4 len + 4 type, width at offset 16 (BE).
-  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1, dataUrl.indexOf(',') + 1 + 32);
+  const b64Start = dataUrl.indexOf(',') + 1;
+  const b64 = dataUrl.slice(b64Start, b64Start + 32);
   const head = Buffer.from(b64, 'base64');
   expect(head.length).toBeGreaterThanOrEqual(20);
   expect(head.readUInt32BE(16)).toBe(1240);

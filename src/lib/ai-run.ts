@@ -174,13 +174,18 @@ export async function runAiPages(
 
   let firstColdMs: number | null = null;
   let benchmarkRecorded = false;
+  let position = 0;
   for (const page of queue) {
     if (opts.shouldContinue && !opts.shouldContinue()) {
       return { results, completedAll: false };
     }
-    // current = the absolute page number; total = the selection count
-    // (progress denominators reflect what THIS run will do).
-    events.onPage?.(page, total);
+    // onPage carries the 1-based POSITION within this run's queue against
+    // the queue length — numerator and denominator must be the same unit
+    // (the progress bar divides one by the other; a selection starting at
+    // page 5 would otherwise render "5/8" and aria-valuenow 150). onToken
+    // stays keyed by the ABSOLUTE page (results are page-indexed).
+    position += 1;
+    events.onPage?.(position, total);
     try {
       const r = await client.ocrPage(
         await renderPage(page),

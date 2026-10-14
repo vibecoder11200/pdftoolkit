@@ -59,13 +59,15 @@ export function displayLines(markdown: string): string[] {
     if (line.length === 0) continue;
     if (/^\|.+\|$/.test(line)) {
       // Split on UNescaped pipes only (the same rule as the markdown
-      // converter), drop the |---| separator row, unescape cells, space-join.
-      const cells = line
+      // converter). Separator detection runs on the RAW cells (GFM allows a
+      // single dash; cleanInline must not turn '*---*' into a separator),
+      // then the display form is space-joined.
+      const rawCells = line
         .slice(1, -1)
         .split(/(?<!\\)\|/)
-        .map((c) => cleanInline(c.trim()));
-      if (cells.every((c) => /^:?-{2,}:?$/.test(c))) continue;
-      out.push(cells.filter((c) => c.length > 0).join(' '));
+        .map((c) => c.trim());
+      if (rawCells.every((c) => /^:?-+:?$/.test(c))) continue;
+      out.push(rawCells.map(cleanInline).filter((c) => c.length > 0).join(' '));
       continue;
     }
     const heading = /^#{1,6}\s+(.*)$/.exec(line);
@@ -81,7 +83,7 @@ function cleanInline(s: string): string {
     .replace(/(^|\W)\*([^*\n]+)\*/g, '$1$2')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\$\$([^$]+)\$\$/g, '$1')
-    .replace(/\$([^$]+)\$/g, '$1')
+    .replace(/\$[^\s$](?:[^$\n]*[^\s$])?\$/g, (m) => m.slice(1, -1))
     .trim();
 }
 

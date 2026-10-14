@@ -67,6 +67,8 @@ tests/fixtures/*.crt
 tests/fixtures/*.pem
 tests/fixtures/*.csr
 tests/fixtures/*.srl
+# A/B rasters + any other generated fixture subdirs (gen.mjs outputs).
+tests/fixtures/ocr-ab-rasters/
 *.pdf.tmp
 
 # --- Env / secrets (CHỈ commit .env.example) ---

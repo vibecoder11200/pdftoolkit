@@ -127,3 +127,26 @@ describe('convertEngineOutput (full pipeline)', () => {
     expect(out.markdown).toContain('[click](javascript:alert(3))');
   });
 });
+
+describe('inline math carrier (v0.7.0 phase 4)', () => {
+  it('a quote inside $...$ cannot break out of the data-latex attribute', () => {
+    const html = markdownToSafeHtml('$a" onmouseover="alert(1)" b$');
+    // The quotes survived as entities INSIDE the attribute value — no new
+    // attribute, no markup injection (a RAW quote before onmouseover would
+    // be the breakout signal; the encoded form is inert).
+    expect(html).toContain('data-latex="a&quot; onmouseover=&quot;alert(1)&quot; b"');
+    expect(html).not.toContain('a" onmouseover');
+  });
+
+  it('same-line currency dollars stay literal (Pandoc whitespace rule)', () => {
+    expect(markdownToSafeHtml('cost 5$ and 6$ total')).toBe('<p>cost 5$ and 6$ total</p>');
+    expect(markdownToSafeHtml('$x^2$')).toContain('data-latex="x^2"');
+  });
+
+  it('a header-only table closes thead (never a dangling tbody)', () => {
+    const html = markdownToSafeHtml('| a | b |');
+    expect(html).toContain('<table><thead>');
+    expect(html).toContain('</thead></table>');
+    expect(html).not.toContain('<tbody>');
+  });
+});

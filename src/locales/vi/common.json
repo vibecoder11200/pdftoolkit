@@ -653,7 +653,7 @@
     "ai_progress_page": "AI đang đọc trang {{current}}/{{count}}…",
     "ai_tokens": "{{tokens}} token",
     "ai_pdf_note": "Kết quả AI xuất được PDF tìm được (ảnh trang + lớp văn bản vô hình), cùng markdown/text/html.",
-        "pages_q": "Trang cần nhận dạng",
+    "pages_q": "Trang cần nhận dạng",
     "pages_all": "Tất cả {{count}} trang",
     "pages_selected": "Đã chọn {{selected}}/{{count}} trang",
     "pages_all_action": "Chọn tất cả",

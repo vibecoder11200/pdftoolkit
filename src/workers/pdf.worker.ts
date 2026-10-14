@@ -82,7 +82,10 @@ const api: WorkerApi = {
   zipStore: async (entries) => zipStore(entries),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');
-    return markdownToDocx(pages);
+    const bytes = await markdownToDocx(pages);
+    // Same buffer contract as the neighbors: transfer, never a structured
+    // clone of a multi-page document.
+    return transfer(bytes, [bytes.buffer]);
   },
   inspectCertificateKey: (p12, password) =>
     import('../engine/p12').then((m) => m.inspectCertificateKey(p12, password)),

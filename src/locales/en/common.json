@@ -653,7 +653,7 @@
     "ai_progress_page": "AI is reading page {{current}}/{{count}}…",
     "ai_tokens": "{{tokens}} tokens",
     "ai_pdf_note": "AI results export as a searchable PDF (page image + invisible text layer), plus markdown/text/html.",
-        "pages_q": "Pages to recognize",
+    "pages_q": "Pages to recognize",
     "pages_all": "All {{count}} pages",
     "pages_selected": "{{selected}} of {{count}} pages selected",
     "pages_all_action": "Select all",

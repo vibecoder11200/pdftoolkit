@@ -134,8 +134,11 @@ function inlineFormat(escaped: string): string {
  * markup is never re-processed.
  */
 function inlineToSafeHtml(escaped: string): string {
+  // Single-$ rule is Pandoc's: no whitespace just inside either delimiter —
+  // "cost 5$ and 6$ total" stays literal on one line (OCR currency is far
+  // more common than space-padded math, which engines don't emit).
   return escaped
-    .split(/(\$\$[^$\n]+\$\$|\$[^$\n]+\$)/g)
+    .split(/(\$\$[^$\n]+\$\$|\$[^\s$](?:[^$\n]*[^\s$])?\$)/g)
     .map((part, i) => {
       if (i % 2 === 0) return inlineFormat(part);
       const display = part.startsWith('$$');
@@ -188,7 +191,8 @@ export function markdownToSafeHtml(markdown: string): string {
         .slice(1, -1)
         .split(/(?<!\\)\|/)
         .map((c) => c.trim().replaceAll('\\|', '|'));
-      const isSeparator = cells.every((c) => /^:?-{2,}:?$/.test(c));
+      // GFM separators allow a single dash (| - |); anything from '-' up.
+      const isSeparator = cells.every((c) => /^:?-+:?$/.test(c));
       if (isSeparator) continue;
       if (!inTable) {
         closeList();
@@ -245,9 +249,8 @@ export function markdownToSafeHtml(markdown: string): string {
 
 /** Full pipeline: engine raw text → { markdown, html, text }. */
 export function convertEngineOutput(raw: string): ConvertedOutput {
-  const text = raw;
   const markdown = engineTablesToMarkdown(raw).trim();
   const body = markdownToSafeHtml(markdown);
   const html = `<!doctype html>\n<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font:14px/1.6 system-ui,sans-serif;margin:1rem;color:#111}table{border-collapse:collapse;margin:.75rem 0}td,th{border:1px solid #bbb;padding:4px 10px}code{background:#f4f4f6;padding:1px 4px;border-radius:3px}</style></head><body>${body}</body></html>`;
-  return { markdown, html, text };
+  return { markdown, html, text: raw };
 }

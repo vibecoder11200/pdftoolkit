@@ -16,7 +16,6 @@ import type { DownloadProgress } from '../src/lib/ai-models';
  */
 
 function fakeClient(
-  pages: number,
   opts: { crashAt?: number; device?: 'webgpu' | 'wasm' | 'mock' } = {},
 ): {
   client: AiRunClient;
@@ -52,7 +51,6 @@ function fakeClient(
     getDownloadInfo: vi.fn(async () => ({ cached: true, filesCached: 1, filesTotal: 1, totalBytes: 10 })),
     clearCache: vi.fn(async () => 0),
   };
-  void pages;
   return { client, ocrCalls };
 }
 
@@ -69,11 +67,11 @@ const raster = (): RasterImageData => ({ data: new Uint8ClampedArray(4), width: 
 
 describe('downloadIfNeeded', () => {
   it('skips download when cached; downloads (with progress) when not', async () => {
-    const a = fakeClient(0);
+    const a = fakeClient();
     await downloadIfNeeded(a.client, 'glm-ocr');
     expect(a.client.downloadModel).not.toHaveBeenCalled();
 
-    const b = fakeClient(0);
+    const b = fakeClient();
     (b.client.isCached as ReturnType<typeof vi.fn>).mockResolvedValue(false);
     const events: number[] = [];
     await downloadIfNeeded(b.client, 'glm-ocr', (p) => events.push(p.percent ?? -1));
@@ -84,7 +82,7 @@ describe('downloadIfNeeded', () => {
 
 describe('runAiPages', () => {
   it('runs all pages with lazy one-at-a-time rendering and page-indexed results', async () => {
-    const { client, ocrCalls } = fakeClient(3);
+    const { client, ocrCalls } = fakeClient();
     const rendered: number[] = [];
     const onPage: Array<[number, number]> = [];
     const out = await runAiPages(
@@ -112,7 +110,7 @@ describe('runAiPages', () => {
   });
 
   it('cancel stops at the page boundary and KEEPS the completed results', async () => {
-    const { client } = fakeClient(4);
+    const { client } = fakeClient();
     let after = 0;
     const out = await runAiPages(
       client,
@@ -128,7 +126,7 @@ describe('runAiPages', () => {
   });
 
   it('worker crash on page N → onCrash(N) + throw (resume = rerun from N)', async () => {
-    const { client } = fakeClient(3, { crashAt: 2 });
+    const { client } = fakeClient({ crashAt: 2 });
     const crashed: number[] = [];
     await expect(
       runAiPages(
@@ -142,7 +140,7 @@ describe('runAiPages', () => {
   });
 
   it('benchmark-on-first-use: second completed page saves a measured record + fires onTierAfter', async () => {
-    const { client } = fakeClient(3);
+    const { client } = fakeClient();
     const { store, saved } = fakeStore();
     const tiers: unknown[] = [];
     await runAiPages(
@@ -157,7 +155,7 @@ describe('runAiPages', () => {
   });
 
   it('fresh benchmark already stored → no re-measure', async () => {
-    const { client } = fakeClient(3);
+    const { client } = fakeClient();
     const { store, saved } = fakeStore();
     // H4/A7 record identity: the orchestrator keys on the ENGINE-reported
     // fingerprint (LoadResult.adapterFingerprint) — the fake client reports
@@ -180,7 +178,7 @@ describe('runAiPages', () => {
   });
 
   it('wasm degrade run records condition wasm — WASM throughput is never labeled webgpu', async () => {
-    const { client } = fakeClient(3, { device: 'wasm' });
+    const { client } = fakeClient({ device: 'wasm' });
     const { store, saved } = fakeStore();
     await runAiPages(client, 3, async () => raster(), {}, { benchmarkStore: store });
     expect(saved).toHaveLength(1);
@@ -188,7 +186,7 @@ describe('runAiPages', () => {
   });
 
   it('stored record matches the loaded device condition → no re-measure (parity)', async () => {
-    const { client } = fakeClient(3, { device: 'wasm' });
+    const { client } = fakeClient({ device: 'wasm' });
     const { store, saved } = fakeStore();
     // wasm load → LoadResult.adapterFingerprint is null → probe fallback
     // ('?|?|?' in node); the stored record sits at THAT key with the same
@@ -212,7 +210,7 @@ describe('runAiPages', () => {
   });
 
   it('stored wasm record + webgpu load → re-measures (condition mismatch counts as stale)', async () => {
-    const { client } = fakeClient(3);
+    const { client } = fakeClient();
     const { store, saved } = fakeStore();
     const { adapterFingerprint } = await import('../src/lib/capability');
     const fp = adapterFingerprint(null);
@@ -234,7 +232,7 @@ describe('runAiPages', () => {
   });
 
   it('resume: startPage continues numbering and keeps caller-provided context', async () => {
-    const { client, ocrCalls } = fakeClient(3);
+    const { client, ocrCalls } = fakeClient();
     const out = await runAiPages(
       client,
       3,
@@ -249,26 +247,33 @@ describe('runAiPages', () => {
 });
 
 describe('runAiPages page selection (v0.7.0 phase 5)', () => {
-  it('runs only the selected pages in order; onPage denominators use the selection count', async () => {
-    const { client, ocrCalls } = fakeClient(5);
+  it('runs only the selected pages in order; onPage is the 1-based queue position', async () => {
+    const { client, ocrCalls } = fakeClient();
     const onPage = vi.fn();
-    const { results, completedAll } = await runAiPages(client, 5, async () => raster(), { onPage }, { pages: [4, 1, 3] });
+    const rendered: number[] = [];
+    const { results, completedAll } = await runAiPages(client, 5, async (page) => {
+      rendered.push(page);
+      return raster();
+    }, { onPage }, { pages: [4, 1, 3] });
     expect(completedAll).toBe(true);
     expect(results.map((r) => r.page)).toEqual([1, 3, 4]); // sorted, order preserved
     expect(ocrCalls).toEqual([1, 2, 3]); // one render per selected page
+    expect(rendered).toEqual([1, 3, 4]); // the RIGHT pages rendered, in order
+    // Numerator and denominator are the same unit: 1..N of the selection,
+    // never the absolute page (page 5 of a 3-page selection would show 5/3).
     expect(onPage).toHaveBeenNthCalledWith(1, 1, 3);
-    expect(onPage).toHaveBeenNthCalledWith(2, 3, 3);
-    expect(onPage).toHaveBeenNthCalledWith(3, 4, 3);
+    expect(onPage).toHaveBeenNthCalledWith(2, 2, 3);
+    expect(onPage).toHaveBeenNthCalledWith(3, 3, 3);
   });
 
   it('selection + resume: startPage filters the selection to the remaining pages', async () => {
-    const { client } = fakeClient(5);
+    const { client } = fakeClient();
     const { results } = await runAiPages(client, 5, async () => raster(), {}, { pages: [1, 3, 5], startPage: 3 });
     expect(results.map((r) => r.page)).toEqual([3, 5]);
   });
 
   it('empty selection: honest no-op (no renders, no onPage, completedAll)', async () => {
-    const { client, ocrCalls } = fakeClient(5);
+    const { client, ocrCalls } = fakeClient();
     const onPage = vi.fn();
     const { results, completedAll } = await runAiPages(client, 5, async () => raster(), { onPage }, { pages: [] });
     expect(results).toEqual([]);
@@ -278,7 +283,7 @@ describe('runAiPages page selection (v0.7.0 phase 5)', () => {
   });
 
   it('1-page selection after a 1-page resume (completedBefore) still records the benchmark, once', async () => {
-    const { client } = fakeClient(5);
+    const { client } = fakeClient();
     const { store, saved } = fakeStore();
     const onTierAfter = vi.fn();
     await runAiPages(client, 5, async () => raster(), { onTierAfter }, {

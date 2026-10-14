@@ -320,6 +320,7 @@ export function OcrTool() {
       setStep('running');
       setAiError(null);
       setAiCrashedAt(null);
+      setExportError(null);
       setResumeReask(false);
       setAiTokens(keep.reduce((s, r) => s + r.genTokens, 0));
       setAiResults(keep);
@@ -463,6 +464,7 @@ export function OcrTool() {
     setResolvedLang(null);
     setOutBytes(null);
     setRunError(null);
+    setExportError(null);
     abortRef.current = false;
     dropAllRef.current = false;
     const bytes = files[0].bytes;
@@ -742,7 +744,7 @@ export function OcrTool() {
             engine families honor the selection. Default is ALL pages
             (selection === null); hidden until the page probe resolves; the
             strip is bounded by OCR_PAGE_CAP. */}
-        {pageCount > 0 && (
+        {pageCount > 0 && !tooManyPages && (
           <fieldset className="grid gap-2" data-testid="ocr-page-picker">
             <legend className="text-sm font-bold">{t('ocr.pages_q')}</legend>
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1276,6 +1278,7 @@ export function OcrTool() {
       </section>
     );
   }
+  const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
   return (
     <section className="grid gap-4">
       {phase === 'cancelling' && (
@@ -1292,7 +1295,7 @@ export function OcrTool() {
             outBytes &&
             void deliverBytes(
               outBytes,
-              `${(files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '')}-ocr.pdf`,
+              `${baseName}-ocr.pdf`,
               'download',
             )
           }
@@ -1309,7 +1312,7 @@ export function OcrTool() {
             void buildDocx(
               true,
               results.slice().sort((a, b) => a.page - b.page).map((r) => r.text),
-              (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, ''),
+              baseName,
             )
           }
         >
@@ -1317,7 +1320,9 @@ export function OcrTool() {
         </button>
         {exportError && (
           <p role="alert" className="text-sm text-tone-red">
-            {t('ocr.docx_error', { message: exportError.message })}
+            {t(exportError.kind === 'pdf' ? 'ocr.pdf_error' : 'ocr.docx_error', {
+              message: exportError.message,
+            })}
           </p>
         )}
         <button
