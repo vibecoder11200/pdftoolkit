@@ -2,7 +2,7 @@ import type { PDFDocument } from 'pdf-lib';
 
 /**
  * Self-signed PKCS#7 (detached) signature — spike S3 recipe, see
- * docs/SPIKES.md. pdf-lib 1.17.1 has no API to create a signature field,
+ * plans/reports/spike-engine-s1-s5-2026-10-04.md. pdf-lib 1.17.1 has no API to create a signature field,
  * so the `/FT /Sig` field is built low-level, then js-pdf-signer injects
  * the `/ByteRange` + `/Contents` placeholder and fills it via WebCrypto.
  * The result is verifiable offline (`openssl cms -verify`) but carries a

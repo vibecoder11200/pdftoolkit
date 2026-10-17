@@ -99,10 +99,11 @@ export function EncryptTool() {
     try {
       if (mode === 'encrypt') {
         // engine.encryptPdf(bytes, user, owner, bits?) defaults to 256 (AES-256).
-        // Spike S1 (docs/SPIKES.md): 256 ships by default; the 128 fallback MUST
+        // Spike S1 (plans/reports/spike-engine-s1-s5-2026-10-04.md): 256 ships
+        // by default; the 128 fallback MUST
         // be 128-AES (`--use-aes=y`, see src/engine/qpdf.ts), never bare RC4
         // (qpdf >= 12 refuses RC4 without --allow-weak-crypto).
-        // Permissions: the frozen ENGINE-API (docs/ENGINE-API.md) exposes only
+        // Permissions: the worker API (src/workers/pdf.worker.ts) exposes only
         // user/owner passwords — no granular permission flags — so the owner
         // password field below is the full permissions control available.
         if (!userPass) {

@@ -49,8 +49,7 @@ export interface WorkerApi {
   /**
    * Real-cert signing (v0.3.0 phase 5). The P12 is parsed HERE: the private
    * key never leaves the worker. The password crosses comlink by structured
-   * clone — accepted (documented in docs/ENGINE-API.md), the UI wipes its
-   * copy after use.
+   * clone — accepted; the UI wipes its copy after use.
    */
   inspectCertificateKey(p12: Uint8Array, password: string): Promise<CertKeyInfo>;
   signWithCertificate(pdfBytes: Uint8Array, p12: Uint8Array, password: string): Promise<Uint8Array>;

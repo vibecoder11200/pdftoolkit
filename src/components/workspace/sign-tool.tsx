@@ -451,7 +451,8 @@ export function SignTool() {
       let out: Uint8Array;
       if (cert) {
         // Real certificate: the P12 is parsed in the worker (key never leaves);
-        // password crosses once via comlink (docs/ENGINE-API.md).
+        // password crosses once via comlink (accepted design — see the
+        // inspectCertificateKey note in src/workers/pdf.worker.ts).
         const creds = certCredentialsRef.current!;
         const p12 = new Uint8Array(await creds.file.arrayBuffer());
         const placed = sig ? await doc.save({ useObjectStreams: false }) : src.bytes.slice();

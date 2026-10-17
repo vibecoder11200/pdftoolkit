@@ -37,7 +37,7 @@ type CertUiError = { key: string; values?: Record<string, string | number> };
  * (red-team F7): it lives in a ref written by the uncontrolled input, is
  * wiped by onWipeRef (tool calls it after sign / bad-password / reset), and
  * crosses to the worker exactly once per operation — the private key itself
- * never leaves the worker (docs/ENGINE-API.md).
+ * never leaves the worker (src/workers/pdf.worker.ts).
  */
 export function SignCertPanel({
   enabled,
@@ -228,7 +228,7 @@ export function SignCertPanel({
 
 /**
  * comlink preserves Error.name — the UI maps by name and shows its OWN copy,
- * never the raw library message (red-team F7; contract in docs/ENGINE-API.md).
+ * never the raw library message (red-team F7; contract in src/engine/p12.ts).
  */
 export function mapCertError(e: unknown): CertUiError {
   const name = (e as Error)?.name;
