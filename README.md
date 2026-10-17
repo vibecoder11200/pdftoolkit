@@ -11,20 +11,21 @@ Merge, split, compress, convert and sign PDFs — 100% in your browser. Files ne
 
 Most "free PDF tools" upload your documents to a server. This one doesn't: every operation runs client-side in a Web Worker (pdf-lib + qpdf-wasm + pdf.js). There is no backend, no account, no telemetry, no runtime CDN.
 
-## Tools (13)
+## Tools (14)
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
-| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
 
-## AI OCR (experimental, v0.5.0)
+## OCR — Tesseract + on-device AI (experimental)
 
-The OCR tool has a second, optional engine: **GLM-OCR running fully on your device** (transformers.js v4 on WebGPU). It targets complex layouts — tables, multi-column pages, poor scans — and outputs Markdown, plain text or sanitized HTML instead of a searchable PDF (use the Tesseract engine when you need searchable PDFs).
+The OCR tool ships two engines. **Tesseract** (eng+vie) produces searchable PDFs. The optional **AI engine — GLM-OCR — runs fully on your device** and targets complex layouts — tables, multi-column pages, poor scans — with richer outputs: Markdown, plain text, sanitized HTML, DOCX, and (since v0.7.0) a **searchable PDF** with an invisible text layer (per-word highlight positions are approximate). A page-range picker limits the run to the pages you choose.
 
-- **WebGPU required.** The tool checks your GPU first and reports the detected tier honestly: strong (fast), weak (roughly a minute per page on integrated graphics) or none (the AI engine stays disabled; Tesseract works everywhere). A real throughput benchmark runs after your first pages and stays on-device.
-- **~652 MB one-time model download** from HuggingFace (pinned revision, sha256-verified per file). The model then lives in your browser's storage and AI OCR works fully offline — manage or delete it any time under **Settings → Storage on this device**.
+- **WebGPU required** (browser engine). The tool checks your GPU first and reports the detected tier honestly: strong (fast), weak (roughly a minute per page on integrated graphics) or none (the AI engine stays disabled; Tesseract works everywhere). A real throughput benchmark runs after your first pages and stays on-device.
+- **~652 MB one-time model download** (browser engine) from HuggingFace (pinned revision, sha256-verified per file). The model then lives in your browser's storage and AI OCR works fully offline — manage or delete it any time under **Settings → Storage on this device**.
+- **Desktop app only: a native engine.** The desktop build can additionally install a native OCR engine (llama.cpp, Vulkan on Windows) — same AI outputs, noticeably faster than the browser engine. ~1.4 GB download, managed under Settings.
 - **Your documents never leave the machine.** Only the model itself is downloaded, once; pages are rasterized and processed locally.
-- Known limits: headings can be missing from the output (tables and values came through exact in our tests); generation peaks around 4 GB RAM, so 8 GB machines may swap.
+- Known limits: generation peaks around 4 GB RAM, so 8 GB machines may swap.
 
 ## Extras
 
@@ -64,8 +65,8 @@ npm run build                    # typecheck + production build to dist/
 npm test                         # engine + matrix suites (vitest)
 npm run test:e2e                 # Playwright (Chromium) against the preview build
 
-MATRIX_100MB=1 node tests/fixtures/gen.mjs --large   # optional: 100MB nightly fixture
-MATRIX_100MB=1 npx vitest run tests/matrix.spec.ts   # run the 100MB matrix tier
+NODE_OPTIONS=--max-old-space-size=8192 MATRIX_100MB=1 node tests/fixtures/gen.mjs --large   # optional: 100MB nightly fixture
+NODE_OPTIONS=--max-old-space-size=8192 MATRIX_100MB=1 npx vitest run tests/matrix-100mb.spec.ts --no-file-parallelism   # 100MB matrix tier (own process — it OOMs when stacked)
 ```
 
 The app is deployed to GitHub Pages under `/pdftoolkit/` (see `.github/workflows/pages.yml`: PRs run the 1/10MB matrix, a nightly job runs the 100MB tier and publishes the report as an artifact).
@@ -74,4 +75,4 @@ The app is deployed to GitHub Pages under `/pdftoolkit/` (see `.github/workflows
 
 MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-**Attribution:** written from scratch; no third-party application code is vendored. The product shape was informed by studying public tools (PDFCraft, Stirling-PDF, PDFLince, private-pdf) without reusing their code. CI keeps `src/` free of AGPL code, telemetry beacons and runtime CDN imports.
+**Attribution:** written from scratch; no third-party application code is vendored. The product shape was informed by studying public tools — PDFCraft and Stirling-PDF (both AGPL-3.0: studied only, no code taken), PDFLince, and private-pdf (MIT, direct pattern reference) — without reusing their code. CI keeps `src/` free of AGPL code, telemetry beacons and runtime CDN imports.

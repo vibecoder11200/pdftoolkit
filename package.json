@@ -1,9 +1,9 @@
 {
   "name": "pdftoolkit",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
-  "description": "PDF Toolkit PWA \u2014 100% client-side, MIT",
+  "description": "PDF Toolkit PWA — 100% client-side, MIT",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/sync-ort-assets.mjs && node scripts/sync-tessdata.mjs && tsc --noEmit && vite build",
@@ -39,7 +39,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-i18next": "17.0.15",
-    "react-router-dom": "7.1.3",
+    "react-router-dom": "7.18.4",
     "tesseract.js": "7.0.0",
     "tesseract.js-core": "7.0.0"
   },
@@ -59,7 +59,7 @@
     "jsdom": "^25.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.7.2",
-    "vite": "7.3.0",
+    "vite": "7.3.7",
     "vite-plugin-pwa": "2.0.0",
     "vitest": "2.1.8",
     "workbox-core": "^7.4.1",
