@@ -2,6 +2,7 @@ import { wrap, transfer } from 'comlink';
 import type { Remote } from 'comlink';
 import type { WorkerApi } from '../workers/pdf.worker';
 import { ownForWorker, shouldTransfer } from '../lib/buffers';
+import { robotoBytes } from '../lib/roboto';
 
 let remote: Remote<WorkerApi> | null = null;
 
@@ -59,4 +60,23 @@ export const engine = {
       owned(p12) as Uint8Array,
       password,
     ),
+  // Watermark/page-numbers (v0.8.0): the font (and image bytes, when present)
+  // are CALLER-OWNED — sliced per call before the send (every send copies
+  // across comlink anyway; buffers.ts). fontTtf omitted → the shared Roboto.
+  stampWatermark: async (
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').StampWatermarkOptions,
+    fontTtf?: Uint8Array,
+  ) => {
+    const font = (fontTtf ?? (await robotoBytes())).slice();
+    return getWorker().stampWatermark(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array);
+  },
+  applyPageNumbers: async (
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').PageNumbersOptions,
+    fontTtf?: Uint8Array,
+  ) => {
+    const font = (fontTtf ?? (await robotoBytes())).slice();
+    return getWorker().applyPageNumbers(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array);
+  },
 };

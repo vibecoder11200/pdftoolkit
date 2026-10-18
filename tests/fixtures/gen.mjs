@@ -34,6 +34,54 @@ async function makePdf(pages, label, seedLines) {
 const small = await makePdf(2, 'small', 40);
 const medium = await makePdf(40, 'medium', 60);
 
+// v0.8.0 fixtures: geometry matrix + rotated + pagenums (tests/watermark-
+// engine.spec.ts / tests/page-numbers-engine.spec.ts / phase-5 e2e).
+// GEOM_CONFIGS encodes the per-page rotation × box config the specs expect —
+// keep in sync with the specs' expected geometry.
+const GEOM_CONFIGS = [
+  { rotate: 0, crop: false },
+  { rotate: 0, crop: true },
+  { rotate: 90, crop: false },
+  { rotate: 90, crop: true },
+  { rotate: 180, crop: false },
+  { rotate: 180, crop: true },
+  { rotate: 270, crop: false },
+  { rotate: 270, crop: true },
+];
+async function makeGeomPdf() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-geom');
+  doc.setCreator('pdftoolkit-gen');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const [i, cfg] of GEOM_CONFIGS.entries()) {
+    const page = doc.addPage([595, 842]);
+    page.drawText(`GEOM p${i + 1} r${cfg.rotate} ${cfg.crop ? 'crop' : 'media'}`, {
+      x: 48, y: 800, size: 13, font,
+    });
+    if (cfg.rotate !== 0) {
+      page.setRotation({ type: 'degrees', angle: cfg.rotate });
+    }
+    if (cfg.crop) {
+      page.setCropBox(40, 60, 515, 722);
+    }
+  }
+  return doc.save({ useObjectStreams: false });
+}
+const geom = await makeGeomPdf();
+writeFileSync(join(here, 'fixture-geom.pdf'), geom);
+
+const rotated = await makePdf(4, 'rotated', 3);
+{
+  const doc = await PDFDocument.load(rotated);
+  for (const [i, angle] of [0, 90, 180, 270].entries()) {
+    if (angle !== 0) doc.getPage(i).setRotation({ type: 'degrees', angle });
+  }
+  writeFileSync(join(here, 'fixture-rotated.pdf'), await doc.save({ useObjectStreams: false }));
+}
+
+const pagenums = await makePdf(5, 'pagenums', 3);
+writeFileSync(join(here, 'fixture-pagenums.pdf'), pagenums);
+
 mkdirSync(here, { recursive: true });
 writeFileSync(join(here, 'fixture-small.pdf'), small);
 writeFileSync(join(here, 'fixture-medium.pdf'), medium);
@@ -329,6 +377,9 @@ console.log(
     'fixture-medium.pdf': medium.length,
     'fixture-locked.pdf': locked.length,
     'fixture-photo.png': makePng(64, 48).length,
+    'fixture-geom.pdf': geom.length,
+    'fixture-rotated.pdf': readFileSync(join(here, 'fixture-rotated.pdf')).length,
+    'fixture-pagenums.pdf': pagenums.length,
     'form-vn.pdf': formVn.length,
     'form-vn-full.pdf': formVnFull.length,
     'form-vn-signed.pdf': readFileSync(join(here, 'form-vn-signed.pdf')).length,

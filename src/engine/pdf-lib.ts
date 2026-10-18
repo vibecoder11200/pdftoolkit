@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, degrees, rgb } from 'pdf-lib';
 
 export interface PageInfo {
   pageNumber: number;
@@ -738,4 +738,393 @@ export async function fillFormFields(
     bytes: await doc.save({ useObjectStreams: false, updateFieldAppearances: false }),
     skipped: [...skipped],
   };
+}
+
+// ---- Watermark + page numbers (v0.8.0 phase 1) — append-only section ------
+// Same append-only invariant as the 6a/6b sections above.
+
+import { renderPageTemplate } from '../lib/page-template';
+import { isPngBytes } from '../lib/image-intake';
+
+/** 9-grid anchor: row ∈ {top, middle, bottom} × col ∈ {left, center, right}. */
+export type GridPos9 =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
+
+export interface WatermarkTextOptions {
+  mode: 'text';
+  text: string;
+  fontSize: number;
+  /** 0–1. */
+  opacity: number;
+  /** VISUAL rotation, degrees CLOCKWISE as the reader sees the displayed page. */
+  rotation: number;
+  position: GridPos9;
+  /** Visual offsets in pt (right/down positive). */
+  offsetX: number;
+  offsetY: number;
+  tiled?: boolean;
+  /** 2–8 (engine clamps). */
+  tileColumns?: number;
+}
+
+export interface WatermarkImageOptions {
+  mode: 'image';
+  /** PNG or JPEG bytes (header-sniffed here; intake gate lives in
+   * src/lib/image-intake.ts and runs in the UI BEFORE these bytes exist). */
+  imageBytes: Uint8Array;
+  opacity: number;
+  /** Image width as a fraction of the visible page's min dimension, 0–1. */
+  scale: number;
+  position: GridPos9;
+  offsetX: number;
+  offsetY: number;
+}
+
+export type StampWatermarkOptions =
+  | ({ pages?: number[] } & WatermarkTextOptions)
+  | ({ pages?: number[] } & WatermarkImageOptions);
+
+export interface PageNumbersOptions {
+  template: string;
+  position: GridPos9;
+  /** Distance of the stamp box from the visible page edges, pt. */
+  margin: number;
+  fontSize: number;
+  /** {n} = actual page number + (startNumber − 1). */
+  startNumber: number;
+  /** Scope (sorted 1-based); undefined/empty = all. Skip-first = 2..N. */
+  pages?: number[];
+  /** Basename source for the {filename} token. */
+  filename: string;
+}
+
+/**
+ * pdf-lib geometry semantics, verified against the 1.17.1 sources before this
+ * code was written (plan step 1 — do not "simplify" away):
+ * - `page.getSize()`/`getWidth()`/`getHeight()` reflect the MEDIABOX.
+ * - `page.getCropBox()` returns the CropBox when present (inheritable),
+ *   else the MediaBox — always with its x/y ORIGIN, which can be non-zero.
+ * - drawText/drawImage take RAW user-space coordinates: pdf-lib does NOT
+ *   compensate for the MediaBox/CropBox origin and does NOT compensate for
+ *   /Rotate (rotation is applied by the viewer at display time). Nothing in
+ *   this repo compensated either (scout §9) — the transform below is the
+ *   shared placement math for every future stamping feature (v0.9 annotate
+ *   MUST reuse it, AGENTS.md invariant).
+ */
+
+export interface PageGeometry {
+  /** Visible box (CropBox else MediaBox) in user space, including origin. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Effective /Rotate, normalized to 0|90|180|270. */
+  rotate: 0 | 90 | 180 | 270;
+  /** DISPLAYED dimensions: width/height swapped for 90/270. */
+  visualWidth: number;
+  visualHeight: number;
+}
+
+function normalizeRotate(angle: number): 0 | 90 | 180 | 270 {
+  const a = ((((Math.round(angle / 90) * 90) % 360) + 360) % 360) as 0 | 90 | 180 | 270;
+  return a;
+}
+
+export function visibleGeometry(page: import('pdf-lib').PDFPage): PageGeometry {
+  const box = page.getCropBox();
+  const rotate = normalizeRotate(page.getRotation().angle);
+  const swap = rotate === 90 || rotate === 270;
+  return {
+    x: box.x,
+    y: box.y,
+    width: box.width,
+    height: box.height,
+    rotate,
+    visualWidth: swap ? box.height : box.width,
+    visualHeight: swap ? box.width : box.height,
+  };
+}
+
+/**
+ * Visual → user space. Visual coordinates are what the reader sees: origin
+ * at the bottom-left of the DISPLAYED visible box, x right, y up.
+ * Forward map (user rel → visual) for a page displayed with /Rotate r
+ * degrees clockwise: r=90 → (y', w − x'); r=180 → (w − x', h − y');
+ * r=270 → (h − y', x'). Inverted here (w/h are the user-space box dims,
+ * visualWidth/Height the displayed dims — swapped for 90/270).
+ */
+export function visualToPageSpace(
+  vx: number,
+  vy: number,
+  geom: PageGeometry,
+): { x: number; y: number } {
+  let lx: number;
+  let ly: number;
+  switch (geom.rotate) {
+    case 90:
+      lx = geom.visualHeight - vy;
+      ly = vx;
+      break;
+    case 180:
+      lx = geom.width - vx;
+      ly = geom.height - vy;
+      break;
+    case 270:
+      lx = vy;
+      ly = geom.visualWidth - vx;
+      break;
+    default:
+      lx = vx;
+      ly = vy;
+  }
+  return { x: geom.x + lx, y: geom.y + ly };
+}
+
+/**
+ * Draw angle for pdf-lib's CCW-positive `rotate` so the stamp VISUALLY
+ * appears rotated `visualRotationCw` degrees clockwise: the viewer turns the
+ * page `/Rotate` degrees clockwise on top of whatever user-space angle we
+ * draw, so draw = pageRotate − visualRotationCw (mod 360).
+ */
+export function drawAngleFor(visualRotationCw: number, pageRotate: number): number {
+  return (((pageRotate - visualRotationCw) % 360) + 360) % 360;
+}
+
+/**
+ * Draw point (bottom-left of the stamp box) in VISUAL coordinates for a
+ * 9-grid anchor, kept inside `margin` of the visible edges. Text passes its
+ * measured width and treats the box height as the font size (baseline at the
+ * box bottom — ascender approximated by the full size, well inside the
+ * property-matrix tolerance).
+ */
+export function anchorPoint(
+  pos: GridPos9,
+  geom: PageGeometry,
+  boxW: number,
+  boxH: number,
+  margin: number,
+  offsetX = 0,
+  offsetY = 0,
+): { vx: number; vy: number } {
+  const row = pos.startsWith('top') ? 'top' : pos === 'center' || pos.startsWith('middle') ? 'middle' : 'bottom';
+  const col = pos.endsWith('left') ? 'left' : pos.endsWith('right') ? 'right' : 'center';
+  const x =
+    col === 'left'
+      ? margin
+      : col === 'right'
+        ? geom.visualWidth - margin - boxW
+        : (geom.visualWidth - boxW) / 2;
+  const top =
+    row === 'top'
+      ? geom.visualHeight - margin
+      : row === 'bottom'
+        ? margin + boxH
+        : (geom.visualHeight + boxH) / 2;
+  return { vx: x + offsetX, vy: top - boxH + offsetY };
+}
+
+/** Engine-side scope clamp (finding 13 backstop): out-of-range entries are
+ * FILTERED, never thrown; duplicates dropped; result sorted ascending. */
+function selectPageIndices(doc: PDFDocument, pages?: number[]): number[] {
+  const count = doc.getPageCount();
+  if (!pages || pages.length === 0) return doc.getPageIndices();
+  const seen = new Set<number>();
+  const indices: number[] = [];
+  for (const n of pages) {
+    const i = n - 1;
+    if (!Number.isInteger(i) || i < 0 || i >= count || seen.has(i)) continue;
+    seen.add(i);
+    indices.push(i);
+  }
+  return indices.sort((a, b) => a - b);
+}
+
+async function embedRobotoSubset(doc: PDFDocument, fontTtf: Uint8Array): Promise<import('pdf-lib').PDFFont> {
+  const fontkitNs = await import('@pdf-lib/fontkit');
+  const fontkit: typeof fontkitNs =
+    'create' in fontkitNs ? fontkitNs : (fontkitNs as { default: typeof fontkitNs }).default;
+  doc.registerFontkit(fontkit);
+  return doc.embedFont(fontTtf, { subset: true });
+}
+
+interface StampStyle {
+  position: GridPos9;
+  offsetX: number;
+  offsetY: number;
+  opacity: number;
+  rotationCw: number;
+}
+
+const STAMP_GRAY = { r: 0.5, g: 0.5, b: 0.5 };
+
+function stampTextOnPage(
+  page: import('pdf-lib').PDFPage,
+  font: import('pdf-lib').PDFFont,
+  text: string,
+  fontSize: number,
+  style: StampStyle,
+  margin: number,
+): void {
+  const geom = visibleGeometry(page);
+  const textWidth = font.widthOfTextAtSize(text, fontSize);
+  const draw = anchorPoint(style.position, geom, textWidth, fontSize, margin, style.offsetX, style.offsetY);
+  const user = visualToPageSpace(draw.vx, draw.vy, geom);
+  page.drawText(text, {
+    x: user.x,
+    y: user.y,
+    font,
+    size: fontSize,
+    rotate: degrees(drawAngleFor(style.rotationCw, geom.rotate)),
+    opacity: style.opacity,
+    color: rgb(STAMP_GRAY.r, STAMP_GRAY.g, STAMP_GRAY.b),
+  });
+}
+
+function stampTextTiledOnPage(
+  page: import('pdf-lib').PDFPage,
+  font: import('pdf-lib').PDFFont,
+  text: string,
+  fontSize: number,
+  style: StampStyle,
+  tileColumns: number,
+): void {
+  const geom = visibleGeometry(page);
+  const textWidth = font.widthOfTextAtSize(text, fontSize);
+  const cols = Math.min(8, Math.max(2, Math.round(tileColumns)));
+  const tileW = geom.visualWidth / cols;
+  const rows = Math.max(1, Math.round(geom.visualHeight / tileW));
+  const tileH = geom.visualHeight / rows;
+  const angle = degrees(drawAngleFor(style.rotationCw, geom.rotate));
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const cx = tileW * (c + 0.5) + style.offsetX;
+      const cy = tileH * (r + 0.5) + style.offsetY;
+      const user = visualToPageSpace(cx - textWidth / 2, cy - fontSize / 2, geom);
+      page.drawText(text, {
+        x: user.x,
+        y: user.y,
+        font,
+        size: fontSize,
+        rotate: angle,
+        opacity: style.opacity,
+        color: rgb(STAMP_GRAY.r, STAMP_GRAY.g, STAMP_GRAY.b),
+      });
+    }
+  }
+}
+
+function stampImageOnPage(
+  page: import('pdf-lib').PDFPage,
+  image: import('pdf-lib').PDFImage,
+  scale: number,
+  style: StampStyle,
+  margin: number,
+): void {
+  const geom = visibleGeometry(page);
+  const src = image.size();
+  const targetW = Math.max(1, scale * Math.min(geom.visualWidth, geom.visualHeight));
+  const targetH = Math.max(1, targetW * (src.height / src.width));
+  const draw = anchorPoint(style.position, geom, targetW, targetH, margin, style.offsetX, style.offsetY);
+  const user = visualToPageSpace(draw.vx, draw.vy, geom);
+  page.drawImage(image, {
+    x: user.x,
+    y: user.y,
+    width: targetW,
+    height: targetH,
+    rotate: degrees(drawAngleFor(style.rotationCw, geom.rotate)),
+    opacity: style.opacity,
+  });
+}
+
+/**
+ * Stamps a text or image watermark onto every in-scope page. Rotation- and
+ * CropBox-aware: placement is specified in VISUAL coordinates and mapped
+ * through visibleGeometry/visualToPageSpace, so a "top-right" stamp lands
+ * top-right on screen for every /Rotate × CropBox combination (property-test
+ * matrix in tests/watermark-engine.spec.ts, pdf.js as the independent
+ * oracle). Loads with ignoreEncryption:false — an encrypted input throws the
+ * typed EncryptedPDFError the UI routes to the decrypt flow (no swallowing).
+ */
+export async function stampWatermark(
+  bytes: Uint8Array,
+  opts: StampWatermarkOptions,
+  fontTtf: Uint8Array,
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  let font: import('pdf-lib').PDFFont | null = null;
+  let image: import('pdf-lib').PDFImage | null = null;
+  if (opts.mode === 'text') {
+    font = await embedRobotoSubset(doc, fontTtf);
+  } else {
+    image = isPngBytes(opts.imageBytes)
+      ? await doc.embedPng(opts.imageBytes)
+      : await doc.embedJpg(opts.imageBytes);
+  }
+  const style: StampStyle = {
+    position: opts.position,
+    offsetX: opts.offsetX,
+    offsetY: opts.offsetY,
+    opacity: opts.opacity,
+    rotationCw: opts.mode === 'text' ? opts.rotation : 0,
+  };
+  for (const index of selectPageIndices(doc, opts.pages)) {
+    const page = doc.getPage(index);
+    if (opts.mode === 'text') {
+      if (opts.tiled) {
+        stampTextTiledOnPage(page, font!, opts.text, opts.fontSize, style, opts.tileColumns ?? 3);
+      } else {
+        stampTextOnPage(page, font!, opts.text, opts.fontSize, style, 0);
+      }
+    } else if (image) {
+      stampImageOnPage(page, image, opts.scale, style, 0);
+    }
+  }
+  return doc.save({ useObjectStreams: false });
+}
+
+/**
+ * Renders `template` per in-scope page (renderPageTemplate — pure module,
+ * zero pdf-lib imports) and draws the result through the same rotation-aware
+ * placement primitives as stampWatermark. {n} = actual page number +
+ * (startNumber − 1); {total} = full page count regardless of scope. Same
+ * ignoreEncryption:false + scope-clamping contract as stampWatermark.
+ */
+export async function applyPageNumbers(
+  bytes: Uint8Array,
+  opts: PageNumbersOptions,
+  fontTtf: Uint8Array,
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const font = await embedRobotoSubset(doc, fontTtf);
+  const total = doc.getPageCount();
+  const style: StampStyle = {
+    position: opts.position,
+    offsetX: 0,
+    offsetY: 0,
+    opacity: 1,
+    rotationCw: 0,
+  };
+  for (const index of selectPageIndices(doc, opts.pages)) {
+    const label = renderPageTemplate(opts.template, {
+      n: index + 1 + (opts.startNumber - 1),
+      total,
+      filename: opts.filename,
+    });
+    stampTextOnPage(doc.getPage(index), font, label, opts.fontSize, style, opts.margin);
+  }
+  return doc.save({ useObjectStreams: false });
 }

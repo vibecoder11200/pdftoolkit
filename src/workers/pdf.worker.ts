@@ -39,6 +39,18 @@ export interface WorkerApi {
   decryptPdf(bytes: Uint8Array, password: string): Promise<Uint8Array>;
   qpdfCheck(bytes: Uint8Array): Promise<void>;
   zipStore(entries: { name: string; bytes: Uint8Array }[]): Promise<Uint8Array>;
+  /** Watermark stamping (v0.8.0): rotation/CropBox-aware text or image stamp. */
+  stampWatermark(
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').StampWatermarkOptions,
+    fontTtf: Uint8Array,
+  ): Promise<Uint8Array>;
+  /** Page numbers (v0.8.0): token template rendered per in-scope page. */
+  applyPageNumbers(
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').PageNumbersOptions,
+    fontTtf: Uint8Array,
+  ): Promise<Uint8Array>;
   /**
    * OCR → DOCX export (v0.7.0 phase 4). The docx chunks (~430 KB gz) load
    * on the FIRST export call, never at worker boot; the build itself runs
@@ -79,6 +91,8 @@ const api: WorkerApi = {
   decryptPdf: (bytes, password) => decryptPdf(bytes, password),
   qpdfCheck: (bytes) => qpdfCheck(bytes),
   zipStore: async (entries) => zipStore(entries),
+  stampWatermark: (bytes, opts, fontTtf) => lib.stampWatermark(bytes, opts, fontTtf),
+  applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');
     const bytes = await markdownToDocx(pages);

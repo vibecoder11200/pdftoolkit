@@ -20,6 +20,8 @@
  * losslessly; embedPng decodes and re-deflates.
  */
 
+import { robotoBytes } from './roboto';
+
 export interface SandwichPage {
   /** 1-based source page number. */
   index: number;
@@ -87,17 +89,11 @@ function cleanInline(s: string): string {
     .trim();
 }
 
-/** Roboto via the ?inline data-URL pattern; atob decode (fetch() on data:
- *  URLs is rejected by current Chromium — fill-form-tool precedent). Lazy
- *  ON USE, not on module load: node has no vite ?inline transform, so its
- *  tests inject robotoBytes and this import never runs there. */
+/** Roboto via the shared loader (the ?inline import stays dynamic inside
+ *  src/lib/roboto.ts — see its GATE note). Node tests inject robotoBytes and
+ *  this import never runs there. */
 async function loadRoboto(): Promise<Uint8Array> {
-  const m = await import('../assets/fonts/Roboto-Regular.ttf?inline');
-  const b64 = m.default.slice(m.default.indexOf(',') + 1);
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  return robotoBytes();
 }
 
 /** Production raster path: render on THIS module's OWN canvas (never the
