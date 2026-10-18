@@ -42,7 +42,7 @@ const neverLoader = (): Promise<PdfInfo> => new Promise(() => undefined);
 describe('buildSuggestions — tier 1', () => {
   it('single PDF → compress first, plus the all-tools grid', async () => {
     const r = await buildSuggestions([pdfFile()], { loadPdfInfo: okLoader });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
     expect(r.showAllTools).toBe(true);
     expect(r.rejected).toEqual([]);
   });
@@ -59,7 +59,7 @@ describe('buildSuggestions — tier 1', () => {
     const r = await buildSuggestions([pdfFile('a.pdf'), bytesFile('photo.jpg', 'x', 'image/jpeg')], {
       loadPdfInfo: okLoader,
     });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'img-to-pdf']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark', 'img-to-pdf']);
     // Compress is single-file: the mixed drop means only the PDF gets loaded,
     // so the ranked row must say so instead of implying the whole set goes in.
     expect(r.suggestions[0].partial).toBe(true);
@@ -135,7 +135,7 @@ describe('buildSuggestions — tier 2 (worker parse, injectable)', () => {
       loadPdfInfo: corruptLoader,
     });
     expect(r.rejected).toEqual([{ name: 'broken.pdf', reason: 'corrupt' }]);
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
   });
 
   it('tier-2 is skipped past the file cap — no locked detection', async () => {
@@ -149,13 +149,13 @@ describe('buildSuggestions — tier 2 (worker parse, injectable)', () => {
     const r = await buildSuggestions([pdfFile('big.pdf', 11 * 1024 * 1024)], {
       loadPdfInfo: lockedLoader,
     });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
     expect(r.suggestions[0].mode).toBeUndefined();
   });
 
   it('timeout downgrades to tier-1 instead of guessing', async () => {
     const r = await buildSuggestions([pdfFile('slow.pdf')], { loadPdfInfo: neverLoader });
-    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress']);
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
     expect(r.rejected).toEqual([]);
   }, 10_000);
 });

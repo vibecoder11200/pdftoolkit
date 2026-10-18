@@ -54,5 +54,9 @@
   "ocr": {
     "title": "OCR (text recognition)",
     "desc": "Turn scans into a searchable PDF + extractable text (Vietnamese/English), fully on-device"
+  },
+  "watermark": {
+    "title": "Watermark",
+    "desc": "Stamp text or images onto selected pages — position, angle, tiled."
   }
 }

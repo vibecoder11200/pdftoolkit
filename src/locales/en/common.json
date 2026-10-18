@@ -511,7 +511,8 @@
     "sheet_single_file_aria": "{{tool}} — single file only",
     "folder_empty": "No matching files found in the selected folder.",
     "launch_banner_text_one": "Received {{count}} file from the OS — open Home to process.",
-    "launch_banner_text_other": "Received {{count}} files from the OS — open Home to process."
+    "launch_banner_text_other": "Received {{count}} files from the OS — open Home to process.",
+    "reason_watermark": "Stamp a watermark onto the PDF pages"
   },
   "steps": {
     "pick": "Pick files",
@@ -788,5 +789,43 @@
     "updates_last_checked": "Last checked: {{time}}",
     "about_title": "About",
     "credits_title": "Open-source components"
+  },
+  "watermark": {
+    "title": "Watermark",
+    "dropzone_title": "Drop a PDF here",
+    "dropzone_hint": "or click to browse · 1 file under 200 MB",
+    "tab_text": "Text",
+    "tab_image": "Image",
+    "content_label": "Stamp text",
+    "content_placeholder": "e.g. DRAFT — internal",
+    "font_size": "Font size",
+    "opacity": "Opacity ({{value}}%)",
+    "rotation": "Rotation",
+    "rotation_free": "Custom angle (0–360)",
+    "tiled": "Tile across the page",
+    "tile_columns": "Tile columns",
+    "image_pick": "Stamp image (PNG/JPG)",
+    "image_change": "Choose another image",
+    "image_none_hint": "No image chosen. The image is embedded into the PDF — never uploaded.",
+    "image_opacity": "Image opacity ({{value}}%)",
+    "image_scale": "Image size ({{value}}% of the short edge)",
+    "position": "Position",
+    "cta": "Stamp and download",
+    "cta_batch": "Stamp a whole folder",
+    "progress_working": "Stamping...",
+    "progress_batch": "Stamping {{done}}/{{total}}...",
+    "progress_done": "Done. File downloaded.",
+    "progress_idle": "Ready.",
+    "selected_count": "Selected {{count}}/{{total}} pages",
+    "thumb_hint": "click to select/unselect pages to stamp",
+    "batch_summary": "{{ok}}/{{total}} succeeded — failed: {{failed}}",
+    "err_no_file": "No file yet. Upload a PDF first.",
+    "err_no_selection": "No pages selected. Pick at least one page to stamp.",
+    "err_failed": "Stamping failed: {{message}}",
+    "err_encrypted": "This file is password-locked — unlock it before stamping.",
+    "decrypt_cta": "Unlock with password",
+    "err_image_unsupported": "The image must be PNG or JPG.",
+    "err_image_too_big": "Image is too large (declared over 100 megapixels) — shrink it first.",
+    "err_no_image": "Pick an image before stamping."
   }
 }

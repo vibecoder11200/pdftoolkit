@@ -2,7 +2,7 @@ import { engine } from '../engine/client';
 import type { PdfInfo } from '../engine/pdf-lib';
 import { MAX_FILE_BYTES, sniffHeicName } from './file-accept';
 
-export type SuggestSlug = 'merge' | 'compress' | 'img-to-pdf' | 'encrypt';
+export type SuggestSlug = 'merge' | 'compress' | 'img-to-pdf' | 'encrypt' | 'watermark' | 'page-numbers';
 
 export interface Suggestion {
   slug: SuggestSlug;
@@ -42,8 +42,14 @@ const TIER2_TIMEOUT_MS = 3000;
 const IMAGE_EXT = /\.(jpe?g|png)$/i;
 const PDF_EXT = /\.pdf$/i;
 
-function isEncryptedError(err: unknown): boolean {
-  // Comlink rethrows worker errors preserving name/message; accept either.
+/**
+ * Locked-PDF detection. Exported for the tools' decrypt CTA (v0.8.0 finding
+ * 14 — this check used to be module-private; pdf-lib's EncryptedPDFError
+ * carries name "Error" at runtime, so the /encrypted/i message is the
+ * reliable half of this check). Comlink rethrows worker errors preserving
+ * name/message; accept either.
+ */
+export function isEncryptedError(err: unknown): boolean {
   return (
     err instanceof Error &&
     (err.name === 'EncryptedPDFError' || /encrypted/i.test(err.message))
@@ -175,6 +181,15 @@ export async function buildSuggestions(
       reasonKey: 'home.reason_compress',
       ...(files.length > 1 && { partial: true }),
     });
+    // Watermark ranks below compress for a single usable UNLOCKED pdf
+    // (v0.8.0) — a locked file goes to decrypt first, never to stamping.
+    if (!locked) {
+      suggestions.push({
+        slug: 'watermark',
+        reasonKey: 'home.reason_watermark',
+        ...(files.length > 1 && { partial: true }),
+      });
+    }
     if (!locked && images.length === 0) showAllTools = true;
   }
 

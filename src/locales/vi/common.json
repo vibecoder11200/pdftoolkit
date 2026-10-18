@@ -511,7 +511,8 @@
     "sheet_single_file_aria": "{{tool}} — chỉ nhận 1 file",
     "folder_empty": "Không tìm thấy file phù hợp trong thư mục đã chọn.",
     "launch_banner_text_one": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
-    "launch_banner_text_other": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý."
+    "launch_banner_text_other": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
+    "reason_watermark": "Đóng dấu bản quyền / ghi chú nước vào các trang PDF"
   },
   "steps": {
     "pick": "Chọn file",
@@ -788,5 +789,43 @@
     "updates_last_checked": "Kiểm tra lần cuối: {{time}}",
     "about_title": "Về ứng dụng",
     "credits_title": "Thành phần mã nguồn mở"
+  },
+  "watermark": {
+    "title": "Đóng dấu nước",
+    "dropzone_title": "Kéo file PDF vào đây",
+    "dropzone_hint": "hoặc bấm để chọn · 1 file dưới 200 MB",
+    "tab_text": "Chữ",
+    "tab_image": "Ảnh",
+    "content_label": "Nội dung dấu",
+    "content_placeholder": "Ví dụ: BẢN MẪU — nội bộ",
+    "font_size": "Cỡ chữ",
+    "opacity": "Độ mờ ({{value}}%)",
+    "rotation": "Góc xoay",
+    "rotation_free": "Góc tùy chọn (0–360)",
+    "tiled": "Lặp kín trang",
+    "tile_columns": "Số cột khi lặp",
+    "image_pick": "Ảnh đóng dấu (PNG/JPG)",
+    "image_change": "Đổi ảnh khác",
+    "image_none_hint": "Chưa chọn ảnh. Ảnh được nhúng vào PDF, không tải lên mạng.",
+    "image_opacity": "Độ mờ ảnh ({{value}}%)",
+    "image_scale": "Kích thước ảnh ({{value}}% cạnh ngắn)",
+    "position": "Vị trí",
+    "cta": "Đóng dấu và tải xuống",
+    "cta_batch": "Đóng dấu cả thư mục",
+    "progress_working": "Đang đóng dấu...",
+    "progress_batch": "Đang đóng dấu {{done}}/{{total}}...",
+    "progress_done": "Hoàn tất. File đã tải xuống.",
+    "progress_idle": "Sẵn sàng.",
+    "selected_count": "Đã chọn {{count}}/{{total}} trang",
+    "thumb_hint": "bấm để chọn/bỏ chọn trang cần đóng dấu",
+    "batch_summary": "{{ok}}/{{total}} thành công — lỗi: {{failed}}",
+    "err_no_file": "Chưa có file. Hãy tải lên một file PDF.",
+    "err_no_selection": "Chưa chọn trang nào. Hãy chọn ít nhất một trang để đóng dấu.",
+    "err_failed": "Đóng dấu thất bại: {{message}}",
+    "err_encrypted": "File đang khóa mật khẩu — hãy mở khóa trước khi đóng dấu.",
+    "decrypt_cta": "Mở khóa bằng mật khẩu",
+    "err_image_unsupported": "Ảnh phải là PNG hoặc JPG.",
+    "err_image_too_big": "Ảnh quá lớn (khai báo quá 100 megapixel) — hãy thu nhỏ trước khi đóng dấu.",
+    "err_no_image": "Hãy chọn ảnh trước khi đóng dấu."
   }
 }

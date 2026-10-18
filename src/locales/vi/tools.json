@@ -54,5 +54,9 @@
   "ocr": {
     "title": "Nhận dạng chữ (OCR)",
     "desc": "Scan PDF thành PDF tìm được (tiếng Việt/Anh) + trích text, 100% trên máy"
+  },
+  "watermark": {
+    "title": "Đóng dấu nước",
+    "desc": "Dấu chữ/ảnh mờ lên trang đã chọn — tùy vị trí, góc xoay, lặp kín trang."
   }
 }
