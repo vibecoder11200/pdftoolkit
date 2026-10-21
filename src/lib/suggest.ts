@@ -136,28 +136,38 @@ export async function buildSuggestions(
   let locked = false;
   let corruptRows: RejectedFile[] = [];
   let tier2Usable = pdfs; // tier-2 skipped/failed → fall back to count-based ranking
+  // Typed results retained by tier-2 (finding 8): indexed parallel to `pdfs`,
+  // empty when tier-2 did not run (skipped or timed out). The page-numbers
+  // rule needs real page counts and must NEVER fire on the count-free
+  // fallback path — a wrong "≥ 3 pages" guess would rank a 1-page scan into
+  // a numbering tool.
+  let tier2Infos: (PdfInfo | null)[] = [];
+  let tier2TimedOut = false;
 
   if (pdfs.length > 0 && pdfs.length <= TIER2_MAX_FILES && pdfs.every((f) => f.size <= TIER2_MAX_BYTES)) {
     const states = await Promise.all(
       pdfs.map(async (file) => {
         try {
-          await withTimeout(loadPdfInfo(await bytesOf(file)), TIER2_TIMEOUT_MS);
-          return 'loaded' as const;
+          const info = await withTimeout(loadPdfInfo(await bytesOf(file)), TIER2_TIMEOUT_MS);
+          return { status: 'loaded' as const, info };
         } catch (err) {
-          if (err instanceof TimeoutError) return 'timeout' as const;
-          if (isEncryptedError(err)) return 'locked' as const;
-          return 'corrupt' as const;
+          if (err instanceof TimeoutError) return { status: 'timeout' as const, info: null };
+          if (isEncryptedError(err)) return { status: 'locked' as const, info: null };
+          return { status: 'corrupt' as const, info: null };
         }
       }),
     );
-    if (!states.some((s) => s === 'timeout')) {
+    tier2Infos = states.map((s) => s.info);
+    if (states.some((s) => s.status === 'timeout')) {
       // A timeout leaves the worker parsing (comlink has no cancel); its
       // results are dropped but tier-1 ranking below still applies.
-      locked = states.includes('locked');
+      tier2TimedOut = true;
+    } else {
+      locked = states.some((s) => s.status === 'locked');
       corruptRows = states.flatMap((state, i) =>
-        state === 'corrupt' ? [{ name: pdfs[i].name, reason: 'corrupt' as const }] : [],
+        state.status === 'corrupt' ? [{ name: pdfs[i].name, reason: 'corrupt' as const }] : [],
       );
-      tier2Usable = pdfs.filter((_, i) => states[i] !== 'corrupt');
+      tier2Usable = pdfs.filter((_, i) => states[i].status !== 'corrupt');
     }
   }
 
@@ -189,6 +199,20 @@ export async function buildSuggestions(
         reasonKey: 'home.reason_watermark',
         ...(files.length > 1 && { partial: true }),
       });
+      // Page numbers ranks below watermark and needs REAL page counts
+      // (finding 8): only when tier-2 actually ran (no timeout, no cap
+      // skip) AND the parsed count is ≥ 3. Never on the fallback path.
+      if (!tier2TimedOut && tier2Infos.length > 0) {
+        const idx = pdfs.indexOf(tier2Usable[0]);
+        const info = idx >= 0 ? tier2Infos[idx] : null;
+        if (info && info.numPages >= 3) {
+          suggestions.push({
+            slug: 'page-numbers',
+            reasonKey: 'home.reason_page_numbers',
+            ...(files.length > 1 && { partial: true }),
+          });
+        }
+      }
     }
     if (!locked && images.length === 0) showAllTools = true;
   }

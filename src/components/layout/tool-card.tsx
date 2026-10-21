@@ -31,6 +31,7 @@ export const TOOLS: ToolDef[] = [
   { slug: 'metadata', icon: 'M4 20h16M6 16l2-9h8l2 9M10 7V5a2 2 0 0 1 4 0v2', tone: 'bg-tone-purple-soft text-tone-purple', category: 'sec' },
   { slug: 'sign', icon: 'm12 19 7-7a4.95 4.95 0 1 0-7-7l-7 7v7h7ZM14 8l2 2', tone: 'bg-tone-green-soft text-tone-green', category: 'sec' },
   { slug: 'watermark', icon: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 16.5 16.5 7M7 11.5 11.5 7', tone: 'bg-tone-blue-soft text-tone-blue', category: 'opt' },
+  { slug: 'page-numbers', icon: 'M7 8h10M7 12h10M7 16h4M17 14l4 4m0 0-4 4m4-4h-7', tone: 'bg-tone-teal-soft text-tone-teal', category: 'opt' },
 ];
 
 export function ToolCard({ tool }: { tool: ToolDef }) {

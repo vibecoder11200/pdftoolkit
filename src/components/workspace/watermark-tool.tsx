@@ -18,6 +18,7 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
+import { PositionGrid } from './position-grid';
 import { FileIcon } from '../ui/icons';
 
 /*
@@ -31,53 +32,11 @@ import { FileIcon } from '../ui/icons';
 
 type Tab = 'text' | 'image';
 
-const GRID_POSITIONS: GridPos9[] = [
-  'top-left',
-  'top-center',
-  'top-right',
-  'middle-left',
-  'center',
-  'middle-right',
-  'bottom-left',
-  'bottom-center',
-  'bottom-right',
-];
-
 const ROTATION_PRESETS = [0, 45, 90];
 
 function outputName(original: string): string {
   const base = original.replace(/\.pdf$/i, '').trim() || 'watermarked';
   return `${base}-watermarked.pdf`;
-}
-
-function PositionGrid({
-  value,
-  onChange,
-  label,
-}: {
-  value: GridPos9;
-  onChange: (pos: GridPos9) => void;
-  label: string;
-}) {
-  return (
-    <div role="radiogroup" aria-label={label} className="mt-2 grid w-28 grid-cols-3 gap-1">
-      {GRID_POSITIONS.map((pos) => (
-        <button
-          key={pos}
-          type="button"
-          role="radio"
-          aria-checked={value === pos}
-          aria-label={pos}
-          onClick={() => onChange(pos)}
-          className={`h-7 w-7 rounded border-2 transition ${
-            value === pos
-              ? 'border-accent bg-accent-soft'
-              : 'border-border-strong bg-surface-card hover:border-accent'
-          }`}
-        />
-      ))}
-    </div>
-  );
 }
 
 export function WatermarkTool() {

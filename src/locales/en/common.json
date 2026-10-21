@@ -512,7 +512,8 @@
     "folder_empty": "No matching files found in the selected folder.",
     "launch_banner_text_one": "Received {{count}} file from the OS — open Home to process.",
     "launch_banner_text_other": "Received {{count}} files from the OS — open Home to process.",
-    "reason_watermark": "Stamp a watermark onto the PDF pages"
+    "reason_watermark": "Stamp a watermark onto the PDF pages",
+    "reason_page_numbers": "Add page numbers to documents with 3+ pages"
   },
   "steps": {
     "pick": "Pick files",
@@ -827,5 +828,52 @@
     "err_image_unsupported": "The image must be PNG or JPG.",
     "err_image_too_big": "Image is too large (declared over 100 megapixels) — shrink it first.",
     "err_no_image": "Pick an image before stamping."
+  },
+  "page-numbers": {
+    "title": "Page numbers",
+    "dropzone_title": "Drop a PDF here",
+    "dropzone_hint": "or click to browse · 1 file under 200 MB",
+    "preset_q": "Numbering style",
+    "preset1": "Page number — bottom center",
+    "preset2": "Number/total — bottom center",
+    "preset3": "“Page 1/5” — bottom center",
+    "preset4": "Skip first page (clean cover)",
+    "preset_advanced": "Advanced (token template)",
+    "preset3_template": "Page {n} of {total}",
+    "template_label": "Page number template",
+    "preview_heading": "Preview (pages 1–3)",
+    "preview_excluded": "(not numbered)",
+    "preview_no_file": "document.pdf",
+    "position": "Position",
+    "margin": "Edge margin ({{value}} pt)",
+    "font_size": "Font size",
+    "start_number": "Start number",
+    "cta": "Add numbers and download",
+    "progress_working": "Adding page numbers...",
+    "progress_done": "Done. File downloaded.",
+    "progress_idle": "Ready.",
+    "selected_count": "Selected {{count}}/{{total}} pages",
+    "thumb_hint": "click to select/unselect pages to number",
+    "err_no_file": "No file yet. Upload a PDF first.",
+    "err_no_selection": "No pages selected. Pick at least one page to number.",
+    "err_failed": "Numbering failed: {{message}}",
+    "err_encrypted": "This file is password-locked — unlock it before numbering.",
+    "decrypt_cta": "Unlock with password"
+  },
+  "grid_pos": {
+    "top_left": "Top left",
+    "top_center": "Top center",
+    "top_right": "Top right",
+    "middle_left": "Middle left",
+    "center": "Center",
+    "middle_right": "Middle right",
+    "bottom_left": "Bottom left",
+    "bottom_center": "Bottom center",
+    "bottom_right": "Bottom right"
+  },
+  "chip": {
+    "chip_label": "Continue with result",
+    "chip_title": "Pick the next tool",
+    "chip_cancel": "Close"
   }
 }

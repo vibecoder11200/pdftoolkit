@@ -512,7 +512,8 @@
     "folder_empty": "Không tìm thấy file phù hợp trong thư mục đã chọn.",
     "launch_banner_text_one": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
     "launch_banner_text_other": "Đã nhận {{count}} file từ hệ điều hành — mở Home để xử lý.",
-    "reason_watermark": "Đóng dấu bản quyền / ghi chú nước vào các trang PDF"
+    "reason_watermark": "Đóng dấu bản quyền / ghi chú nước vào các trang PDF",
+    "reason_page_numbers": "Đánh số trang cho tài liệu từ 3 trang trở lên"
   },
   "steps": {
     "pick": "Chọn file",
@@ -827,5 +828,52 @@
     "err_image_unsupported": "Ảnh phải là PNG hoặc JPG.",
     "err_image_too_big": "Ảnh quá lớn (khai báo quá 100 megapixel) — hãy thu nhỏ trước khi đóng dấu.",
     "err_no_image": "Hãy chọn ảnh trước khi đóng dấu."
+  },
+  "page-numbers": {
+    "title": "Đánh số trang",
+    "dropzone_title": "Kéo file PDF vào đây",
+    "dropzone_hint": "hoặc bấm để chọn · 1 file dưới 200 MB",
+    "preset_q": "Kiểu đánh số",
+    "preset1": "Số trang — giữa đáy",
+    "preset2": "Số/tổng số — giữa đáy",
+    "preset3": "“Trang 1/5” — giữa đáy",
+    "preset4": "Bỏ qua trang đầu (trang 1 sạch)",
+    "preset_advanced": "Nâng cao (mẫu token)",
+    "preset3_template": "Trang {n}/{total}",
+    "template_label": "Mẫu số trang",
+    "preview_heading": "Xem trước (trang 1–3)",
+    "preview_excluded": "(không đánh số)",
+    "preview_no_file": "tài liệu.pdf",
+    "position": "Vị trí",
+    "margin": "Cách mép ({{value}} pt)",
+    "font_size": "Cỡ chữ",
+    "start_number": "Số bắt đầu",
+    "cta": "Đánh số và tải xuống",
+    "progress_working": "Đang đánh số trang...",
+    "progress_done": "Hoàn tất. File đã tải xuống.",
+    "progress_idle": "Sẵn sàng.",
+    "selected_count": "Đã chọn {{count}}/{{total}} trang",
+    "thumb_hint": "bấm để chọn/bỏ chọn trang cần đánh số",
+    "err_no_file": "Chưa có file. Hãy tải lên một file PDF.",
+    "err_no_selection": "Chưa chọn trang nào. Hãy chọn ít nhất một trang để đánh số.",
+    "err_failed": "Đánh số thất bại: {{message}}",
+    "err_encrypted": "File đang khóa mật khẩu — hãy mở khóa trước khi đánh số.",
+    "decrypt_cta": "Mở khóa bằng mật khẩu"
+  },
+  "grid_pos": {
+    "top_left": "Trên trái",
+    "top_center": "Trên giữa",
+    "top_right": "Trên phải",
+    "middle_left": "Giữa trái",
+    "center": "Chính giữa",
+    "middle_right": "Giữa phải",
+    "bottom_left": "Dưới trái",
+    "bottom_center": "Dưới giữa",
+    "bottom_right": "Dưới phải"
+  },
+  "chip": {
+    "chip_label": "Tiếp tục với kết quả",
+    "chip_title": "Chọn công cụ tiếp theo",
+    "chip_cancel": "Đóng"
   }
 }

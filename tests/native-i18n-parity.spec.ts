@@ -72,6 +72,105 @@ const NATIVE_SETTINGS_KEYS = [
   'row_native_engine_hint',
 ] as const;
 
+// v0.8.0: the two new tools + the chaining chip + the shared 9-grid labels.
+// Every key these components render must exist in BOTH locales.
+const WATERMARK_KEYS = [
+  'title',
+  'dropzone_title',
+  'dropzone_hint',
+  'tab_text',
+  'tab_image',
+  'content_label',
+  'content_placeholder',
+  'font_size',
+  'opacity',
+  'rotation',
+  'rotation_free',
+  'tiled',
+  'tile_columns',
+  'image_pick',
+  'image_change',
+  'image_none_hint',
+  'image_opacity',
+  'image_scale',
+  'position',
+  'cta',
+  'cta_batch',
+  'progress_working',
+  'progress_batch',
+  'progress_done',
+  'progress_idle',
+  'selected_count',
+  'thumb_hint',
+  'batch_summary',
+  'err_no_file',
+  'err_no_selection',
+  'err_failed',
+  'err_encrypted',
+  'decrypt_cta',
+  'err_image_unsupported',
+  'err_image_too_big',
+  'err_no_image',
+] as const;
+
+const PAGE_NUMBERS_KEYS = [
+  'title',
+  'dropzone_title',
+  'dropzone_hint',
+  'preset_q',
+  'preset1',
+  'preset2',
+  'preset3',
+  'preset4',
+  'preset_advanced',
+  'preset3_template',
+  'template_label',
+  'preview_heading',
+  'preview_excluded',
+  'preview_no_file',
+  'position',
+  'margin',
+  'font_size',
+  'start_number',
+  'cta',
+  'progress_working',
+  'progress_done',
+  'progress_idle',
+  'selected_count',
+  'thumb_hint',
+  'err_no_file',
+  'err_no_selection',
+  'err_failed',
+  'err_encrypted',
+  'decrypt_cta',
+] as const;
+
+const GRID_POS_KEYS = [
+  'top_left',
+  'top_center',
+  'top_right',
+  'middle_left',
+  'center',
+  'middle_right',
+  'bottom_left',
+  'bottom_center',
+  'bottom_right',
+] as const;
+
+const CHIP_KEYS = [
+  'chip_label',
+  'chip_title',
+  'chip_cancel',
+] as const;
+
+const HOME_REASON_KEYS = ['reason_watermark', 'reason_page_numbers'] as const;
+
+function commonOf(
+  json: unknown,
+): Record<string, Record<string, string>> {
+  return json as Record<string, Record<string, string>>;
+}
+
 describe('native-engine i18n parity (both locales)', () => {
   for (const key of NATIVE_OCR_KEYS) {
     it(`ocr.${key} exists in en + vi`, () => {
@@ -91,4 +190,45 @@ describe('native-engine i18n parity (both locales)', () => {
       ).toBeTruthy();
     });
   }
+});
+
+describe('v0.8.0 i18n parity (both locales)', () => {
+  const en = commonOf(enCommon);
+  const vi = commonOf(viCommon);
+  for (const key of WATERMARK_KEYS) {
+    it(`watermark.${key} exists in en + vi`, () => {
+      expect(en.watermark?.[key], `en watermark.${key}`).toBeTruthy();
+      expect(vi.watermark?.[key], `vi watermark.${key}`).toBeTruthy();
+    });
+  }
+  for (const key of PAGE_NUMBERS_KEYS) {
+    it(`page-numbers.${key} exists in en + vi`, () => {
+      expect(en['page-numbers']?.[key], `en page-numbers.${key}`).toBeTruthy();
+      expect(vi['page-numbers']?.[key], `vi page-numbers.${key}`).toBeTruthy();
+    });
+  }
+  for (const key of GRID_POS_KEYS) {
+    it(`grid_pos.${key} exists in en + vi`, () => {
+      expect(en.grid_pos?.[key], `en grid_pos.${key}`).toBeTruthy();
+      expect(vi.grid_pos?.[key], `vi grid_pos.${key}`).toBeTruthy();
+    });
+  }
+  for (const key of CHIP_KEYS) {
+    it(`chip.${key} exists in en + vi`, () => {
+      expect(en.chip?.[key], `en chip.${key}`).toBeTruthy();
+      expect(vi.chip?.[key], `vi chip.${key}`).toBeTruthy();
+    });
+  }
+  for (const key of HOME_REASON_KEYS) {
+    it(`home.${key} exists in en + vi`, () => {
+      expect(en.home?.[key], `en home.${key}`).toBeTruthy();
+      expect(vi.home?.[key], `vi home.${key}`).toBeTruthy();
+    });
+  }
+  it('preset3 templates carry the tokens in both locales', () => {
+    for (const json of [en, vi]) {
+      expect(json['page-numbers'].preset3_template).toContain('{n}');
+      expect(json['page-numbers'].preset3_template).toContain('{total}');
+    }
+  });
 });

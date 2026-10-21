@@ -37,6 +37,14 @@ const corruptLoader = async (bytes: Uint8Array): Promise<PdfInfo> => {
   return okLoader(bytes);
 };
 
+const longLoader = async (bytes: Uint8Array): Promise<PdfInfo> =>
+  ({
+    numPages: 5,
+    pageInfos: [],
+    fingerprint: 'f',
+    fileSizeBytes: bytes.byteLength,
+  }) as PdfInfo;
+
 const neverLoader = (): Promise<PdfInfo> => new Promise(() => undefined);
 
 describe('buildSuggestions — tier 1', () => {
@@ -158,4 +166,33 @@ describe('buildSuggestions — tier 2 (worker parse, injectable)', () => {
     expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
     expect(r.rejected).toEqual([]);
   }, 10_000);
+
+  it('single PDF with ≥3 parsed pages → page-numbers ranked below watermark (finding 8)', async () => {
+    const r = await buildSuggestions([pdfFile()], { loadPdfInfo: longLoader });
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark', 'page-numbers']);
+    expect(r.suggestions[2].reasonKey).toBe('home.reason_page_numbers');
+  });
+
+  it('single PDF with <3 pages → no page-numbers even when tier-2 ran', async () => {
+    const r = await buildSuggestions([pdfFile()], { loadPdfInfo: okLoader });
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
+  });
+
+  it('tier-2 timeout → page-numbers NEVER suggested on the count-free path', async () => {
+    const r = await buildSuggestions([pdfFile('slow.pdf')], { loadPdfInfo: neverLoader });
+    expect(r.suggestions.map((s) => s.slug)).not.toContain('page-numbers');
+  }, 10_000);
+
+  it('tier-2 skipped (size cap) → page-numbers NEVER suggested', async () => {
+    const r = await buildSuggestions([pdfFile('big.pdf', 11 * 1024 * 1024)], {
+      loadPdfInfo: longLoader,
+    });
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['compress', 'watermark']);
+  });
+
+  it('locked PDF → neither watermark nor page-numbers', async () => {
+    const r = await buildSuggestions([pdfFile('l.pdf')], { loadPdfInfo: lockedLoader });
+    expect(r.suggestions.map((s) => s.slug)).toEqual(['encrypt', 'compress']);
+    expect(r.suggestions[0].mode).toBe('decrypt');
+  });
 });
