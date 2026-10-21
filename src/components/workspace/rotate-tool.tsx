@@ -10,6 +10,8 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 
 type Angle = 90 | 180 | 270;
 
@@ -18,6 +20,7 @@ const ANGLES: Angle[] = [90, 180, 270];
 export function RotateTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -111,6 +114,7 @@ export function RotateTool() {
       const out = await engine.rotatePages(source.bytes, targets, angle);
       if (await deliverBytes(out, 'rotated.pdf', dest)) {
         setProgress({ value: 100, label: t('rotate.progress_done') });
+        keep(out, 'rotated.pdf');
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -123,6 +127,7 @@ export function RotateTool() {
 
   const reset = () => {
     clear();
+    keep(null, '');
     setNumPages(0);
     setSelected(new Set());
     setProgress(null);
@@ -179,6 +184,9 @@ export function RotateTool() {
             disabled={!source || selected.size === 0}
             onClick={() => void run('pick')}
           />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('rotate.progress_idle')}</span>
           )}

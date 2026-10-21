@@ -12,6 +12,8 @@ import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
 
@@ -34,6 +36,7 @@ function newUuid(fi: number, p: number, gen: number): string {
 export function MergeTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, removeAt, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Files handed off from the home suggestion sheet. takePendingFiles is
   // one-shot, so StrictMode's double-invoked effect adds nothing twice.
   useEffect(() => {
@@ -118,6 +121,7 @@ export function MergeTool() {
       const out = await engine.mergeSelected(parts, picks);
       if (await deliverBytes(out, 'merged.pdf', dest)) {
         setProgress({ value: 100, label: t('merge.progress_done') });
+        keep(out, 'merged.pdf');
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -161,6 +165,9 @@ export function MergeTool() {
             {t('merge.cta')}
           </Button>
           <SaveElsewhereButton disabled={kept.length === 0} onClick={() => void run('pick')} />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('merge.progress_idle')}</span>
           )}
@@ -169,6 +176,7 @@ export function MergeTool() {
       progress={progress}
       onReset={() => {
         clear();
+        keep(null, '');
         setPages([]);
         setPageCounts([]);
         setDeselected(new Set());

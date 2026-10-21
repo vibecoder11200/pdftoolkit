@@ -10,6 +10,8 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 
 let uid = 0;
@@ -25,6 +27,7 @@ function newKey(p: number, gen: number): string {
 export function DeleteTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -145,6 +148,9 @@ export function DeleteTool() {
             {t('remove.cta_save')}
           </Button>
           <SaveElsewhereButton disabled={!bytes} onClick={() => deliver('pick')} />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('remove.progress_idle')}</span>
           )}
@@ -153,6 +159,7 @@ export function DeleteTool() {
       progress={progress}
       onReset={() => {
         clear();
+        keep(null, '');
         setBytes(null);
         setFileName('');
         setFileSize(0);

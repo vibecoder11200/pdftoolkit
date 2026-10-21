@@ -10,6 +10,8 @@ import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon } from '../ui/icons';
 
 type ProtectMode = 'encrypt' | 'decrypt';
@@ -42,6 +44,7 @@ function outputName(original: string, mode: ProtectMode): string {
 export function EncryptTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   const [mode, setMode] = useState<ProtectMode>('encrypt');
   // Home-sheet handoff: a locked PDF lands here in decrypt mode. Single-file
   // tool; one-shot take keeps StrictMode's double effect harmless.
@@ -74,6 +77,7 @@ export function EncryptTool() {
 
   const resetAll = () => {
     clear();
+    keep(null, '');
     clearPasswords();
     setProgress(null);
     setRunError(null);
@@ -114,6 +118,7 @@ export function EncryptTool() {
         const owner = ownerPass || userPass;
         const out = await withWorkerTimeout(engine.encryptPdf(src.bytes, userPass, owner, bits));
         if (await deliverBytes(out, outputName(src.file.name, 'encrypt'), dest)) {
+          keep(out, outputName(src.file.name, 'encrypt'));
           setProgress({ value: 100, label: t('encrypt.progress_done') });
           setSucceeded(true);
         } else {
@@ -127,6 +132,7 @@ export function EncryptTool() {
         setProgress({ value: 20, label: t('encrypt.progress_decrypting') });
         const out = await withWorkerTimeout(engine.decryptPdf(src.bytes, decryptPass));
         if (await deliverBytes(out, outputName(src.file.name, 'decrypt'), dest)) {
+          keep(out, outputName(src.file.name, 'decrypt'));
           setProgress({ value: 100, label: t('encrypt.progress_done') });
           setSucceeded(true);
         } else {
@@ -188,6 +194,9 @@ export function EncryptTool() {
             {mode === 'encrypt' ? t('encrypt.cta_encrypt') : t('encrypt.cta_decrypt')}
           </Button>
           <SaveElsewhereButton disabled={!canRun} onClick={() => void run('pick')} />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('encrypt.progress_idle')}</span>
           )}

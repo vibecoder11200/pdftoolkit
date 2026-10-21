@@ -12,6 +12,8 @@ import { Button } from '../ui/button';
 import { Dialog } from '../ui/dialog';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { FileIcon, LockIcon } from '../ui/icons';
 import type {
@@ -68,6 +70,7 @@ function isEncryptedError(e: unknown): boolean {
 export function FillFormTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -242,6 +245,7 @@ export function FillFormTool() {
       setSkipped(result.skipped);
       if (await deliverBytes(result.bytes, outputName(src.file.name), dest)) {
         setProgress({ value: 100, label: t('fill_form.progress_done') });
+        keep(result.bytes, outputName(src.file.name));
         setSucceeded(true);
       } else {
         setProgress(null); // picker cancelled — not an error
@@ -498,6 +502,9 @@ export function FillFormTool() {
             {t('fill_form.cta')}
           </Button>
           <SaveElsewhereButton disabled={runDisabled} onClick={() => requestRun('pick')} />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('fill_form.progress_idle_all')}</span>
           )}

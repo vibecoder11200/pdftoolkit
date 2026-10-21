@@ -11,6 +11,8 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { Input } from '../ui/input';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon } from '../ui/icons';
 
 interface MetadataForm {
@@ -53,6 +55,7 @@ function outputName(original: string): string {
 export function MetadataTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -139,6 +142,7 @@ export function MetadataTool() {
       const out = await doc.save();
       if (await deliverBytes(out, outputName(src.file.name), dest)) {
         setProgress({ value: 100, label: t('metadata.progress_done') });
+        keep(out, outputName(src.file.name));
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -206,6 +210,9 @@ export function MetadataTool() {
             disabled={!src || busy || loadErrorKey !== null}
             onClick={() => void save('pick')}
           />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('metadata.progress_idle')}</span>
           )}

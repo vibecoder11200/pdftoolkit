@@ -11,6 +11,8 @@ import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { XIcon } from '../ui/icons';
 
 const ACCEPT = 'image/jpeg,.jpg,.jpeg,image/png,.png';
@@ -70,6 +72,7 @@ async function bitmapToBytes(bitmap: ImageBitmap, png: boolean): Promise<Uint8Ar
 
 export function ImgToPdfTool() {
   const { t, i18n } = useTranslation();
+  const { lastOutput, keep } = useLastOutput();
   const [batchNote, setBatchNote] = useState<string | null>(null);
   const pickFolder = () => {
     void (async () => {
@@ -140,6 +143,7 @@ export function ImgToPdfTool() {
   };
 
   const resetAll = () => {
+    keep(null, '');
     setFiles([]);
     setProgress(null);
     setError(null);
@@ -184,6 +188,7 @@ export function ImgToPdfTool() {
       const out = await doc.save();
       if (await deliverBytes(out, 'images.pdf', dest)) {
         setProgress({ value: 100, label: t('img-to-pdf.progress_done', { count: files.length }) });
+        keep(out, 'images.pdf');
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -226,6 +231,9 @@ export function ImgToPdfTool() {
             disabled={files.length === 0 || busy}
             onClick={() => void run('pick')}
           />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('img-to-pdf.progress_idle')}</span>
           )}

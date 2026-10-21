@@ -14,6 +14,8 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { PositionGrid } from './position-grid';
 import { FileIcon } from '../ui/icons';
@@ -53,6 +55,7 @@ export function PageNumbersTool() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -176,6 +179,7 @@ export function PageNumbersTool() {
       setProgress({ value: 20, label: t('page-numbers.progress_working') });
       const out = await engine.applyPageNumbers(source.bytes, buildOpts());
       if (await deliverBytes(out, outputName(source.file.name), dest)) {
+        keep(out, outputName(source.file.name));
         setProgress({ value: 100, label: t('page-numbers.progress_done') });
       } else {
         setProgress(null); // picker cancelled — not an error
@@ -195,6 +199,7 @@ export function PageNumbersTool() {
 
   const reset = () => {
     clear();
+    keep(null, '');
     setNumPages(0);
     setSelected(new Set());
     setEncrypted(false);
@@ -384,6 +389,9 @@ export function PageNumbersTool() {
                 disabled={!source || selected.size === 0 || busy}
                 onClick={() => void run('pick')}
               />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
               {progress ? null : (
                 <span className="text-[13px] text-text-muted">{t('page-numbers.progress_idle')}</span>
               )}

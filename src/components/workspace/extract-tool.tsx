@@ -10,11 +10,14 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 
 export function ExtractTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -98,6 +101,7 @@ export function ExtractTool() {
       const out = await engine.extractPages(src.bytes, targets);
       if (await deliverBytes(out, 'extracted.pdf', dest)) {
         setProgress({ value: 100, label: t('extract.progress_done') });
+        keep(out, 'extracted.pdf');
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -153,6 +157,9 @@ export function ExtractTool() {
           <Button variant="ghost" onClick={clearSelection} disabled={selected.size === 0}>
             {t('extract.clear_selection')}
           </Button>
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('extract.progress_idle')}</span>
           )}

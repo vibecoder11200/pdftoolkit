@@ -12,6 +12,8 @@ import { Hint } from '../ui/hint';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { SignCertPanel, mapCertError, type CertCredentials } from './sign-cert-panel';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
@@ -82,6 +84,7 @@ function outputName(original: string): string {
 export function SignTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -484,6 +487,7 @@ export function SignTool() {
       }
       if (await deliverBytes(out, outputName(src.file.name), dest)) {
         setProgress({ value: 100, label: t('sign.progress_done') });
+        keep(out, outputName(src.file.name));
         setSucceeded(true);
       } else {
         setProgress(null); // picker cancelled — not an error
@@ -566,6 +570,9 @@ export function SignTool() {
             {t('sign.cta')}
           </Button>
           <SaveElsewhereButton disabled={runDisabled} onClick={() => void run('pick')} />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('sign.progress_idle')}</span>
           )}

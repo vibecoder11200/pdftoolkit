@@ -12,6 +12,8 @@ import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon } from '../ui/icons';
 
 type CompressMode = 'vector' | 'image' | 'linearize';
@@ -68,6 +70,7 @@ function thresholdKey(mode: CompressMode, pct: number): string {
 export function CompressTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff. Single-file tool: only the first pending file applies.
   useEffect(() => {
     const taken = takePendingFiles();
@@ -143,6 +146,7 @@ export function CompressTool() {
       savedPct: pct,
       filename: outputName(fileName, used),
     });
+    keep(out, outputName(fileName, used));
     setProgress({ value: 100, label: t('compress.progress_done') });
   };
 
@@ -222,6 +226,7 @@ export function CompressTool() {
 
   const resetAll = () => {
     clear();
+    keep(null, '');
     setNumPages(0);
     setPageSizes([]);
     setResult(null);
@@ -279,6 +284,9 @@ export function CompressTool() {
           <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy}>
             {t('compress.cta')}
           </Button>
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('compress.progress_idle')}</span>
           )}

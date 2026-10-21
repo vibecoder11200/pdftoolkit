@@ -10,11 +10,14 @@ import { Dropzone } from '../ui/dropzone';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 
 export function ReorderTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -101,6 +104,7 @@ export function ReorderTool() {
       const out = await engine.reorderPages(src.bytes, order);
       if (await deliverBytes(out, 'reordered.pdf', dest)) {
         setProgress({ value: 100, label: t('reorder.progress_done') });
+        keep(out, 'reordered.pdf');
       } else {
         setProgress(null); // picker cancelled — not an error
       }
@@ -148,6 +152,9 @@ export function ReorderTool() {
             disabled={!src || order.length === 0}
             onClick={() => void run('pick')}
           />
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
           {progress ? null : (
             <span className="text-[13px] text-text-muted">{t('reorder.progress_idle')}</span>
           )}

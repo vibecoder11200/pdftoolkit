@@ -17,6 +17,8 @@ import { ErrorBanner } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
+import { ContinueChip } from './continue-chip';
+import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { PositionGrid } from './position-grid';
 import { FileIcon } from '../ui/icons';
@@ -43,6 +45,7 @@ export function WatermarkTool() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { files, error: fileError, add, clear } = useDropFiles();
+  const { lastOutput, keep } = useLastOutput();
   // Home-sheet handoff (one-shot take; StrictMode's double effect adds nothing).
   useEffect(() => {
     const taken = takePendingFiles();
@@ -179,6 +182,7 @@ export function WatermarkTool() {
       setProgress({ value: 20, label: t('watermark.progress_working') });
       const out = await engine.stampWatermark(source.bytes, opts);
       if (await deliverBytes(out, outputName(source.file.name), dest)) {
+        keep(out, outputName(source.file.name));
         setProgress({ value: 100, label: t('watermark.progress_done') });
       } else {
         setProgress(null); // picker cancelled — not an error
@@ -275,6 +279,7 @@ export function WatermarkTool() {
 
   const reset = () => {
     clear();
+    keep(null, '');
     setNumPages(0);
     setSelected(new Set());
     setEncrypted(false);
@@ -495,6 +500,9 @@ export function WatermarkTool() {
               <Button variant="secondary" onClick={() => void runBatch()} disabled={selected.size === 0 || busy}>
                 {t('watermark.cta_batch')}
               </Button>
+          {lastOutput ? (
+            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+          ) : null}
               {progress ? null : (
                 <span className="text-[13px] text-text-muted">{t('watermark.progress_idle')}</span>
               )}

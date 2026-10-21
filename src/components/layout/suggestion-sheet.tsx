@@ -72,7 +72,13 @@ export function SuggestionSheet({ state, onClose }: { state: SheetState; onClose
             </p>
           ) : null}
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {TOOLS.map((tool) => {
+            {/* Latent-bug fix (v0.8.0 finding 1): this grid PARKS the files
+                then navigates — only tools that actually consume PDFs and
+                take pending files may appear. The grid shows for a single
+                usable PDF, so ocr (no takePendingFiles) and img-to-pdf
+                (intake rejects PDFs) leaked the parked file through the
+                handoff replay. Same acceptsPdf filter as the chaining chip. */}
+            {TOOLS.filter((tool) => tool.acceptsPdf).map((tool) => {
               // Ranked suggestions above are curated (e.g. compress legitimately
               // takes the PDF out of a pdf+image set). This grid is the uncurated
               // path — a single-file tool would silently drop files 2..N, so it

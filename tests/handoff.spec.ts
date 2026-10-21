@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Handoff store contract: one-shot take (StrictMode safety), replay-on-
 // subscribe (launch-banner "open Home" fix), append-on-second-launch, and
-// cleared notifications (banner retraction).
+// cleared notifications (banner retraction). Plus the chaining chip's
+// outputFile contract (v0.8.0 phase 4).
 import { describe, expect, it, vi } from 'vitest';
 import {
   appendPendingFiles,
@@ -13,6 +14,7 @@ import {
   setPendingFiles,
   takePendingFiles,
 } from '../src/lib/handoff';
+import { outputFile } from '../src/lib/output-file';
 
 const mkFile = (name: string) => new File(['x'], name, { type: 'application/pdf' });
 
@@ -59,5 +61,32 @@ describe('handoff', () => {
     clearPendingFiles();
     expect(cleared).toHaveBeenCalledTimes(1);
     off();
+  });
+});
+
+describe('chaining chip outputFile (v0.8.0 phase 4)', () => {
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+
+  it('builds a PDF File with the given name and snapshot size', () => {
+    const f = outputFile(bytes, 'merged.pdf');
+    expect(f).toBeInstanceOf(File);
+    expect(f.name).toBe('merged.pdf');
+    expect(f.type).toBe('application/pdf');
+    expect(f.size).toBe(bytes.byteLength);
+  });
+
+  it('roundtrips park → take through the handoff with the same name', () => {
+    appendPendingFiles([outputFile(bytes, 'chain-me.pdf')]);
+    const taken = takePendingFiles();
+    expect(taken?.files.map((f) => f.name)).toEqual(['chain-me.pdf']);
+  });
+
+  it('append-after-park keeps a previously parked OS-launch batch (finding 5)', () => {
+    // The chip parks via appendPendingFiles — a parked launch batch must
+    // survive the chip handoff (setPendingFiles REPLACE would clobber it).
+    setPendingFiles([mkFile('os-launch.pdf')]);
+    appendPendingFiles([outputFile(bytes, 'from-chip.pdf')]);
+    expect(pendingFileCount()).toBe(2);
+    expect(takePendingFiles()?.files.map((f) => f.name)).toEqual(['os-launch.pdf', 'from-chip.pdf']);
   });
 });
