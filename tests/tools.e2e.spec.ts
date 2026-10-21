@@ -109,3 +109,25 @@ test('encrypt then decrypt round-trips back to a parsable PDF', async ({ page })
   expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   expect(bytes.length).toBeGreaterThan(0);
 });
+
+test('watermark: default text stamp downloads -watermarked.pdf', async ({ page }) => {
+  await page.goto('./tools/watermark');
+  await loadFixture(page, FIXTURE);
+  const cta = page.getByRole('button', { name: 'Đóng dấu và tải xuống' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await cta.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('fixture-small-watermarked.pdf');
+});
+
+test('page-numbers: default preset downloads -numbered.pdf', async ({ page }) => {
+  await page.goto('./tools/page-numbers');
+  await loadFixture(page, FIXTURE);
+  const cta = page.getByRole('button', { name: 'Đánh số và tải xuống' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await cta.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('fixture-small-numbered.pdf');
+});

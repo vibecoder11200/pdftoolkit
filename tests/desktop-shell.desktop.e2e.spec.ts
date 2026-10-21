@@ -128,6 +128,8 @@ test('every tool page renders at its desktop root path; convert shows coming-soo
     'encrypt',
     'metadata',
     'sign',
+    'watermark',
+    'page-numbers',
   ];
   for (const tool of tools) {
     await page.goto(`./tools/${tool}`);

@@ -272,6 +272,39 @@ This project is indexed by GitNexus as **pdftoolkit** (2860 symbols, 7168 relati
   predicate is PRESET IDENTITY (`tuning === AI_TUNING_PRESETS.full`), never a
   literal 1024/4096 comparison.
 
+### Watermark / page-numbers / chaining invariants (v0.8.0)
+
+- The phase-1 geometry primitives (`visibleGeometry`/`visualToPageSpace`/
+  `drawAngleFor`/`anchorPoint`, src/engine/pdf-lib.ts) are THE shared
+  placement math: any future stamping or annotate feature MUST reuse them —
+  never reimplement `/Rotate` + CropBox compensation (the pdf.js-oracle
+  property matrix in tests/watermark-engine.spec.ts is the correctness
+  contract; v0.9 annotate inherits it).
+- ContinueChip appears only after single-PDF-output runs (hosts: the 13
+  enumerated sites; split/pdf-to-img/ocr are NOT hosts). Hosts retain the
+  LAST output by reference ONLY when ≤ 100MB — above that they retain
+  NOTHING (no reference at all, GC-eligible — `useLastOutput`); clear on
+  new-run start and reset. The chip parks via `appendPendingFiles` ONLY
+  (never `setPendingFiles` — REPLACE clobbers a parked OS-launch batch);
+  the handoff module contract (File handles only) is frozen.
+- `ToolDef.acceptsPdf` marks PDF-intake tools that consume pending files
+  (ocr and img-to-pdf deliberately DO NOT carry it) — it gates BOTH the
+  chip picker and the suggestion-sheet all-tools grid; parking into a tool
+  that never takes or rejects PDFs leaks the file through the handoff
+  replay. The chip/picker MUST declare `useTranslation(['common',
+  'tools'])` — an inline `tools:` prefix alone never triggers the lazy
+  namespace load on tool pages.
+- Watermark "edit" is form re-apply; visual stamp editing is v0.9 annotate.
+  Watermark image intake runs the `src/lib/image-intake.ts` declared-
+  dimension gate (~100MP) BEFORE any embed — never move the gate to embed
+  time (pdf-lib PNG decode is ~w×h×8; a forged 60000×60000 IHDR = worker OOM).
+- Watermark REMOVAL is v0.8.x, spike-gated (text-heuristic first;
+  image/overlay only on GO; fallback = reverse-own + text-only).
+- `src/lib/page-template.ts` (token renderer) has ZERO pdf-lib imports —
+  the page-numbers live preview imports it statically; keep pdf-lib out of
+  it or the entry chunk grows (finding 7). `src/lib/roboto.ts` keeps the
+  `?inline` import DYNAMIC for the same reason (finding 10).
+
 ## 5. GitHub Pages deploy
 
 - Site: https://vibecoder11200.github.io/pdftoolkit/ — deployed from `main` by

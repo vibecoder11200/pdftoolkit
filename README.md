@@ -11,11 +11,15 @@ Merge, split, compress, convert and sign PDFs — 100% in your browser. Files ne
 
 Most "free PDF tools" upload your documents to a server. This one doesn't: every operation runs client-side in a Web Worker (pdf-lib + qpdf-wasm + pdf.js). There is no backend, no account, no telemetry, no runtime CDN.
 
-## Tools (14)
+## Tools (16)
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
-| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) · Watermark (text or image stamp, tiled, page-scoped) · Page numbers (presets + token templates) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+
+**Watermark & page numbers** (since v0.8.0): form-based stamping with a 9-grid anchor, rotation-aware placement (correct on rotated pages with crop boxes), Vietnamese-safe text through the embedded subset font, optional tiled mode, per-page scope, and day-1 whole-folder batch on the watermark tool (per-file report, one native Save-As on desktop).
+
+**Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool, the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything.
 
 ## OCR — Tesseract + on-device AI (experimental)
 
@@ -29,7 +33,7 @@ The OCR tool ships two engines. **Tesseract** (eng+vie) produces searchable PDFs
 
 ## Extras
 
-- **Batch folders**: merge, Images→PDF and compress can ingest an entire folder (filter, name-sort, 0-byte skip; 500 MB total batch budget).
+- **Batch folders**: merge, Images→PDF, compress and watermark can ingest an entire folder (filter, name-sort, 0-byte skip; 500 MB total batch budget).
 - **Open with PDF** (Chromium/Edge installed as PWA): OS "Open with" hands PDFs straight to the app — an existing session is never disturbed (focus-existing; files land in the suggestion sheet on Home, or a banner on tool pages). Firefox/Safari are unaffected.
 
 ## Download (desktop, Windows/macOS/Linux)
