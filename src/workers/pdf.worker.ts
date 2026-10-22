@@ -45,6 +45,18 @@ export interface WorkerApi {
     opts: import('../engine/pdf-lib').StampWatermarkOptions,
     fontTtf: Uint8Array,
   ): Promise<Uint8Array>;
+  /** Watermark removal (v0.8.1): heuristic two-pass matcher for FOREIGN
+   * (untagged) PDFs — user hint + spike rules; typed errors by name. */
+  removeWatermark(
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').RemoveWatermarkOptions,
+  ): Promise<Uint8Array>;
+  /** Watermark removal (v0.8.1): exact reversal of a pdftoolkit-wm tagged
+   * stamp (NotOwnWatermarkError when the file is not ours). */
+  reverseOwnWatermark(
+    bytes: Uint8Array,
+    opts?: import('../engine/pdf-lib').ReverseOwnWatermarkOptions,
+  ): Promise<Uint8Array>;
   /** Page numbers (v0.8.0): token template rendered per in-scope page. */
   applyPageNumbers(
     bytes: Uint8Array,
@@ -92,6 +104,8 @@ const api: WorkerApi = {
   qpdfCheck: (bytes) => qpdfCheck(bytes),
   zipStore: async (entries) => zipStore(entries),
   stampWatermark: (bytes, opts, fontTtf) => lib.stampWatermark(bytes, opts, fontTtf),
+  removeWatermark: (bytes, opts) => lib.removeWatermark(bytes, opts),
+  reverseOwnWatermark: (bytes, opts) => lib.reverseOwnWatermark(bytes, opts),
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');

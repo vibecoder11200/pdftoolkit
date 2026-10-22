@@ -1090,6 +1090,9 @@ export async function stampWatermark(
       stampImageOnPage(page, image, opts.scale, style, 0);
     }
   }
+  // v0.8.1 ownership tag: reverseOwnWatermark reverses exactly this op (the
+  // tag is truth; heuristic matching is only for foreign watermarks).
+  writeWmTag(doc, wmTagOf(opts, selectPageIndices(doc, opts.pages)));
   return doc.save({ useObjectStreams: false });
 }
 
@@ -1126,5 +1129,407 @@ export async function applyPageNumbers(
     });
     stampTextOnPage(doc.getPage(index), font, label, opts.fontSize, style, opts.margin);
   }
+  return doc.save({ useObjectStreams: false });
+}
+
+// ---- Watermark removal (v0.8.1 phase 2) — append-only section -------------
+// Ported from the phase-1 spike (temp/spikes/wm-removal/proto.mjs, GO
+// verdict: 5/5 gating classes clean, zero content damage against the pdf.js
+// oracle). Two passes over every decoded content stream:
+//   Pass 1 classifies each BT..ET block's show ops:
+//     - semantic: the operand decodes to the hint (latin1 or UTF-16BE) —
+//       covers standard fonts (Helvetica literal text);
+//     - structural: single-show block, Tf size >= 16 (or === sizePin for
+//       tagged reversal), operand GLYPH COUNT == hint char length, and the
+//       (size, operandHex) tuple repeated across pages — covers
+//       subset-encoded fonts (@pdf-lib/fontkit cannot even READ a subset's
+//       name table, so cmap-decoding is unusable; the spike proved this).
+//   Pass 2 removes a block ONLY when FULLY matched (a block mixing matching
+//   and non-matching shows is never touched) and re-emits the stream
+//   UNCOMPRESSED (delete /Filter). Spike discovery #1 is load-bearing: the
+//   font resource name must NOT be part of the structural key — pdf-lib
+//   names the same font object differently on every page.
+// Conservatism invariant (phase-2 doc): never remove a block containing
+// mixed content; any parse anomaly throws typed with the output untouched.
+
+// fflate 0.8.x: inflateSync decodes RAW deflate — PDF /FlateDecode is the
+// zlib wrapper format (RFC 1950), so the correct decoder is unzlibSync.
+import { unzlibSync } from 'fflate';
+
+export interface RemoveWatermarkOptions {
+  /** Exact watermark text — the matching hint (required for untagged PDFs). */
+  hint: string;
+  /** 1-based page scope (sorted, clamped); undefined/empty = all pages. */
+  pages?: number[];
+}
+
+export interface ReverseOwnWatermarkOptions {
+  /** 1-based page scope, intersected with the tagged pages; default = tagged. */
+  pages?: number[];
+}
+
+/** Nothing matched the hint/tag — honest failure, output untouched. */
+export class WatermarkNotFoundError extends Error {
+  constructor(message = 'No watermark blocks matched the given hint.') {
+    super(message);
+    this.name = 'WatermarkNotFoundError';
+  }
+}
+
+/** Parse anomaly mid-scan (e.g. a corrupt FlateDecode stream) — typed so the
+ * caller can distinguish "engine bug/foreign oddity" from "no watermark". */
+export class WatermarkParseError extends Error {
+  constructor(message = 'PDF parse anomaly while scanning for watermarks.') {
+    super(message);
+    this.name = 'WatermarkParseError';
+  }
+}
+
+/** reverseOwnWatermark on a file without (or with an unusable) pdftoolkit-wm
+ * tag — the UI falls back to the heuristic path when a hint was given. */
+export class NotOwnWatermarkError extends Error {
+  constructor(message = 'Not a file watermarked reversibly by PDF Toolkit.') {
+    super(message);
+    this.name = 'NotOwnWatermarkError';
+  }
+}
+
+/** Custom Info-dict key carrying the ownership tag (JSON in a UTF-16BE
+ * PDFHexString — safe transport for Vietnamese text). */
+const WM_TAG_KEY = 'pdftoolkit-wm';
+
+interface WmOwnershipTag {
+  v: 1;
+  mode: 'text' | 'image';
+  /** Text-mode: the stamped string (the removal hint). */
+  text?: string;
+  /** Text-mode: the font size (exact structural pin for reversal). */
+  size?: number;
+  /** Text-mode: whether the stamp was tiled. */
+  tiled?: boolean;
+  /** Stamped pages, 1-based ascending (empty = all pages). */
+  pages: number[];
+}
+
+function wmTagOf(opts: StampWatermarkOptions, indices: number[]): WmOwnershipTag {
+  const pages = indices.map((i) => i + 1);
+  return opts.mode === 'text'
+    ? { v: 1, mode: 'text', text: opts.text, size: opts.fontSize, tiled: !!opts.tiled, pages }
+    : { v: 1, mode: 'image', pages };
+}
+
+/** Same access pdf-lib's private getInfoDict() performs (its TS type is
+ * private): reuse the parsed /Info dict, else create + register one. */
+function infoDictOf(doc: PDFDocument): import('pdf-lib').PDFDict {
+  const { PDFDict } = pdfLibCache!;
+  const existing = doc.context.lookup(doc.context.trailerInfo.Info);
+  if (existing instanceof PDFDict) return existing;
+  const dict = doc.context.obj({});
+  doc.context.trailerInfo.Info = doc.context.register(dict);
+  return dict;
+}
+
+function writeWmTag(doc: PDFDocument, tag: WmOwnershipTag): void {
+  const { PDFName, PDFHexString } = pdfLibCache!;
+  infoDictOf(doc).set(PDFName.of(WM_TAG_KEY), PDFHexString.fromText(JSON.stringify(tag)));
+}
+
+/** null = absent, malformed, or foreign-shaped (treated as "not ours"). */
+function readWmTag(doc: PDFDocument): WmOwnershipTag | null {
+  const { PDFName, PDFDict, PDFHexString } = pdfLibCache!;
+  const info = doc.context.lookup(doc.context.trailerInfo.Info);
+  if (!(info instanceof PDFDict)) return null;
+  const raw = info.lookupMaybe(PDFName.of(WM_TAG_KEY), PDFHexString);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw.decodeText()) as Partial<WmOwnershipTag>;
+    if (parsed?.v !== 1 || (parsed.mode !== 'text' && parsed.mode !== 'image')) return null;
+    const pages = Array.isArray(parsed.pages)
+      ? parsed.pages.filter((n): n is number => Number.isInteger(n) && n >= 1)
+      : [];
+    return { ...parsed, pages } as WmOwnershipTag;
+  } catch {
+    return null;
+  }
+}
+
+function deleteWmTag(doc: PDFDocument): void {
+  const { PDFName } = pdfLibCache!;
+  infoDictOf(doc).delete(PDFName.of(WM_TAG_KEY));
+}
+
+// ---- byte/latin1 helpers (Buffer-free: this module runs in the worker AND
+// on the main thread via the fill-form path) ----
+
+function bytesToLatin1(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return out;
+}
+
+function latin1ToBytes(text: string): Uint8Array {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i += 1) out[i] = text.charCodeAt(i) & 0xff;
+  return out;
+}
+
+function utf16beOf(bytes: Uint8Array): string {
+  let r = '';
+  for (let i = 0; i + 1 < bytes.length; i += 2) r += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+  return r;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.replace(/\s+/g, '');
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
+  return out.toUpperCase();
+}
+
+/** PDF literal string operand (incl. outer parens) → raw bytes. Escapes per
+ * the spec: \n \r \t \b \f, octal \ddd, and pass-through \<char>. */
+function decodeLiteralOperand(literal: string): Uint8Array {
+  const inner = literal.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < inner.length; i += 1) {
+    const ch = inner[i];
+    if (ch === '\\') {
+      const n = inner[++i];
+      if (n === 'n') bytes.push(10);
+      else if (n === 'r') bytes.push(13);
+      else if (n === 't') bytes.push(9);
+      else if (n === 'b') bytes.push(8);
+      else if (n === 'f') bytes.push(12);
+      else if (n >= '0' && n <= '7') {
+        let oct = n;
+        while (oct.length < 3 && inner[i + 1] >= '0' && inner[i + 1] <= '7') oct += inner[++i];
+        bytes.push(parseInt(oct, 8));
+      } else bytes.push(n.charCodeAt(0));
+    } else bytes.push(ch.charCodeAt(0) & 0xff);
+  }
+  return new Uint8Array(bytes);
+}
+
+/** Content streams of a page (Contents may be one stream or an array). Only
+ * PDFRawStream counts — a loaded doc never carries authored PDFContentStream
+ * objects; anything else is skipped (conservative, never an error). */
+function pageContentStreams(
+  doc: PDFDocument,
+  page: import('pdf-lib').PDFPage,
+): { stream: import('pdf-lib').PDFRawStream; flate: boolean }[] {
+  const { PDFName, PDFArray, PDFRawStream } = pdfLibCache!;
+  const streams: { stream: import('pdf-lib').PDFRawStream; flate: boolean }[] = [];
+  const isFlate = (s: import('pdf-lib').PDFRawStream) =>
+    String(s.dict.get(PDFName.of('Filter')) ?? '') === '/FlateDecode';
+  const contents = doc.context.lookup(page.node.get(PDFName.of('Contents')));
+  if (contents instanceof PDFRawStream) streams.push({ stream: contents, flate: isFlate(contents) });
+  else if (contents instanceof PDFArray) {
+    for (let i = 0; i < contents.size(); i += 1) {
+      const s = doc.context.lookup(contents.get(i));
+      if (s instanceof PDFRawStream) streams.push({ stream: s, flate: isFlate(s) });
+    }
+  }
+  return streams;
+}
+
+/** Decoded stream text (latin1 — one byte per char, byte-exact for content
+ * operators). A corrupt FlateDecode stream is a typed parse anomaly. */
+function streamOpsText(stream: import('pdf-lib').PDFRawStream, flate: boolean): string {
+  let raw: Uint8Array = stream.contents;
+  if (flate) {
+    try {
+      raw = unzlibSync(stream.contents);
+    } catch (e) {
+      throw new WatermarkParseError(
+        `FlateDecode inflate failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  return bytesToLatin1(raw);
+}
+
+const WM_BLOCK_RE = /BT[\s\S]*?ET/g;
+const WM_SHOW_RE = /\((?:\\.|[^\\()]|\((?:\\.|[^\\()])*\))*\)\s*Tj|<([0-9A-Fa-f\s]+)>\s*Tj/g;
+const WM_TF_RE = /\/([A-Za-z0-9#+.\-]+)\s+([\d.]+)\s+Tf/;
+
+interface WmBlockEntry {
+  block: string;
+  /** Structural key `${size}|${operandHex}` (null when not a candidate). */
+  key: string | null;
+  /** Every show in the block decoded to the hint. */
+  semantic: boolean;
+}
+
+interface WmRemoveConfig {
+  hint: string;
+  /** 0-based page indices where blocks may be REMOVED. */
+  scope: Set<number>;
+  /** Structural keys need presence on >= threshold pages (spike rule). */
+  threshold: number;
+  /** Tagged reversal: exact Tf size — replaces the >= 16 guard. */
+  sizePin?: number;
+}
+
+/**
+ * The spike's two-pass matcher. Returns the removed-block count (0 = nothing
+ * matched — callers throw WatermarkNotFoundError and leave the input alone).
+ */
+function removeWatermarkBlocks(doc: PDFDocument, cfg: WmRemoveConfig): number {
+  const { PDFName, PDFNumber } = pdfLibCache!;
+  const hintLen = [...cfg.hint].length;
+  const perStream = new Map<
+    import('pdf-lib').PDFRawStream,
+    { flate: boolean; entries: WmBlockEntry[] }
+  >();
+  const keyPages = new Map<string, Set<number>>();
+  doc.getPages().forEach((page, pi) => {
+    for (const { stream, flate } of pageContentStreams(doc, page)) {
+      const ops = streamOpsText(stream, flate);
+      let rec = perStream.get(stream);
+      if (!rec) {
+        rec = { flate, entries: [] };
+        perStream.set(stream, rec);
+      }
+      for (const b of ops.matchAll(WM_BLOCK_RE)) {
+        const block = b[0];
+        const tf = block.match(WM_TF_RE);
+        const shows = [...block.matchAll(WM_SHOW_RE)];
+        if (shows.length === 0) continue; // no text shows (e.g. image Do) — untouched
+        let semantic = 0;
+        let structuralKey: string | null = null;
+        for (const s of shows) {
+          let operand: Uint8Array;
+          let hex: string;
+          if (s[1] !== undefined) {
+            hex = s[1].replace(/\s+/g, '');
+            operand = hexToBytes(hex);
+          } else {
+            operand = decodeLiteralOperand(s[0].slice(0, s[0].lastIndexOf(')') + 1));
+            hex = bytesToHex(operand);
+          }
+          if (bytesToLatin1(operand) === cfg.hint || utf16beOf(operand) === cfg.hint) {
+            semantic += 1;
+            continue;
+          }
+          const size = tf ? Number(tf[2]) : 0;
+          const glyphCount = hex.length / 4;
+          const sizeOk = cfg.sizePin !== undefined ? size === cfg.sizePin : size >= 16;
+          if (shows.length === 1 && sizeOk && glyphCount === hintLen) {
+            // Discovery #1: pdf-lib gives the SAME font object a DIFFERENT
+            // resource name per page — the font name must NOT be in the key.
+            structuralKey = `${size}|${hex}`;
+          }
+        }
+        const isSemantic = semantic === shows.length && semantic > 0;
+        if (cfg.scope.has(pi)) rec.entries.push({ block, key: structuralKey, semantic: isSemantic });
+        if (structuralKey && !isSemantic) {
+          const set = keyPages.get(structuralKey) ?? new Set<number>();
+          set.add(pi);
+          keyPages.set(structuralKey, set);
+        }
+      }
+    }
+  });
+  let removed = 0;
+  for (const [stream, { flate, entries }] of perStream) {
+    let ops = streamOpsText(stream, flate);
+    let changed = false;
+    for (const e of entries) {
+      const present =
+        e.semantic || (e.key !== null && (keyPages.get(e.key)?.size ?? 0) >= cfg.threshold);
+      if (present && ops.includes(e.block)) {
+        ops = ops.replace(e.block, '');
+        changed = true;
+        removed += 1;
+      }
+    }
+    if (changed) {
+      const out = latin1ToBytes(ops);
+      // Re-emit uncompressed; /Length is also recomputed by pdf-lib at save
+      // (PDFStream.updateDict) — set explicitly to mirror the spike.
+      (stream as { contents: Uint8Array }).contents = out; // readonly in the .d.ts only
+      stream.dict.delete(PDFName.of('Filter'));
+      stream.dict.set(PDFName.of('Length'), PDFNumber.of(out.length));
+    }
+  }
+  return removed;
+}
+
+/**
+ * Heuristic watermark removal for FOREIGN (untagged) PDFs: user hint + the
+ * spike's matching rules. Structural keys count over ALL pages (a watermark
+ * is a doc-wide repetition; scoping narrows REMOVAL only, never the
+ * watermark-ness signal). Typed failures: WatermarkNotFoundError (nothing
+ * matched), WatermarkParseError (parse anomaly — output untouched). Loads
+ * with ignoreEncryption:false — encrypted input propagates to the UI's
+ * decrypt flow.
+ */
+export async function removeWatermark(
+  bytes: Uint8Array,
+  opts: RemoveWatermarkOptions,
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  const hint = opts.hint.trim();
+  if (!hint) throw new WatermarkNotFoundError('Empty watermark hint.');
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const threshold = Math.max(2, Math.ceil(doc.getPageCount() * 0.8));
+  const scope = new Set(selectPageIndices(doc, opts.pages));
+  const removed = removeWatermarkBlocks(doc, { hint, scope, threshold });
+  if (removed === 0) throw new WatermarkNotFoundError();
+  return doc.save({ useObjectStreams: false });
+}
+
+/**
+ * Exact reversal of a PDF Toolkit watermark: the pdftoolkit-wm tag is truth.
+ * Uses the tagged text as the hint with the size pinned EXACTLY (tighter
+ * structural key than the >= 16 heuristic) and no cross-page threshold; the
+ * scope is the tagged pages (optionally narrowed). On success the tag is
+ * deleted. Absent/malformed/image-mode tag → NotOwnWatermarkError; nothing
+ * found → WatermarkNotFoundError — both leave the input untouched.
+ */
+export async function reverseOwnWatermark(
+  bytes: Uint8Array,
+  opts: ReverseOwnWatermarkOptions = {},
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const tag = readWmTag(doc);
+  // Image-mode tags are recorded for honesty but v0.8.1 removes TEXT only
+  // (spike C4: image stamps draw outside BT..ET — different machinery).
+  if (!tag || tag.mode !== 'text' || typeof tag.text !== 'string' || typeof tag.size !== 'number') {
+    throw new NotOwnWatermarkError(
+      tag?.mode === 'image'
+        ? 'The tagged watermark is image-mode; only text removal is supported.'
+        : undefined,
+    );
+  }
+  const pageCount = doc.getPageCount();
+  const taggedPages = tag.pages.length > 0 ? tag.pages : Array.from({ length: pageCount }, (_, i) => i + 1);
+  const userScope = new Set(selectPageIndices(doc, opts.pages));
+  const scope = new Set(taggedPages.map((n) => n - 1).filter((i) => i >= 0 && i < pageCount && userScope.has(i)));
+  const removed = removeWatermarkBlocks(doc, {
+    hint: tag.text,
+    scope,
+    threshold: 1, // the tag is truth — no cross-page repetition requirement
+    sizePin: tag.size,
+  });
+  if (removed === 0) {
+    throw new WatermarkNotFoundError(
+      'The tagged watermark blocks were not found (the file may have been re-processed).',
+    );
+  }
+  deleteWmTag(doc);
   return doc.save({ useObjectStreams: false });
 }

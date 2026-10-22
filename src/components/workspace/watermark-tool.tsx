@@ -10,10 +10,11 @@ import { deliverBytes, deliverBytesMulti, type DeliverEntry } from '../../lib/do
 import { isDesktopSaveAvailable } from '../../lib/desktop-save';
 import { checkImageIntake } from '../../lib/image-intake';
 import { isEncryptedError } from '../../lib/suggest';
+import { engineErrorDetail } from '../../lib/engine-error';
 import { formatBytes } from '../../lib/format';
 import type { GridPos9, StampWatermarkOptions } from '../../engine/pdf-lib';
 import { Dropzone } from '../ui/dropzone';
-import { ErrorBanner } from '../ui/error-banner';
+import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
 import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
@@ -30,9 +31,25 @@ import { FileIcon } from '../ui/icons';
  * every PDF; per-file gate + try/catch with a named "X/Y thành công" report;
  * WEB delivers each output as it completes (no output accumulation — bounded
  * peak memory), DESKTOP keeps ONE Save-As dialog with sibling writes.
+ *
+ * v0.8.1 phase 2: the "Xoá" mode removes watermarks — tagged files
+ * (pdftoolkit-wm, written by stampWatermark) reverse EXACTLY via
+ * reverseOwnWatermark; untagged files fall back to the heuristic
+ * removeWatermark with the user's text hint. New i18n keys live in the lazy
+ * `tools` namespace (watermark.*), resolved through the two-namespace lookup
+ * below (the same mechanism as the ContinueChip).
  */
 
 type Tab = 'text' | 'image';
+type Mode = 'add' | 'remove';
+
+/** Local control-flow error: untagged file + no hint → ask for the hint. */
+class RemoveHintMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RemoveHintMissingError';
+  }
+}
 
 const ROTATION_PRESETS = [0, 45, 90];
 
@@ -41,8 +58,15 @@ function outputName(original: string): string {
   return `${base}-watermarked.pdf`;
 }
 
+function cleanOutputName(original: string): string {
+  const base = original.replace(/\.pdf$/i, '').trim() || 'cleaned';
+  return `${base}-clean.pdf`;
+}
+
 export function WatermarkTool() {
-  const { t, i18n } = useTranslation();
+  // ['common', 'tools']: existing keys resolve from common; the v0.8.1
+  // removal keys live in tools (declaring the ns is what loads it).
+  const { t, i18n } = useTranslation(['common', 'tools']);
   const navigate = useNavigate();
   const { files, error: fileError, add, clear } = useDropFiles();
   const { lastOutput, keep } = useLastOutput();
@@ -59,6 +83,10 @@ export function WatermarkTool() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>('text');
+  // v0.8.1: Thêm (stamp) / Xoá (remove) — the remove branch carries its own
+  // form (hint input); the add branch is exactly the v0.8.0 UI.
+  const [mode, setMode] = useState<Mode>('add');
+  const [removeHint, setRemoveHint] = useState('');
   // Text options.
   const [text, setText] = useState('BẢN MẪU');
   const [fontSize, setFontSize] = useState(48);
@@ -76,7 +104,7 @@ export function WatermarkTool() {
   const [imageError, setImageError] = useState<string | null>(null);
 
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | ErrorDetail | null>(null);
   const [batchNote, setBatchNote] = useState<string | null>(null);
   const genRef = useRef(0);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
@@ -189,9 +217,138 @@ export function WatermarkTool() {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      setRunError(t('watermark.err_failed', { message }));
+      setRunError(
+        engineErrorDetail(
+          e,
+          t('watermark.err_failed', { message }),
+          { title: t('watermark.err_crashed'), detail: t('watermark.err_crashed_detail') },
+          () => void run(dest),
+        ),
+      );
       setProgress(null);
     }
+  };
+
+  // ---- v0.8.1 removal: reverseOwnWatermark FIRST (tag is truth), heuristic
+  // removeWatermark only for untagged files with a hint (name-based checks —
+  // comlink crosses the boundary message-only).
+  const removeOnce = async (
+    bytes: Uint8Array,
+    pages: number[],
+  ): Promise<{ out: Uint8Array; via: 'tagged' | 'heuristic' }> => {
+    try {
+      const out = await engine.reverseOwnWatermark(bytes, { pages });
+      return { out, via: 'tagged' };
+    } catch (e) {
+      if (!(e instanceof Error) || e.name !== 'NotOwnWatermarkError') throw e;
+      const hint = removeHint.trim();
+      if (!hint) throw new RemoveHintMissingError(t('watermark.remove_err_hint'));
+      const out = await engine.removeWatermark(bytes, { hint, pages });
+      return { out, via: 'heuristic' };
+    }
+  };
+
+  const setRemoveRunError = (e: unknown, dest: 'download' | 'pick'): void => {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'WatermarkNotFoundError') {
+      setRunError(t('watermark.remove_err_not_found'));
+      return;
+    }
+    if (name === 'RemoveHintMissingError') {
+      setRunError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const message = e instanceof Error ? e.message : String(e);
+    setRunError(
+      engineErrorDetail(
+        e,
+        t('watermark.remove_err_failed', { message }),
+        { title: t('watermark.err_crashed'), detail: t('watermark.err_crashed_detail') },
+        () => void runRemove(dest),
+      ),
+    );
+  };
+
+  const runRemove = async (dest: 'download' | 'pick' = 'download') => {
+    setRunError(null);
+    setBatchNote(null);
+    if (!source) {
+      setRunError(t('watermark.err_no_file'));
+      return;
+    }
+    if (selected.size === 0) {
+      setRunError(t('watermark.err_no_selection'));
+      return;
+    }
+    try {
+      setProgress({ value: 30, label: t('watermark.remove_progress_working') });
+      const { out, via } = await removeOnce(source.bytes, [...selected].sort((a, b) => a - b));
+      if (await deliverBytes(out, cleanOutputName(source.file.name), dest)) {
+        keep(out, cleanOutputName(source.file.name));
+        setProgress({
+          value: 100,
+          label: t(
+            via === 'tagged' ? 'watermark.remove_done_tagged' : 'watermark.remove_done_heuristic',
+          ),
+        });
+      } else {
+        setProgress(null); // picker cancelled — not an error
+      }
+    } catch (e) {
+      setRemoveRunError(e, dest);
+      setProgress(null);
+    }
+  };
+
+  // Folder batch in Xoá mode: the tool's existing D3 batch rules (per-file
+  // gate + try/catch + X/Y summary; web delivers per file, desktop collects
+  // into ONE Save-As dialog with sibling writes).
+  const runRemoveBatch = async () => {
+    setRunError(null);
+    setBatchNote(null);
+    if (selected.size === 0) {
+      setRunError(t('watermark.err_no_selection'));
+      return;
+    }
+    const pages = [...selected].sort((a, b) => a - b);
+    const outcome = await pickDirectory(['.pdf']);
+    if (!outcome.ok) {
+      setBatchNote(t('home.batch_too_large', { size: formatBytes(outcome.totalBytes, locale) }));
+      return;
+    }
+    if (outcome.files.length === 0) {
+      setBatchNote(t('home.folder_empty'));
+      return;
+    }
+    const desktop = isDesktopSaveAvailable();
+    const entries: DeliverEntry[] = [];
+    const failed: string[] = [];
+    let ok = 0;
+    for (const [i, f] of outcome.files.entries()) {
+      setProgress({
+        value: 10 + Math.round((80 * i) / outcome.files.length),
+        label: t('watermark.remove_progress_batch', { done: i + 1, total: outcome.files.length }),
+      });
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        await engine.loadPdf(bytes); // per-file validity + lock gate
+        const { out } = await removeOnce(bytes, pages);
+        if (desktop) entries.push({ bytes: out, filename: cleanOutputName(f.name) });
+        else await deliverBytes(out, cleanOutputName(f.name), 'download');
+        ok += 1;
+      } catch {
+        failed.push(f.name);
+      }
+    }
+    if (desktop && entries.length > 0) await deliverBytesMulti(entries);
+    setProgress({ value: 100, label: t('watermark.progress_done') });
+    setBatchNote(
+      t('watermark.batch_summary', {
+        ok,
+        total: outcome.files.length,
+        failed: failed.join(', '),
+      }),
+    );
   };
 
   // Folder batch (D3): per-file gate + try/catch; web delivers per file,
@@ -318,6 +475,63 @@ export function WatermarkTool() {
             </div>
           ) : (
             <>
+              <div
+                className="grid grid-cols-2 gap-1 rounded-lg border border-border-strong p-1"
+                role="group"
+                aria-label={t('watermark.mode_label')}
+              >
+                {(['add', 'remove'] as Mode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={mode === m}
+                    onClick={() => setMode(m)}
+                    className={`min-h-9 rounded-md text-[13px] font-semibold transition ${
+                      mode === m
+                        ? 'bg-accent text-text-on-accent'
+                        : 'text-text-muted hover:bg-surface-hover'
+                    }`}
+                  >
+                    {t(m === 'add' ? 'watermark.tab_add' : 'watermark.tab_remove')}
+                  </button>
+                ))}
+              </div>
+
+              {mode === 'remove' ? (
+                <>
+                  <fieldset>
+                    <legend className="text-sm font-bold">{t('watermark.remove_hint_label')}</legend>
+                    <input
+                      type="text"
+                      value={removeHint}
+                      onChange={(e) => setRemoveHint(e.target.value)}
+                      className="mt-2 w-full rounded-lg border border-border-strong bg-surface-card px-3 py-2 text-sm"
+                      placeholder={t('watermark.remove_hint_placeholder')}
+                    />
+                    <p className="mt-2 text-[13px] leading-relaxed text-text-muted">
+                      {t('watermark.remove_note')}
+                    </p>
+                  </fieldset>
+                  <Button
+                    onClick={() => void runRemove()}
+                    disabled={!source || selected.size === 0 || busy}
+                  >
+                    {t('watermark.remove_cta')}
+                  </Button>
+                  <SaveElsewhereButton
+                    disabled={!source || selected.size === 0 || busy}
+                    onClick={() => void runRemove('pick')}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => void runRemoveBatch()}
+                    disabled={selected.size === 0 || busy}
+                  >
+                    {t('watermark.remove_cta_batch')}
+                  </Button>
+                </>
+              ) : (
+                <>
               <div className="grid grid-cols-2 gap-1 rounded-lg border border-border-strong p-1" role="tablist">
                 {(['text', 'image'] as Tab[]).map((tabKey) => (
                   <button
@@ -500,6 +714,8 @@ export function WatermarkTool() {
               <Button variant="secondary" onClick={() => void runBatch()} disabled={selected.size === 0 || busy}>
                 {t('watermark.cta_batch')}
               </Button>
+                </>
+              )}
           {lastOutput ? (
             <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
           ) : null}

@@ -5,6 +5,7 @@ import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
 import { deliverBytes } from '../../lib/download';
+import { robotoBytes } from '../../lib/roboto';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
 import { Hint } from '../ui/hint';
@@ -22,23 +23,10 @@ import type {
   FormInspectResultAll,
 } from '../../engine/pdf-lib';
 
-// Static Roboto Regular TTF (Apache-2.0 — see NOTICE / LICENSE-THIRD-PARTY),
-// inlined as a data URL and loaded via DYNAMIC import: the ~690KB base64
-// lands in its own lazy chunk next to pdf-lib+fontkit (never the entry
-// bundle), and fetch(data:) works offline once chunks are precached — no
-// extra precache-config coupling for a separate font asset.
-// ?inline embeds the TTF as a base64 data URL in this lazy chunk (see the
-// comment above). Decoded with atob — fetch() on data: URLs is rejected by
-// current Chromium, which silently killed the first e2e run of this path.
-const ROBOTO_BYTES_PROMISE = import('../../assets/fonts/Roboto-Regular.ttf?inline').then(
-  (m): Uint8Array => {
-    const b64 = m.default.slice(m.default.indexOf(',') + 1);
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  },
-);
+// Roboto Regular (Apache-2.0 — see NOTICE / LICENSE-THIRD-PARTY) comes from
+// the shared memoized loader src/lib/roboto.ts (v0.8.0 finding: one loader,
+// one decoded copy; its dynamic ?inline import keeps the ~690KB base64 out
+// of the entry chunk — see that module for the full rationale).
 
 type Refusal = 'no-form' | 'xfa';
 
@@ -232,7 +220,7 @@ export function FillFormTool() {
       setProgress({ value: 15, label: t('fill_form.progress_working') });
       const [fillModule, fontBuf] = await Promise.all([
         import('../../engine/pdf-lib'),
-        ROBOTO_BYTES_PROMISE,
+        robotoBytes(),
       ]);
       setProgress({ value: 55, label: t('fill_form.progress_working') });
       const result = await fillModule.fillFormFields(
