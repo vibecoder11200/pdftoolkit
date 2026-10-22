@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Dropzone } from '../ui/dropzone';
 import { useDropFiles } from '../../hooks/use-tool-files';
+import { takePendingFiles } from '../../lib/handoff';
+import { presetDefaultsFor } from '../../lib/preset-session';
+import { PresetBanner } from './preset-banner';
 import { renderPageToCanvas, getPageCount, getFirstPageText } from '../../engine/pdfjs';
 import {
   OCR_PAGE_CAP,
@@ -125,7 +128,11 @@ export function OcrTool() {
   const { t, i18n } = useTranslation();
   const { files, error, add, clear } = useDropFiles();
   const [step, setStep] = useState<Step>('pick');
-  const [engine, setEngine] = useState<Engine>('tesseract');
+  // Preset-chain prefill (v0.8.1 phase 4): scan-number targets tesseract —
+  // the engine whose run output IS the searchable PDF the chain hands on.
+  const [engine, setEngine] = useState<Engine>(
+    () => presetDefaultsFor('ocr')?.engine ?? 'tesseract',
+  );
   const [lang, setLang] = useState<LangChoice>('auto');
   const [dpi, setDpi] = useState<(typeof DPI_CHOICES)[number]>(150);
   const [hasTextLayer, setHasTextLayer] = useState(false);
@@ -185,6 +192,15 @@ export function OcrTool() {
   const abortRef = useRef(false);
   const dropAllRef = useRef(false);
   const clientRef = useRef<{ kind: Engine; client: AiRunClient } | null>(null);
+
+  // Preset-chain handoff (v0.8.1 phase 4): the same one-shot mount take as
+  // the other tools — scan-number step 2 parks the img-to-pdf output here
+  // and it loads through the normal validated PDF intake. StrictMode's
+  // double-invoked effect is safe: the second take returns null.
+  useEffect(() => {
+    const taken = takePendingFiles();
+    if (taken?.files.length) void add([taken.files[0]]);
+  }, [add]);
 
   useEffect(() => {
     (async () => {
@@ -616,9 +632,28 @@ export function OcrTool() {
     [docxBuilding],
   );
 
+  // Preset banner (v0.8.1 phase 4): rendered at the top of every branch
+  // below. The chainable output is the tesseract searchable PDF (outBytes)
+  // — the AI engines build their PDF at click time, so the banner honestly
+  // hides the continue button for them (≤100MB gate re-checked inside).
+  const presetBanner = (
+    <PresetBanner
+      toolSlug="ocr"
+      output={
+        outBytes
+          ? {
+              bytes: outBytes,
+              filename: `${(files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '')}-ocr.pdf`,
+            }
+          : null
+      }
+    />
+  );
+
   if (step === 'pick') {
     return (
       <section className="grid gap-4">
+        {presetBanner}
         <Dropzone
           onFiles={add}
           multiple={false}
@@ -657,6 +692,7 @@ export function OcrTool() {
     ];
     return (
       <section className="grid gap-4">
+        {presetBanner}
         <header className="grid gap-1">
           <h2 className="text-lg font-bold">{files[0]?.file.name}</h2>
           <p className="text-sm text-text-muted">{t('ocr.page_count', { count: pageCount })}</p>
@@ -1000,6 +1036,7 @@ export function OcrTool() {
       const pct = aiPage.total > 0 ? Math.round((aiPage.current / aiPage.total) * 100) : 0;
       return (
         <section className="grid gap-4" aria-busy>
+          {presetBanner}
           {aiPhase === 'downloading' && (
             <div role="progressbar" aria-valuenow={aiDownload.percent ?? undefined} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
               <p className="text-sm font-semibold">
@@ -1058,6 +1095,7 @@ export function OcrTool() {
     const pct = total > 0 ? Math.round((current / total) * 100) : 0;
     return (
       <section className="grid gap-4" aria-busy>
+        {presetBanner}
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="grid gap-1">
           <p className="text-sm font-semibold">
             {t('ocr.progress_page', { current, count: total })}
@@ -1116,6 +1154,7 @@ export function OcrTool() {
     ];
     return (
       <section className="grid gap-4">
+        {presetBanner}
         <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-sm">
           {t('ocr.ai_pdf_note')}
         </p>
@@ -1281,6 +1320,7 @@ export function OcrTool() {
   const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
   return (
     <section className="grid gap-4">
+      {presetBanner}
       {phase === 'cancelling' && (
         <p className="rounded-lg border border-border-strong bg-surface-card px-4 py-3 text-sm">
           {t('ocr.cancelled_partial', { count: results.length })}

@@ -875,5 +875,29 @@
     "chip_label": "Continue with result",
     "chip_title": "Pick the next tool",
     "chip_cancel": "Close"
+  },
+  "presets": {
+    "strip_title": "Quick chains",
+    "strip_subtitle": "Pick a chain, drop your files — each step feeds its result to the next.",
+    "quick-merge-compress_name": "Merge, then compress",
+    "quick-merge-compress_desc": "Many PDFs into one, then compressed for sharing.",
+    "scan-number_name": "Scan to document",
+    "scan-number_desc": "Images to PDF, text recognition (OCR), then page numbers.",
+    "stamp-compress_name": "Stamp, then compress",
+    "stamp-compress_desc": "Stamp \"BẢN LƯU\" on one PDF, then compress it.",
+    "unlock-merge_name": "Unlock, then merge",
+    "unlock-merge_desc": "Password-protected PDF: decrypt it, then merge with more files.",
+    "drop_title_pdf-multi": "Drop your PDF files here",
+    "drop_title_image": "Drop your images here",
+    "drop_title_pdf-single": "Drop your PDF here",
+    "drop_hint_pdf-multi": "or click to browse · multiple PDFs, each under 200 MB",
+    "drop_hint_image": "or click to browse · JPG/PNG, each under 200 MB",
+    "drop_hint_pdf-single": "or click to browse · one PDF under 200 MB",
+    "cancel": "Close",
+    "banner_step": "Chain: {{name}} — step {{current}}/{{total}}",
+    "banner_slow_note": "The OCR step can be slow, depending on your device and page count.",
+    "banner_continue": "Continue → {{tool}}",
+    "banner_finish": "Finish chain",
+    "banner_dismiss": "Dismiss chain"
   }
 }

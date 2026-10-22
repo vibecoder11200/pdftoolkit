@@ -875,5 +875,29 @@
     "chip_label": "Tiếp tục với kết quả",
     "chip_title": "Chọn công cụ tiếp theo",
     "chip_cancel": "Đóng"
+  },
+  "presets": {
+    "strip_title": "Chuỗi nhanh",
+    "strip_subtitle": "Chọn một chuỗi, thả file vào — mỗi bước dùng ngay kết quả bước trước.",
+    "quick-merge-compress_name": "Gộp rồi nén",
+    "quick-merge-compress_desc": "Nhiều file PDF thành một, rồi nén gọn để gửi đi.",
+    "scan-number_name": "Scan thành tài liệu",
+    "scan-number_desc": "Ảnh thành PDF, nhận dạng chữ (OCR), rồi đánh số trang.",
+    "stamp-compress_name": "Đóng dấu rồi nén",
+    "stamp-compress_desc": "Đóng dấu \"BẢN LƯU\" lên một file PDF, rồi nén gọn.",
+    "unlock-merge_name": "Mở khóa rồi gộp",
+    "unlock-merge_desc": "PDF bị khóa mật khẩu: giải mã rồi gộp với file khác.",
+    "drop_title_pdf-multi": "Thả các file PDF vào đây",
+    "drop_title_image": "Thả các ảnh vào đây",
+    "drop_title_pdf-single": "Thả file PDF vào đây",
+    "drop_hint_pdf-multi": "hoặc bấm để chọn · nhiều file PDF, mỗi file dưới 200 MB",
+    "drop_hint_image": "hoặc bấm để chọn · JPG/PNG, mỗi file dưới 200 MB",
+    "drop_hint_pdf-single": "hoặc bấm để chọn · 1 file PDF dưới 200 MB",
+    "cancel": "Đóng",
+    "banner_step": "Chuỗi: {{name}} — bước {{current}}/{{total}}",
+    "banner_slow_note": "Bước OCR có thể chậm, tùy máy và số trang.",
+    "banner_continue": "Tiếp tục → {{tool}}",
+    "banner_finish": "Hoàn thành chuỗi",
+    "banner_dismiss": "Bỏ qua chuỗi"
   }
 }

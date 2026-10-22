@@ -12,6 +12,7 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { XIcon } from '../ui/icons';
 
@@ -242,6 +243,7 @@ export function ImgToPdfTool() {
       progress={progress}
       onReset={resetAll}
     >
+      <PresetBanner toolSlug="img-to-pdf" output={lastOutput} />
       <Dropzone
         title={t('img-to-pdf.dropzone_title')}
         hint={t('img-to-pdf.dropzone_hint')}

@@ -13,6 +13,7 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
@@ -185,6 +186,7 @@ export function MergeTool() {
       }}
       onReselectAll={() => setDeselected(new Set())}
     >
+      <PresetBanner toolSlug="merge" output={lastOutput} />
       <Dropzone
         title={t('merge.dropzone_title')}
         hint={t('merge.dropzone_hint')}

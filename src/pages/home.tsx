@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Nav } from '../components/layout/nav';
 import { Footer } from '../components/layout/footer';
 import { HomeGrid } from '../components/layout/home-grid';
+import { PresetStrip } from '../components/layout/preset-strip';
 import { GlobalDrop } from '../components/layout/global-drop';
 import { SuggestionSheet, type SheetState } from '../components/layout/suggestion-sheet';
 import type { ToolCategory } from '../components/layout/tool-card';
@@ -65,6 +66,9 @@ export function HomePage() {
             )}
           </div>
         </section>
+        {/* v0.8.1 phase 4: combo-preset strip — intake dropzone parks files +
+            starts a session + navigates to step 1 (preset-session.ts). */}
+        <PresetStrip />
         <HomeGrid filter={filter} onFilter={setFilter} />
         <section className="mt-10 grid grid-cols-1 gap-3.5 md:grid-cols-3" aria-label="trust">
           {(['local', 'offline', 'free'] as const).map((k) => (

@@ -13,6 +13,8 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
+import { presetDefaultsFor } from '../../lib/preset-session';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon } from '../ui/icons';
 
@@ -76,7 +78,11 @@ export function CompressTool() {
     const taken = takePendingFiles();
     if (taken?.files.length) void add([taken.files[0]]);
   }, [add]);
-  const [mode, setMode] = useState<CompressMode>('vector');
+  // Preset-chain prefill (v0.8.1 phase 4): read ONCE at mount — the user can
+  // still change the mode before running.
+  const [mode, setMode] = useState<CompressMode>(
+    () => presetDefaultsFor('compress')?.mode ?? 'vector',
+  );
   const [quality, setQuality] = useState<ImageQuality>('balanced');
   const [batchNote, setBatchNote] = useState<string | null>(null);
   const pickFolder = () => {
@@ -295,6 +301,7 @@ export function CompressTool() {
       progress={progress}
       onReset={resetAll}
     >
+      <PresetBanner toolSlug="compress" output={lastOutput} />
       <Dropzone
         title={t('compress.dropzone_title')}
         hint={t('compress.dropzone_hint')}

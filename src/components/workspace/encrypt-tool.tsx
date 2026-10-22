@@ -11,6 +11,8 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
+import { presetDefaultsFor } from '../../lib/preset-session';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { FileIcon } from '../ui/icons';
 
@@ -45,7 +47,12 @@ export function EncryptTool() {
   const { t, i18n } = useTranslation();
   const { files, error: fileError, add, clear } = useDropFiles();
   const { lastOutput, keep } = useLastOutput();
-  const [mode, setMode] = useState<ProtectMode>('encrypt');
+  // Preset-chain prefill (v0.8.1 phase 4): unlock-merge starts here in
+  // decrypt mode. Read ONCE at mount; the mount-take below may set the same
+  // mode from the handoff meta (both paths agree in the preset flow).
+  const [mode, setMode] = useState<ProtectMode>(
+    () => presetDefaultsFor('encrypt')?.mode ?? 'encrypt',
+  );
   // Home-sheet handoff: a locked PDF lands here in decrypt mode. Single-file
   // tool; one-shot take keeps StrictMode's double effect harmless.
   useEffect(() => {
@@ -205,6 +212,7 @@ export function EncryptTool() {
       progress={progress}
       onReset={resetAll}
     >
+      <PresetBanner toolSlug="encrypt" output={lastOutput} />
       <div className="flex gap-2" role="tablist" aria-label={t('encrypt.title')}>
         {(['encrypt', 'decrypt'] as ProtectMode[]).map((m) => (
           <button

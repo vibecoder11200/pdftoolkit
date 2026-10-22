@@ -15,6 +15,8 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
+import { presetDefaultsFor } from '../../lib/preset-session';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { PositionGrid } from './position-grid';
@@ -68,8 +70,18 @@ export function PageNumbersTool() {
   const [encrypted, setEncrypted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [state, setState] = useState<ToolState>(BASE_STATE);
-  const [preset, setPreset] = useState<0 | 1 | 2 | 3>(0);
+  // Preset-chain prefill (v0.8.1 phase 4): scan-number lands here on preset
+  // #2 ("n/total") — the same state applyPreset(1) would build, read ONCE at
+  // mount. The [source, preset] scope-seeding effect honors it from the
+  // first run; the user can still switch presets before running.
+  const [state, setState] = useState<ToolState>(() =>
+    presetDefaultsFor('page-numbers')?.preset === 1
+      ? { ...BASE_STATE, template: '{n}/{total}' }
+      : { ...BASE_STATE },
+  );
+  const [preset, setPreset] = useState<0 | 1 | 2 | 3>(
+    () => presetDefaultsFor('page-numbers')?.preset ?? 0,
+  );
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
@@ -403,6 +415,7 @@ export function PageNumbersTool() {
       onReset={reset}
       onReselectAll={() => setSelected(allPages(numPages, false))}
     >
+      <PresetBanner toolSlug="page-numbers" output={lastOutput} />
       <Dropzone
         title={t('page-numbers.dropzone_title')}
         hint={t('page-numbers.dropzone_hint')}

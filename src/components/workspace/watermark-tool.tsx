@@ -19,6 +19,8 @@ import { Button } from '../ui/button';
 import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { ContinueChip } from './continue-chip';
+import { PresetBanner } from './preset-banner';
+import { presetDefaultsFor } from '../../lib/preset-session';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { PositionGrid } from './position-grid';
@@ -87,8 +89,10 @@ export function WatermarkTool() {
   // form (hint input); the add branch is exactly the v0.8.0 UI.
   const [mode, setMode] = useState<Mode>('add');
   const [removeHint, setRemoveHint] = useState('');
-  // Text options.
-  const [text, setText] = useState('BẢN MẪU');
+  // Text options. Preset-chain prefill (v0.8.1 phase 4): stamp-compress
+  // seeds 'BẢN LƯU' ONCE at mount — add mode only; the Xoá branch ignores
+  // the text entirely. The user can still edit before running.
+  const [text, setText] = useState(() => presetDefaultsFor('watermark')?.text ?? 'BẢN MẪU');
   const [fontSize, setFontSize] = useState(48);
   const [opacity, setOpacity] = useState(50);
   const [rotation, setRotation] = useState(45);
@@ -729,6 +733,7 @@ export function WatermarkTool() {
       progress={progress}
       onReset={reset}
     >
+      <PresetBanner toolSlug="watermark" output={lastOutput} />
       <Dropzone
         title={t('watermark.dropzone_title')}
         hint={t('watermark.dropzone_hint')}
