@@ -154,8 +154,12 @@ test('split multi-output: ONE dialog, parts written beside the pick', async ({ p
   await page.setInputFiles('input[type="file"]', 'tests/fixtures/fixture-small.pdf');
   await page.getByPlaceholder('1-3,5,8-10').fill('1,2');
   // The start guard silently no-ops until the async page-count probe lands —
-  // wait for the hint that numPages is known before clicking.
-  await page.getByText(/File có \d+ trang/).waitFor({ timeout: 30_000 });
+  // wait for the hint showing the REAL count before clicking. The digit is
+  // pinned ([1-9], not \d): during the probe the hint renders "File có 0
+  // trang", and \d+ matches that transient — clicking there fails the run
+  // gate as err_unreadable (the flake this test showed 3-of-4 full runs;
+  // only under load, because that's when the 0-render window widens).
+  await page.getByText(/File có [1-9]\d* trang/).waitFor({ timeout: 30_000 });
   // default mode is 'separate' → deliverBytesMulti path
   await page.getByRole('button', { name: 'Tách và tải xuống' }).click();
   await page.waitForFunction(

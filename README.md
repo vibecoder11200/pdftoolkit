@@ -15,11 +15,13 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
-| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) · Watermark (text or image stamp, tiled, page-scoped) · Page numbers (presets + token templates) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) · Watermark (text or image stamp, tiled, page-scoped — **plus removal**) · Page numbers (presets + token templates) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
 
-**Watermark & page numbers** (since v0.8.0): form-based stamping with a 9-grid anchor, rotation-aware placement (correct on rotated pages with crop boxes), Vietnamese-safe text through the embedded subset font, optional tiled mode, per-page scope, and day-1 whole-folder batch on the watermark tool (per-file report, one native Save-As on desktop).
+**Watermark & page numbers** (v0.8.0): form-based stamping with a 9-grid anchor, rotation-aware placement (correct on rotated pages with crop boxes), Vietnamese-safe text through the embedded subset font, optional tiled mode, per-page scope, and day-1 whole-folder batch on the watermark tool (per-file report, one native Save-As on desktop). **Watermark removal** (v0.8.1): files this app stamped are removed exactly (ownership tag); foreign text watermarks get a best-effort heuristic removal (type the watermark text as a hint) — content is never touched: only fully-matching stamp blocks are removed, anything ambiguous fails safe with a typed error.
 
-**Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool, the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything.
+**Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool (OCR included since v0.8.1), the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything. OCR's AI searchable-PDF builds at click time — nothing is retained until you pick a target.
+
+**Chuỗi nhanh** (v0.8.1): four one-click chains on the home page — Gộp → Nén, Ảnh scan → OCR → Đánh số, Watermark → Nén, Giải mã → Gộp. Each step opens pre-filled with sensible defaults you can edit before running, and the result flows into the next step automatically.
 
 ## OCR — Tesseract + on-device AI (experimental)
 

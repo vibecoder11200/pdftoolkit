@@ -31,13 +31,15 @@ test('merge → chip → page-numbers: combined artifact carries both effects', 
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('merged.pdf');
 
-  // Chip → picker: ocr + img-to-pdf EXCLUDED (acceptsPdf filter, D2).
+  // Chip → picker: img-to-pdf EXCLUDED (PDF-rejecting intake); ocr is now a
+  // FIRST-CLASS target (v0.8.1 phase 5: mount-take + acceptsPdf lifted the
+  // v0.8.0 D2 exclusion).
   const chip = page.getByRole('button', { name: 'Tiếp tục với kết quả' });
   await expect(chip).toBeVisible({ timeout: 10_000 });
   await chip.click();
   const dialog = page.locator('[role="dialog"]');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Nhận dạng chữ (OCR)' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Nhận dạng chữ (OCR)' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Ảnh sang PDF' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Đánh số trang' })).toBeVisible();
 

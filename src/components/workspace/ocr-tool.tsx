@@ -6,6 +6,7 @@ import { useDropFiles } from '../../hooks/use-tool-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { presetDefaultsFor } from '../../lib/preset-session';
 import { PresetBanner } from './preset-banner';
+import { ContinueChip } from './continue-chip';
 import { renderPageToCanvas, getPageCount, getFirstPageText } from '../../engine/pdfjs';
 import {
   OCR_PAGE_CAP,
@@ -585,9 +586,9 @@ export function OcrTool() {
    * text, and delivers — nothing is retained from the run loop, so a
    * partial (post-crash) run exports exactly its completed pages.
    */
-  const buildPdf = useCallback(async () => {
+  const buildPdf = useCallback(async (): Promise<Uint8Array | null> => {
     const file = files[0];
-    if (!file || aiResults.length === 0 || pdfBuilding) return;
+    if (!file || aiResults.length === 0 || pdfBuilding) return null;
     setPdfBuilding(true);
     setExportError(null);
     try {
@@ -602,8 +603,12 @@ export function OcrTool() {
       );
       const baseName = (file.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
       await deliverBytes(bytes, `${baseName}-ocr.pdf`, 'download');
+      // Returned (not retained) for the click-time ContinueChip builder —
+      // the v0.7.0 "nothing retained from the run loop" invariant holds.
+      return bytes;
     } catch (err) {
       setExportError({ kind: 'pdf', message: err instanceof Error ? err.message : String(err) });
+      return null;
     } finally {
       setPdfBuilding(false);
     }
@@ -632,6 +637,8 @@ export function OcrTool() {
     [docxBuilding],
   );
 
+  const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
+
   // Preset banner (v0.8.1 phase 4): rendered at the top of every branch
   // below. The chainable output is the tesseract searchable PDF (outBytes)
   // — the AI engines build their PDF at click time, so the banner honestly
@@ -643,7 +650,7 @@ export function OcrTool() {
         outBytes
           ? {
               bytes: outBytes,
-              filename: `${(files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '')}-ocr.pdf`,
+              filename: `${baseName}-ocr.pdf`,
             }
           : null
       }
@@ -1146,7 +1153,6 @@ export function OcrTool() {
     // preview iframe is sandboxed WITHOUT allow-scripts — OCR text is
     // untrusted (adversarial e2e pins this).
     const converted = convertEngineOutput(text);
-    const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
     const tabs: Array<{ id: 'md' | 'txt' | 'html'; label: string }> = [
       { id: 'md', label: t('ocr.tab_markdown') },
       { id: 'txt', label: t('ocr.tab_text') },
@@ -1254,6 +1260,19 @@ export function OcrTool() {
           >
             {pdfBuilding ? t('ocr.pdf_building') : t('ocr.download_pdf')}
           </button>
+          {/* v0.8.1 phase 5: OCR joins the chaining hosts via the builder
+              variant — bytes exist only once the user picks a target, so the
+              v0.7.0 nothing-retained invariant holds. The build delivers the
+              PDF as usual AND parks the returned bytes for the next tool. */}
+          {aiResults.length > 0 && (
+            <ContinueChip
+              builder={async () => {
+                const bytes = await buildPdf();
+                if (!bytes) throw new Error('build failed');
+                return { bytes, filename: `${baseName}-ocr.pdf` };
+              }}
+            />
+          )}
           <button
             type="button"
             data-testid="ai-download-docx"
@@ -1317,7 +1336,6 @@ export function OcrTool() {
       </section>
     );
   }
-  const baseName = (files[0]?.file.name ?? 'document.pdf').replace(/\.pdf$/i, '');
   return (
     <section className="grid gap-4">
       {presetBanner}
@@ -1342,6 +1360,7 @@ export function OcrTool() {
         >
           {t('ocr.download_pdf')}
         </button>
+        {outBytes && <ContinueChip bytes={outBytes} filename={`${baseName}-ocr.pdf`} />}
         <button
           type="button"
           data-testid="ocr-download-docx"

@@ -298,12 +298,37 @@ This project is indexed by GitNexus as **pdftoolkit** (3135 symbols, 7935 relati
   Watermark image intake runs the `src/lib/image-intake.ts` declared-
   dimension gate (~100MP) BEFORE any embed — never move the gate to embed
   time (pdf-lib PNG decode is ~w×h×8; a forged 60000×60000 IHDR = worker OOM).
-- Watermark REMOVAL is v0.8.x, spike-gated (text-heuristic first;
-  image/overlay only on GO; fallback = reverse-own + text-only).
 - `src/lib/page-template.ts` (token renderer) has ZERO pdf-lib imports —
   the page-numbers live preview imports it statically; keep pdf-lib out of
   it or the entry chunk grows (finding 7). `src/lib/roboto.ts` keeps the
   `?inline` import DYNAMIC for the same reason (finding 10).
+
+### Watermark-removal / presets / engine-resilience invariants (v0.8.1)
+
+- **Removal conservatism (spike GO — plans/reports/spike-wm-removal-2026-10-22.md)**:
+  content-stream edits remove a BT..ET block ONLY when every show-op in it
+  matches; any parse anomaly → typed error, output untouched. The structural
+  matcher keys on `(Tf size, operand hex)` — NEVER the font resource name
+  (pdf-lib renames the same font object per page — spike discovery #1).
+  Whole-block removal rides single-show blocks; partial blocks are refused.
+  `stampWatermark` writes the `pdftoolkit-wm` /Info ownership tag; re-stamping
+  OVERWRITES the tag (reversal removes only the last stamp — by design).
+  fflate lives in dependencies (zlib-wrapper `unzlibSync` for /FlateDecode —
+  raw `inflateSync` is the wrong wrapper and silently corrupts streams).
+- **Worker resilience**: `EngineCrashedError` + lazy respawn in
+  `src/engine/client.ts` — the in-flight op REJECTS (never auto-retried: an
+  op that already delivered must not silently re-run); tools surface it via
+  `src/lib/engine-error.ts` with an onRetry affordance.
+- **Preset chains** (`src/lib/presets.ts` + `src/lib/preset-session.ts`): the
+  session store holds NO files — the chained File rides `appendPendingFiles`
+  ONLY (same frozen handoff contract); a preset's later steps must be
+  pending-consumers (tests enforce; img-to-pdf is entry-only). Default
+  prefill is read ONCE on mount when a session targets the tool.
+- **Chaining citizenship**: ocr takes pending files at mount (14th taker)
+  and carries `acceptsPdf`; its AI sandwich chains through the ContinueChip
+  BUILDER variant (click-time build — the v0.7.0 nothing-retained invariant
+  holds; no bytes are held before a target is picked). img-to-pdf still
+  carries no `acceptsPdf` (PDF-rejecting intake).
 
 ## 5. GitHub Pages deploy
 

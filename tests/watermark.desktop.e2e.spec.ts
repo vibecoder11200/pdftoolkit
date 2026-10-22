@@ -150,7 +150,9 @@ test('chaining leg: watermark → chip → page-numbers auto-takes under the moc
   await chip.click();
   const dialog = page.locator('[role="dialog"]');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Nhận dạng chữ (OCR)' })).toHaveCount(0);
+  // v0.8.1 phase 5: ocr is now a first-class chaining target (mount-take +
+  // acceptsPdf); img-to-pdf stays excluded (PDF-rejecting intake).
+  await expect(dialog.getByRole('button', { name: 'Nhận dạng chữ (OCR)' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Đánh số trang' }).click();
   await page.waitForURL('**/tools/page-numbers');
   await expect(page.locator('[role="checkbox"]')).toHaveCount(2, { timeout: 30_000 });
