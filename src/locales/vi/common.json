@@ -296,6 +296,7 @@
     "ranges_label": "Khoảng trang cần tách",
     "ranges_placeholder": "1-3,5,8-10",
     "ranges_hint": "File có {{max}} trang. Ví dụ: 1-3,5,8-10.",
+    "probing": "Đang đọc số trang…",
     "covered_count": "Đã chọn {{count}} trang",
     "thumb_hint": "bấm vào ảnh nhỏ để thêm/bớt trang",
     "mode_label": "Cách xuất file",

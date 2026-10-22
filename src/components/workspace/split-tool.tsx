@@ -73,7 +73,14 @@ export function SplitTool() {
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [probePending, setProbePending] = useState(false);
   const genRef = useRef(0);
+  // numPages mirror readable from async closures (the state captured in
+  // run() is stale after an await); probeRef holds the in-flight page-count
+  // probe so an early CTA click can wait it out instead of misreporting a
+  // healthy file as unreadable.
+  const numPagesRef = useRef(0);
+  const probeRef = useRef<Promise<void> | null>(null);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
 
   const file = files[0] ?? null;
@@ -81,19 +88,37 @@ export function SplitTool() {
   useEffect(() => {
     const gen = (genRef.current += 1);
     setLoadSeq((n) => n + 1);
+    numPagesRef.current = 0;
     setNumPages(0);
     setLastValid([]);
+    setRunError(null);
+    setProbePending(Boolean(file));
+    probeRef.current = null;
     if (!file) return;
-    void engine
+    const probe = engine
       .loadPdf(file.bytes)
-      .then(({ info }) => {
-        if (genRef.current !== gen) return;
-        setNumPages(info.numPages);
-      })
-      .catch(() => {
-        if (genRef.current !== gen) return;
-        setNumPages(0);
+      .then(
+        ({ info }) => {
+          if (genRef.current !== gen) return;
+          numPagesRef.current = info.numPages;
+          setNumPages(info.numPages);
+        },
+        () => {
+          if (genRef.current !== gen) return;
+          numPagesRef.current = 0;
+          setNumPages(0);
+          setRunError(t('split.err_unreadable'));
+        },
+      )
+      .then(() => {
+        // Only the owning generation may clear the slot — a stale probe must
+        // not clobber a newer file's in-flight probe.
+        if (genRef.current === gen) {
+          probeRef.current = null;
+          setProbePending(false);
+        }
       });
+    probeRef.current = probe;
   }, [file]);
 
   const parsed = numPages > 0 ? parseRanges(rangesText, numPages) : parseRanges('', 1);
@@ -139,14 +164,30 @@ export function SplitTool() {
       setRunError(t('split.no_file'));
       return;
     }
-    if (numPages === 0) {
-      setRunError(t('split.err_unreadable'));
-      return;
+    let pages = numPagesRef.current;
+    if (pages === 0) {
+      // The CTA is clickable while the page-count probe is still in flight —
+      // an early click waits it out (looping across a mid-await file swap)
+      // rather than misreporting a healthy file as unreadable.
+      // err_unreadable is reserved for a probe that actually failed.
+      while (probeRef.current) {
+        setBusy(true);
+        try {
+          await probeRef.current;
+        } finally {
+          setBusy(false);
+        }
+      }
+      pages = numPagesRef.current;
+      if (pages === 0) {
+        setRunError(t('split.err_unreadable'));
+        return;
+      }
     }
-    const parsedNow = parseRanges(rangesText, numPages);
+    const parsedNow = parseRanges(rangesText, pages);
     if (parsedNow.error || parsedNow.ranges.length === 0) {
       const { key, part, page } = splitErrorKey(parsedNow.error ?? 'empty');
-      setRunError(t(key, { part, page, max: numPages }));
+      setRunError(t(key, { part, page, max: pages }));
       return;
     }
     setBusy(true);
@@ -186,7 +227,7 @@ export function SplitTool() {
     <WorkspaceShell
       title={t('split.title')}
       meta={
-        file
+        file && numPages > 0
           ? t('meta.file_pages', {
                 name: file.file.name,
                 count: numPages,
@@ -221,9 +262,11 @@ export function SplitTool() {
             <p role="alert" className="text-[13px] text-danger">
               {liveError}
             </p>
-          ) : (
+          ) : probePending ? (
+            <p className="text-[13px] text-text-muted">{t('split.probing')}</p>
+          ) : numPages > 0 ? (
             <p className="text-[13px] text-text-muted">{t('split.ranges_hint', { max: numPages })}</p>
-          )}
+          ) : null}
           <p className="text-[13px] font-semibold text-text-primary tabular-nums">
             {t('split.covered_count', { count: covered.length })}
           </p>

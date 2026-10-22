@@ -329,6 +329,15 @@ This project is indexed by GitNexus as **pdftoolkit** (3135 symbols, 7935 relati
   BUILDER variant (click-time build — the v0.7.0 nothing-retained invariant
   holds; no bytes are held before a target is picked). img-to-pdf still
   carries no `acceptsPdf` (PDF-rejecting intake).
+- **Split probe gate** (`split-tool.tsx`, flake class pinned 2026-10-22):
+  the page-count probe (`engine.loadPdf`) is async and the CTA stays
+  enabled while it is pending — `run()` MUST await `probeRef` (looping
+  across a mid-await file swap) before deciding anything;
+  `split.err_unreadable` means the probe FAILED, never "still loading"
+  (the probe catch sets it proactively, like the extract/compress family).
+  The hint shows `split.probing` while `probePending`, and meta is gated on
+  `numPages > 0` — the "File có 0 trang" transient must NEVER render (the
+  desktop e2e pins the real count with `[1-9]\d*` as the tripwire).
 
 ## 5. GitHub Pages deploy
 

@@ -296,6 +296,7 @@
     "ranges_label": "Page ranges to split",
     "ranges_placeholder": "1-3,5,8-10",
     "ranges_hint": "This file has {{max}} pages. Example: 1-3,5,8-10.",
+    "probing": "Reading page count…",
     "covered_count": "{{count}} pages selected",
     "thumb_hint": "click a thumbnail to add/remove a page",
     "mode_label": "Output mode",
