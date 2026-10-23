@@ -66,8 +66,10 @@ function cleanOutputName(original: string): string {
 }
 
 export function WatermarkTool() {
-  // ['common', 'tools']: existing keys resolve from common; the v0.8.1
-  // removal keys live in tools (declaring the ns is what loads it).
+  // ['common', 'tools'] preloads the tools ns for the ContinueChip picker.
+  // Every bare t() key MUST live in common.json (the eagerly-bundled ns) —
+  // multi-ns fallthrough does NOT resolve reliably with the lazy backend
+  // (shipped broken as raw keys in v0.8.1; tests/i18n-resolve.spec.ts gates it).
   const { t, i18n } = useTranslation(['common', 'tools']);
   const navigate = useNavigate();
   const { files, error: fileError, add, clear } = useDropFiles();

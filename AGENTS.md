@@ -338,6 +338,18 @@ This project is indexed by GitNexus as **pdftoolkit** (3135 symbols, 7935 relati
   The hint shows `split.probing` while `probePending`, and meta is gated on
   `numPages > 0` — the "File có 0 trang" transient must NEVER render (the
   desktop e2e pins the real count with `[1-9]\d*` as the tripwire).
+- **i18n namespace discipline (v0.8.1 shipped raw keys — pinned
+  2026-10-23)**: every bare `t('ns.key')` literal in src/ MUST resolve in
+  `common.json` (the only eagerly-bundled ns). Declaring extra namespaces
+  via `useTranslation(['common', 'tools'])` does NOT make their keys
+  reachable for bare lookups with the lazy resourcesToBackend — the
+  v0.8.1 watermark-removal UI shipped rendering raw keys this way (chunk
+  fetched 200, key still raw; live-verified on production). `tools.json`
+  is a title/desc-only grid feed (consumed by tool-card's fixed
+  `useTranslation('tools')`). Enforced by `tests/i18n-resolve.spec.ts`
+  (t()/key-literal scan + plural-suffix rules + tools.json shape + vi/en
+  parity). Adding a tool-UI key to tools.json is the trap; put it in
+  common.json.
 
 ## 5. GitHub Pages deploy
 

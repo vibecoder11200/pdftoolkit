@@ -57,24 +57,7 @@
   },
   "watermark": {
     "title": "Đóng dấu nước",
-    "desc": "Dấu chữ/ảnh mờ lên trang đã chọn — tùy vị trí, góc xoay, lặp kín trang.",
-    "mode_label": "Chế độ",
-    "tab_add": "Thêm",
-    "tab_remove": "Xoá",
-    "remove_hint_label": "Chữ của dấu cần xoá",
-    "remove_hint_placeholder": "Nhập đúng nội dung dấu nước (ví dụ: BẢN MẪU)",
-    "remove_note": "File đã đóng dấu bởi PDF Toolkit sẽ được xoá chính xác theo metadata. File đóng dấu bằng công cụ khác: dò theo chữ ở trên — cố gắng tối đa, có thể không xoá hết.",
-    "remove_cta": "Xoá dấu nước và tải xuống",
-    "remove_cta_batch": "Xoá dấu cả thư mục",
-    "remove_progress_working": "Đang xoá dấu nước...",
-    "remove_progress_batch": "Đang xoá {{done}}/{{total}}...",
-    "remove_done_tagged": "Hoàn tất. Đã xoá dấu nước theo metadata PDF Toolkit.",
-    "remove_done_heuristic": "Hoàn tất. Đã xoá dấu nước theo dò chữ (file không do PDF Toolkit đóng dấu).",
-    "remove_err_not_found": "Không tìm thấy dấu nước khớp. Hãy kiểm tra lại nội dung chữ cần xoá.",
-    "remove_err_hint": "File không có metadata của PDF Toolkit — hãy nhập nội dung dấu nước để dò xoá.",
-    "remove_err_failed": "Xoá dấu nước thất bại: {{message}}",
-    "err_crashed": "Bộ xử lý PDF vừa bị lỗi và đã sẵn sàng khởi động lại.",
-    "err_crashed_detail": "Thao tác chưa hoàn tất và không tự chạy lại — bấm Thử lại để thực hiện lại từ đầu."
+    "desc": "Dấu chữ/ảnh mờ lên trang đã chọn — tùy vị trí, góc xoay, lặp kín trang."
   },
   "page-numbers": {
     "title": "Đánh số trang",

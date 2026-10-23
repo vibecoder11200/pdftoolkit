@@ -57,24 +57,7 @@
   },
   "watermark": {
     "title": "Watermark",
-    "desc": "Stamp text or images onto selected pages — position, angle, tiled.",
-    "mode_label": "Mode",
-    "tab_add": "Add",
-    "tab_remove": "Remove",
-    "remove_hint_label": "Watermark text to remove",
-    "remove_hint_placeholder": "Type the exact watermark text (e.g. DRAFT)",
-    "remove_note": "Files stamped by PDF Toolkit are removed exactly via metadata. Files stamped by other tools: matched by the text above — best effort, may not remove everything.",
-    "remove_cta": "Remove watermark and download",
-    "remove_cta_batch": "Remove from a whole folder",
-    "remove_progress_working": "Removing watermark...",
-    "remove_progress_batch": "Removing {{done}}/{{total}}...",
-    "remove_done_tagged": "Done. Watermark removed exactly (PDF Toolkit metadata).",
-    "remove_done_heuristic": "Done. Watermark removed by text matching (not stamped by PDF Toolkit).",
-    "remove_err_not_found": "No matching watermark found. Check the watermark text.",
-    "remove_err_hint": "This file has no PDF Toolkit metadata — enter the watermark text to attempt removal.",
-    "remove_err_failed": "Watermark removal failed: {{message}}",
-    "err_crashed": "The PDF engine just crashed and is ready to restart.",
-    "err_crashed_detail": "The operation did not complete and will not re-run automatically — press Retry to run it again."
+    "desc": "Stamp text or images onto selected pages — position, angle, tiled."
   },
   "page-numbers": {
     "title": "Page numbers",

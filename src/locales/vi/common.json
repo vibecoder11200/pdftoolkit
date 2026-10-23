@@ -44,7 +44,7 @@
     "offline_title": "Mất mạng vẫn dùng được",
     "offline_desc": "Mở trang một lần, những lần sau dùng tiếp ngay cả khi không có mạng.",
     "free_title": "Miễn phí, không giới hạn",
-    "free_desc": "Đủ 14 công cụ, không tài khoản, không tính năng bị khóa."
+    "free_desc": "Đủ 16 công cụ, không tài khoản, không tính năng bị khóa."
   },
   "merge": {
     "title": "Gộp PDF",
@@ -547,7 +547,7 @@
     "welcome_dismiss": "Đóng gợi ý",
     "start_title": "🚀 Bắt đầu",
     "start_body": "Kéo PDF hoặc ảnh vào bất cứ đâu trên trang — hệ thống tự gợi ý công cụ phù hợp. Hoặc mở thẳng một công cụ và chọn file từ đó.",
-    "tools_title": "🧰 14 công cụ",
+    "tools_title": "🧰 16 công cụ",
     "tools_body": "Gộp, tách, sắp xếp lại, xoay, trích trang, xóa trang, nén, PDF→ảnh, ảnh→PDF, mã hóa, siêu dữ liệu, ký số, điền form, OCR.",
     "tools_link": "Xem tất cả công cụ",
     "ai_title": "🤖 AI OCR",
@@ -828,7 +828,24 @@
     "decrypt_cta": "Mở khóa bằng mật khẩu",
     "err_image_unsupported": "Ảnh phải là PNG hoặc JPG.",
     "err_image_too_big": "Ảnh quá lớn (khai báo quá 100 megapixel) — hãy thu nhỏ trước khi đóng dấu.",
-    "err_no_image": "Hãy chọn ảnh trước khi đóng dấu."
+    "err_no_image": "Hãy chọn ảnh trước khi đóng dấu.",
+    "mode_label": "Chế độ",
+    "tab_add": "Thêm",
+    "tab_remove": "Xoá",
+    "remove_hint_label": "Chữ của dấu cần xoá",
+    "remove_hint_placeholder": "Nhập đúng nội dung dấu nước (ví dụ: BẢN MẪU)",
+    "remove_note": "File đã đóng dấu bởi PDF Toolkit sẽ được xoá chính xác theo metadata. File đóng dấu bằng công cụ khác: dò theo chữ ở trên — cố gắng tối đa, có thể không xoá hết.",
+    "remove_cta": "Xoá dấu nước và tải xuống",
+    "remove_cta_batch": "Xoá dấu cả thư mục",
+    "remove_progress_working": "Đang xoá dấu nước...",
+    "remove_progress_batch": "Đang xoá {{done}}/{{total}}...",
+    "remove_done_tagged": "Hoàn tất. Đã xoá dấu nước theo metadata PDF Toolkit.",
+    "remove_done_heuristic": "Hoàn tất. Đã xoá dấu nước theo dò chữ (file không do PDF Toolkit đóng dấu).",
+    "remove_err_not_found": "Không tìm thấy dấu nước khớp. Hãy kiểm tra lại nội dung chữ cần xoá.",
+    "remove_err_hint": "File không có metadata của PDF Toolkit — hãy nhập nội dung dấu nước để dò xoá.",
+    "remove_err_failed": "Xoá dấu nước thất bại: {{message}}",
+    "err_crashed": "Bộ xử lý PDF vừa bị lỗi và đã sẵn sàng khởi động lại.",
+    "err_crashed_detail": "Thao tác chưa hoàn tất và không tự chạy lại — bấm Thử lại để thực hiện lại từ đầu."
   },
   "page-numbers": {
     "title": "Đánh số trang",
