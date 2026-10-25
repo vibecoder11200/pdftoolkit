@@ -67,6 +67,13 @@ export interface WorkerApi {
     bytes: Uint8Array,
     spec: import('../engine/pdf-lib').RedactFinalizeSpec,
   ): Promise<import('../engine/pdf-lib').RedactFinalizeResult>;
+  /** Annotate stamps & shapes (v0.9.0 phase 4): content-stream draws via
+   * the shared geometry primitives; Roboto subset for VN text. */
+  stampAnnotations(
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').StampAnnotationsOptions,
+    fontTtf: Uint8Array,
+  ): Promise<Uint8Array>;
   /** Page numbers (v0.8.0): token template rendered per in-scope page. */
   applyPageNumbers(
     bytes: Uint8Array,
@@ -122,6 +129,7 @@ const api: WorkerApi = {
     // Same transfer contract as the neighbors (multi-page document).
     return transfer(result, [result.bytes.buffer]);
   },
+  stampAnnotations: (bytes, opts, fontTtf) => lib.stampAnnotations(bytes, opts, fontTtf),
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');

@@ -162,6 +162,18 @@ export const engine = {
       r.stampWatermark(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
     );
   },
+  // Annotate (v0.9.0 phase 4): same caller-owned font pattern as the
+  // watermark/page-numbers ops — robotoBytes resolved client-side.
+  stampAnnotations: async (
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').StampAnnotationsOptions,
+    fontTtf?: Uint8Array,
+  ) => {
+    const font = (fontTtf ?? (await robotoBytes())).slice();
+    return call((r) =>
+      r.stampAnnotations(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
+    );
+  },
   applyPageNumbers: async (
     bytes: Uint8Array,
     opts: import('../engine/pdf-lib').PageNumbersOptions,

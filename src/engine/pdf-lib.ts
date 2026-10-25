@@ -3053,3 +3053,190 @@ export function redactRasterScale(visualWidth: number, visualHeight: number, dpi
   const byPixels = Math.sqrt(REDACT_RASTER_MAX_PIXELS / (visualWidth * visualHeight));
   return Math.max(0.1, Math.min(byDpi, byLongEdge, byPixels));
 }
+
+// ───────────────────────── Annotate engine (v0.9.0 phase 4) ─────────────────────────
+
+export type AnnotateElementKind = 'text' | 'rect' | 'line' | 'ellipse';
+
+/**
+ * One annotation element, in VISUAL space (origin bottom-left of the
+ * displayed page box, y up — the RedactRect convention) so placement is
+ * /Rotate- and CropBox-independent. Drawn as CONTENT-STREAM operations (the
+ * watermark path — viewer-proof, no /AP machinery; researcher §Q4).
+ */
+export interface AnnotateElement {
+  kind: AnnotateElementKind;
+  /** 1-based page. */
+  page: number;
+  /** Bounding box in visual space. Line = diagonal of the box (TL → BR). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Clockwise visual rotation (text only). */
+  rotation?: number;
+  /** '#rrggbb'; default near-black. */
+  color?: string;
+  /** 0..1, default 1. */
+  opacity?: number;
+  /** Text font size / shape stroke width, pt (default 14 / 2). */
+  size?: number;
+  /** Text content (text kind, required non-empty there). */
+  text?: string;
+  /** Shapes: filled vs outline (default filled for rect/ellipse). */
+  fill?: boolean;
+}
+
+export interface StampAnnotationsOptions {
+  elements: AnnotateElement[];
+}
+
+/** Refusal before any output: encrypted input, empty/invalid elements, or a
+ * text stamp that cannot fit the visible page. */
+export class AnnotationRefusedError extends Error {
+  constructor(message = 'The annotation cannot be applied.') {
+    super(message);
+    this.name = 'AnnotationRefusedError';
+  }
+}
+
+function annotColor(hex: string | undefined): import('pdf-lib').RGB {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim());
+  if (!m) return rgb(0.07, 0.07, 0.07);
+  const n = parseInt(m[1], 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+/**
+ * Stamps text + shapes onto pages as content-stream draws through THE shared
+ * placement primitives (visibleGeometry / visualToPageSpace / drawAngleFor —
+ * never per-feature math; the v0.8.0 invariant). Additive only — the orphan
+ * rule governs removal, not adds — but the encrypted posture and the
+ * full-rewrite save convention match stampWatermark. Elements on pages
+ * beyond the document are dropped (the selectPageIndices backstop
+ * convention: stale lists from a file swap never crash the run).
+ */
+export async function stampAnnotations(
+  bytes: Uint8Array,
+  opts: StampAnnotationsOptions,
+  fontTtf: Uint8Array,
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  let doc: import('pdf-lib').PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  } catch (e) {
+    // Encrypted (ignoreEncryption:false) or unreadable input — typed refusal
+    // (the tool shell's own probe gates encrypted files earlier; this is the
+    // engine-level backstop).
+    throw new AnnotationRefusedError(
+      `The file cannot be annotated (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const font = await embedRobotoSubset(doc, fontTtf);
+  const elements = opts.elements ?? [];
+  if (elements.length === 0) {
+    throw new AnnotationRefusedError('No annotation elements were provided.');
+  }
+  const pageCount = doc.getPageCount();
+  const byPage = new Map<number, AnnotateElement[]>();
+  for (const el of elements) {
+    if (
+      !Number.isFinite(el.x) || !Number.isFinite(el.y) ||
+      !Number.isFinite(el.w) || !Number.isFinite(el.h)
+    ) {
+      throw new AnnotationRefusedError('An element has non-finite geometry.');
+    }
+    if (el.kind === 'text' && !(el.text ?? '').trim()) {
+      throw new AnnotationRefusedError('A text element has no content.');
+    }
+    if (el.page < 1 || el.page > pageCount) continue; // stale element, dropped
+    const list = byPage.get(el.page) ?? [];
+    list.push(el);
+    byPage.set(el.page, list);
+  }
+
+  for (const [p1, els] of byPage) {
+    const page = doc.getPage(p1 - 1);
+    const geom = visibleGeometry(page);
+    for (const el of els) {
+      const color = annotColor(el.color);
+      const opacity = Math.min(1, Math.max(0, el.opacity ?? 1));
+      const stroke = Math.max(0.5, el.size ?? 2);
+      const fill = el.fill ?? (el.kind !== 'line' && el.kind !== 'text');
+      if (el.kind === 'text') {
+        const size = Math.max(4, el.size ?? 14);
+        const text = (el.text ?? '').replace(/\r\n?/g, '\n');
+        const width = font.widthOfTextAtSize(text, size);
+        // Overflow refuses BEFORE any page is mutated (fail-closed posture).
+        if (
+          el.x < -1 || el.y < -1 ||
+          el.x + width > geom.visualWidth + 1 ||
+          el.y + size > geom.visualHeight + 1
+        ) {
+          throw new AnnotationRefusedError(
+            `Text does not fit the visible page ${p1} (needs ${Math.ceil(width)}pt of ${Math.floor(geom.visualWidth)}pt).`,
+          );
+        }
+        const user = visualToPageSpace(el.x, el.y, geom);
+        page.drawText(text, {
+          x: user.x,
+          y: user.y,
+          font,
+          size,
+          rotate: degrees(drawAngleFor(el.rotation ?? 0, geom.rotate)),
+          opacity,
+          color,
+        });
+      } else if (el.kind === 'rect') {
+        // Anchor = visual bottom-left; the drawAngleFor(·, /Rotate) rotation
+        // about that anchor maps the w×h rect back onto the visual box
+        // (same proof as the watermark text path; property-matrix tested).
+        const p0 = visualToPageSpace(el.x, el.y, geom);
+        page.drawRectangle({
+          x: p0.x,
+          y: p0.y,
+          width: Math.max(1, el.w),
+          height: Math.max(1, el.h),
+          rotate: degrees(drawAngleFor(0, geom.rotate)),
+          color: fill ? color : undefined,
+          opacity: fill ? opacity : undefined,
+          borderColor: fill ? undefined : color,
+          borderOpacity: fill ? undefined : opacity,
+          borderWidth: fill ? 0 : stroke,
+        });
+      } else if (el.kind === 'ellipse') {
+        // pdf-lib takes the CENTER + radii; a visual-axis-aligned ellipse is
+        // user-space-axis-aligned with radii SWAPPED for /Rotate 90|270.
+        const c = visualToPageSpace(el.x + el.w / 2, el.y + el.h / 2, geom);
+        const swapAxes = geom.rotate === 90 || geom.rotate === 270;
+        page.drawEllipse({
+          x: c.x,
+          y: c.y,
+          xScale: Math.max(0.5, (swapAxes ? el.h : el.w) / 2),
+          yScale: Math.max(0.5, (swapAxes ? el.w : el.h) / 2),
+          color: fill ? color : undefined,
+          opacity: fill ? opacity : undefined,
+          borderColor: fill ? undefined : color,
+          borderOpacity: fill ? undefined : opacity,
+          borderWidth: fill ? 0 : stroke,
+        });
+      } else {
+        // Line = the box diagonal, top-left → bottom-right (the natural
+        // drag gesture on screen).
+        const a = visualToPageSpace(el.x, el.y + el.h, geom);
+        const b = visualToPageSpace(el.x + el.w, el.y, geom);
+        page.drawLine({
+          start: { x: a.x, y: a.y },
+          end: { x: b.x, y: b.y },
+          thickness: stroke,
+          opacity,
+          color,
+        });
+      }
+    }
+  }
+  return doc.save({ useObjectStreams: false });
+}

@@ -26,6 +26,7 @@ import { ContinueChip } from './continue-chip';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { EditorCanvas, newMarkId } from './editor-canvas';
+import { AnnotateCanvasArea, AnnotateControls, useAnnotateState } from './annotate-tab';
 import { FileIcon } from '../ui/icons';
 
 /*
@@ -63,6 +64,8 @@ const KIND_KEYS: Record<RedactCensusKind, string> = {
   'annot-ap-text': 'redact.kind_annot_ap_text',
   'stream-undecodable': 'redact.kind_stream_undecodable',
 };
+
+const EMPTY_BYTES = new Uint8Array();
 
 function redactedName(original: string): string {
   const base = original.replace(/\.pdf$/i, '').trim() || 'document';
@@ -171,6 +174,33 @@ export function EditorTool() {
         }))
       : [];
   const { urlFor, observe } = useThumbnails(thumbJobs);
+
+  const annotate = useAnnotateState(
+    source?.bytes ?? EMPTY_BYTES,
+    source?.file.name ?? '',
+    currentPage,
+  );
+  // Visual size of the current page — scales the annotate preview to the render.
+  const [pageVisual, setPageVisual] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    if (!source || numPages <= 0) {
+      setPageVisual(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { getPageVisualSize } = await import('../../engine/pdfjs');
+        const size = await getPageVisualSize(source.bytes, currentPage);
+        if (!cancelled) setPageVisual(size);
+      } catch {
+        /* preview scale falls back to 0 (text shown unscaled) */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [source, currentPage, numPages]);
 
   const pageMarks = marks.filter((m) => m.page === currentPage);
   const flagged = census?.pages ?? [];
@@ -518,7 +548,15 @@ export function EditorTool() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            <div className="hidden md:flex md:flex-col md:gap-4">{tab === 'redact' ? redactControls : <p className="text-[13px] text-text-muted">{t('editor.tab_placeholder')}</p>}</div>
+            <div className="hidden md:flex md:flex-col md:gap-4">
+              {tab === 'redact' ? (
+                redactControls
+              ) : tab === 'annotate' ? (
+                <AnnotateControls state={annotate} />
+              ) : (
+                <p className="text-[13px] text-text-muted">{t('editor.tab_placeholder')}</p>
+              )}
+            </div>
           </div>
         )
       }
@@ -552,7 +590,7 @@ export function EditorTool() {
           <p className="mt-4 text-[13px] text-text-muted md:hidden">{t('editor.phone_notice')}</p>
           <div className="mt-4 hidden md:block">
             {tabHost}
-            {tab === 'redact' ? (
+            {tab === 'redact' || tab === 'annotate' ? (
               <>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
                   <button
@@ -574,29 +612,46 @@ export function EditorTool() {
                   >
                     →
                   </button>
-                  <span>· {t('redact.marks_hint')}</span>
-                  {pageMarks.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={clearPageMarks}
-                      className="min-h-8 rounded-lg border border-border-strong px-2.5 text-[12.5px] font-semibold"
-                    >
-                      {t('redact.clear_marks', { count: pageMarks.length })}
-                    </button>
-                  ) : null}
+                  {tab === 'redact' ? (
+                    <>
+                      <span>· {t('redact.marks_hint')}</span>
+                      {pageMarks.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={clearPageMarks}
+                          className="min-h-8 rounded-lg border border-border-strong px-2.5 text-[12.5px] font-semibold"
+                        >
+                          {t('redact.clear_marks', { count: pageMarks.length })}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span>· {t('editor.annotate_hint_short')}</span>
+                  )}
                 </div>
                 <div className="mt-2">
-                  <EditorCanvas
-                    bytes={source.bytes}
-                    page={currentPage}
-                    version={genRef.current}
-                    marks={pageMarks}
-                    onAdd={addMark}
-                    onRemove={removeMark}
-                    disabled={busy}
-                  />
+                  {tab === 'redact' ? (
+                    <EditorCanvas
+                      bytes={source.bytes}
+                      page={currentPage}
+                      version={genRef.current}
+                      marks={pageMarks}
+                      onAdd={addMark}
+                      onRemove={removeMark}
+                      disabled={busy}
+                    />
+                  ) : (
+                    <AnnotateCanvasArea
+                      state={annotate}
+                      bytes={source.bytes}
+                      page={currentPage}
+                      version={genRef.current}
+                      visualWidth={pageVisual?.width ?? 0}
+                      disabled={busy}
+                    />
+                  )}
                 </div>
-                {report ? (
+                {tab === 'redact' && report ? (
                   <div className="mt-3 rounded-lg border border-border-default bg-surface-card p-3 text-[13px] leading-relaxed">
                     <p className="font-bold">{t('redact.report_title')}</p>
                     <p className="mt-1">
