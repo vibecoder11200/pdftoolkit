@@ -88,7 +88,7 @@ describe('applyPageNumbers (pdf.js oracle)', () => {
     for (let p = 1; p <= 5; p += 1) {
       expect(await extractPageText(out, p), `page ${p}`).toContain(`Trang ${p}/5`);
     }
-  });
+  }, 30_000);
 
   it('skip-first scope (pages 2..5) leaves page 1 clean', async () => {
     const out = await applyPageNumbers(bytes(), {

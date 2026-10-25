@@ -81,3 +81,52 @@ export async function getFirstPageText(data: Uint8Array): Promise<string> {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/** A rectangle in VISUAL space: origin bottom-left of the visible page box
+ * (rotation + CropBox baked), x right, y up — the same space the redact
+ * engine's RedactRect and the user's drag marks live in. */
+export interface VisualRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Visible page box at scale 1 — pdf.js bakes /Rotate + CropBox into the
+ * viewport, so width/height ARE the visual-space dimensions (spike-proven
+ * consistent with the engine's visibleGeometry). */
+export async function getPageVisualSize(
+  data: Uint8Array,
+  pageNumber: number,
+): Promise<{ width: number; height: number }> {
+  const doc = await getDoc(data);
+  const page = await doc.getPage(pageNumber);
+  const vp = page.getViewport({ scale: 1 });
+  return { width: vp.width, height: vp.height };
+}
+
+/** Every text item's bounding box on a page, in VISUAL space (redact
+ * semantic-verify leg). Zero-width items (EOL markers) are skipped. */
+export async function getTextItemRects(
+  data: Uint8Array,
+  pageNumber: number,
+): Promise<VisualRect[]> {
+  const doc = await getDoc(data);
+  const page = await doc.getPage(pageNumber);
+  const vp = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  const out: VisualRect[] = [];
+  for (const item of content.items) {
+    if (!('str' in item) || !item.str.trim() || item.width === 0) continue;
+    // Map the text-matrix through the viewport (bakes /Rotate + CropBox),
+    // then take the pdf.js text-layer box: hypot(td[2], td[3]) is the
+    // device-space glyph height, item.width the advance width.
+    const td = pdfjs.Util.transform(vp.transform, item.transform);
+    const fontHeight = Math.hypot(td[2], td[3]);
+    if (fontHeight === 0) continue;
+    const left = td[4];
+    const top = td[5] - fontHeight; // viewport space: origin top-left, y down
+    out.push({ x: left, y: vp.height - top - fontHeight, w: item.width, h: fontHeight });
+  }
+  return out;
+}

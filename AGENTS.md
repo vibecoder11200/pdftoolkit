@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **pdftoolkit** (3135 symbols, 7935 relationships, 260 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **pdftoolkit** (3425 symbols, 8771 relationships, 285 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -350,6 +350,50 @@ This project is indexed by GitNexus as **pdftoolkit** (3135 symbols, 7935 relati
   (t()/key-literal scan + plural-suffix rules + tools.json shape + vi/en
   parity). Adding a tool-UI key to tools.json is the trap; put it in
   common.json.
+
+### Redact / editor invariants (v0.9.0 M1)
+
+- **The orphan rule (security guarantee)**: every redact output passes
+  composed `redactFinalize` — pdf-lib full rewrite (`useObjectStreams:
+  false`, never incremental) → INTERNAL `qpdfRewrite` (orphan GC, drops
+  unreferenced objects only; NOT on the client engine surface) →
+  `qpdfCanonicalUncompress` decompressed second pass (qpdf flate-compresses
+  by DEFAULT — a raw-byte scan of its output sees nothing) → scoped
+  byte-scan for the secrets in 5 encodings (utf8, UTF-16BE ±BOM, hex of
+  both) over the affected pages' /Contents+/Annots subtrees + doc scrub
+  targets. Any hit → `RedactVerifyError`, NOTHING returned (fail closed).
+- **Single deliver path**: `src/lib/redact-pipeline.ts` is the ONLY
+  composer (census → painted raster JPEGs → finalize → main-thread
+  pdf.js semantic leg + pixel-uniformity leg). The tool UI never calls
+  engine primitives; only wrapper output reaches `deliverBytes`. The
+  semantic leg gets exactly ONE bounded retry (escalate failed pages to
+  raster); byte-scan failure has no retry.
+- **Buffer-free engine section**: `src/engine/pdf-lib.ts` from the
+  `Redact engine (v0.9.0 phase 2)` marker down runs in the browser worker
+  AND main thread — `Buffer.` there passes every node-side gate (vitest,
+  matrix, CI) and explodes only in the real app (shipped once as "Xử lý
+  thất bại: Buffer is not defined", caught by the e2e release gate —
+  `tests/redact-tool.spec.ts` scans the section as the tripwire).
+- **Conservatism**: a BT..ET block is removed only when EVERY show op
+  (Tj and each TJ element) falls FULLY inside a mark; census-flagged
+  pages (Type3, no-ToUnicode, ActualText/Tr3, patterns, text XObjects,
+  OC layers, text/widgets/hidden annots) force the raster tier; widget
+  deletion escalates to FIELD level; signed (ByteRange) and vertical-text
+  inputs refuse BEFORE mutation. The walker is token-aware — the v0.8.1
+  `/BT[\s\S]*?ET/g` regex breaks on secrets containing "ET".
+- **Tool #17 'editor'** (category 'sec', `acceptsPdf: true`) mounts the
+  four-tab shell; M1 ships the redact tab (annotate/edit/crop mount in
+  phases 4–7 via the shared `EditorCanvas`). Census-flagged pages default
+  to BURN; keep is opt-in and surfaced. Raster budget
+  (`REDACT_RASTER_BUDGET`, confirm gate above cap). The editor's marks
+  are FRACTIONS of the visible page box; all rect math round-trips through
+  the v0.8.0 geometry primitives. D3: editor editing surfaces are
+  desktop/tablet-only (`editor.phone_notice`); pinch-zoom deferred.
+- **Raster pages paint rects BEFORE `encodeJpeg`** (finding 1) — an
+  unpainted raster ships the secret as pixels; the wrapper's pixel leg
+  re-renders and asserts every painted region is uniform. The e2e
+  invisible-failure gate (extraction AND pixel variants,
+  `tests/redact.e2e.spec.ts`) is a RELEASE gate.
 
 ## 5. GitHub Pages deploy
 

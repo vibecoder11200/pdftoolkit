@@ -22,6 +22,7 @@ import { FillFormToolPage } from './pages/fill-form';
 import { OcrToolPage } from './pages/ocr';
 import { WatermarkToolPage } from './pages/watermark';
 import { PageNumbersToolPage } from './pages/page-numbers';
+import { EditorToolPage } from './pages/editor';
 import { SettingsPage } from './pages/settings';
 
 const toolRoutes = [
@@ -41,6 +42,7 @@ const toolRoutes = [
   'sign',
   'watermark',
   'page-numbers',
+  'editor',
 ].map((path) => ({
   path: `/tools/${path}`,
   element:
@@ -76,6 +78,8 @@ const toolRoutes = [
       <WatermarkToolPage />
     ) : path === 'page-numbers' ? (
       <PageNumbersToolPage />
+    ) : path === 'editor' ? (
+      <EditorToolPage />
     ) : (
       <SignToolPage />
     ),

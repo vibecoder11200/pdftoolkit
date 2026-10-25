@@ -1274,6 +1274,14 @@ function deleteWmTag(doc: PDFDocument): void {
 // ---- byte/latin1 helpers (Buffer-free: this module runs in the worker AND
 // on the main thread via the fill-form path) ----
 
+function bytesToUtf8(bytes: Uint8Array): string {
+  return new TextDecoder('utf8').decode(bytes);
+}
+
+function utf8ToBytes(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
 function bytesToLatin1(bytes: Uint8Array): string {
   let out = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -2489,13 +2497,13 @@ function redactScrubDocChannels(
     // XMP
     const meta = doc.context.lookup(doc.catalog.get(PDFName.of('Metadata')));
     if (meta instanceof PDFRawStream) {
-      const text = Buffer.from(meta.contents).toString('utf8');
+      const text = bytesToUtf8(meta.contents);
       if (text) {
         const m = hit(text);
         if (m && !skip.has('xmp')) {
           let replaced = text;
           for (const s of secrets) replaced = replaced.split(s).join('[REDACTED]');
-          const out = Buffer.from(replaced, 'utf8');
+          const out = utf8ToBytes(replaced);
           (meta as { contents: Uint8Array }).contents = new Uint8Array(out);
           meta.dict.set(PDFName.of('Length'), PDFNumber.of(out.length));
           meta.dict.delete(PDFName.of('Filter'));
@@ -2559,7 +2567,7 @@ function redactScrubDocChannels(
                 if (st instanceof PDFRawStream) {
                   const inner = redactStreamText(st);
                   if (inner !== null) valText += inner;
-                  else valText += Buffer.from(st.contents).toString('latin1');
+                  else valText += bytesToLatin1(st.contents);
                 }
               }
             }
@@ -2679,14 +2687,19 @@ function redactNeedles(secrets: string[]): { enc: string; bytes: Uint8Array }[] 
   const needles: { enc: string; bytes: Uint8Array }[] = [];
   for (const s of secrets) {
     if (!s) continue;
-    const utf8 = Buffer.from(s, 'utf8');
-    const u16 = Buffer.alloc(s.length * 2);
-    for (let i = 0; i < s.length; i += 1) u16.writeUInt16BE(s.charCodeAt(i), i * 2);
-    needles.push({ enc: 'utf8', bytes: new Uint8Array(utf8) });
-    needles.push({ enc: 'utf16be', bytes: new Uint8Array(u16) });
-    needles.push({ enc: 'utf16be-bom', bytes: new Uint8Array(Buffer.concat([Buffer.from([0xfe, 0xff]), u16])) });
-    needles.push({ enc: 'hex-utf8', bytes: latin1ToBytes(utf8.toString('hex').toUpperCase()) });
-    needles.push({ enc: 'hex-utf16be', bytes: latin1ToBytes(u16.toString('hex').toUpperCase()) });
+    const utf8 = utf8ToBytes(s);
+    const u16 = new Uint8Array(s.length * 2);
+    const dv = new DataView(u16.buffer);
+    for (let i = 0; i < s.length; i += 1) dv.setUint16(i * 2, s.charCodeAt(i), false);
+    const u16bom = new Uint8Array(2 + u16.length);
+    u16bom[0] = 0xfe;
+    u16bom[1] = 0xff;
+    u16bom.set(u16, 2);
+    needles.push({ enc: 'utf8', bytes: utf8 });
+    needles.push({ enc: 'utf16be', bytes: u16 });
+    needles.push({ enc: 'utf16be-bom', bytes: u16bom });
+    needles.push({ enc: 'hex-utf8', bytes: latin1ToBytes(bytesToHex(utf8)) });
+    needles.push({ enc: 'hex-utf16be', bytes: latin1ToBytes(bytesToHex(u16)) });
   }
   return needles;
 }

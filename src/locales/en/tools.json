@@ -62,5 +62,9 @@
   "page-numbers": {
     "title": "Page numbers",
     "desc": "Add page numbers with token templates — 4 presets, skip-first supported."
+  },
+  "editor": {
+    "title": "Editor",
+    "desc": "Redact sensitive content, strip hidden text layers, safe page burn — with automatic verification."
   }
 }

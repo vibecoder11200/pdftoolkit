@@ -62,5 +62,9 @@
   "page-numbers": {
     "title": "Đánh số trang",
     "desc": "Thêm số trang theo mẫu token — có sẵn 4 kiểu, hỗ trợ bỏ qua trang đầu."
+  },
+  "editor": {
+    "title": "Sửa PDF",
+    "desc": "Che thông tin nhạy cảm, xóa lớp chữ ẩn, đốt trang an toàn — kèm kiểm tra tự động."
   }
 }
