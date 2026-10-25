@@ -145,3 +145,6 @@ public/tessdata/
 public/tesseract-core/
 # ONNX Runtime Web wasm (v0.5.0 AI OCR), copied by scripts/sync-ort-assets.mjs
 public/ort/
+
+# Redact spike corpus (v0.9.0 phase 1): regenerable via tests/fixtures/gen.mjs.
+tests/fixtures/redact/

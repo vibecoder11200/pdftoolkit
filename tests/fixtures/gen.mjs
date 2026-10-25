@@ -2,7 +2,7 @@ import { PDFDocument, PDFName, PDFHexString, PDFString, StandardFonts } from 'pd
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import fontkit from '@pdf-lib/fontkit';
 
@@ -768,3 +768,588 @@ try {
     `[gen.mjs] OCR scan fixtures SKIPPED (${e.message.split('\n')[0]}) — tests/ocr-integration.spec.ts will self-skip`,
   );
 }
+
+// ===================== REDACT corpus (v0.9.0 phase 1 spike) =====================
+// Fixture matrix F1–F14 for the redact spike (plans/261025-1908-.../phase-01).
+// Synthetic secrets only. Output: tests/fixtures/redact/*.pdf (gitignored) +
+// manifest.json whose redact rects are CALIBRATED from pdf.js text-item
+// geometry in visual (display) space — the same space a user drags boxes in.
+// The spike's own forward map is an independent re-derivation, so a shared
+// transform bug cannot pass both sides silently.
+{
+  const {
+    PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFString, PDFHexString,
+    degrees,
+  } = await import('pdf-lib');
+  const REDACT_DIR = join(here, 'redact');
+  mkdirSync(REDACT_DIR, { recursive: true });
+
+  const SECRET_VN = 'BÍ MẬT 7431';
+  const SECRET_ASCII = 'SECRET-007-ALPHA';
+
+  // --- geometry (mirrors engine visibleGeometry + the visual forward map;
+  // the spike imports the REAL visualToPageSpace and self-tests the pair) ---
+  function geomOf(page) {
+    const box = page.getCropBox();
+    const rotate = ((((Math.round(page.getRotation().angle / 90) * 90) % 360) + 360) % 360);
+    const swap = rotate === 90 || rotate === 270;
+    return {
+      rotate, bx: box.x, by: box.y, w: box.width, h: box.height,
+      visW: swap ? box.height : box.width, visH: swap ? box.width : box.height,
+    };
+  }
+  function userToVisual(x, y, g) {
+    const lx = x - g.bx, ly = y - g.by;
+    switch (g.rotate) {
+      case 90: return { vx: ly, vy: g.visH - lx };
+      case 180: return { vx: g.w - lx, vy: g.h - ly };
+      case 270: return { vx: g.visW - ly, vy: lx };
+      default: return { vx: lx, vy: ly };
+    }
+  }
+  // Visual bbox of a pdf.js text item (user-space transform + width/height),
+  // honoring the item's text direction (a,b) for rotated draws.
+  function itemVisualRect(item, g) {
+    const [a, b, , , e, f] = item.transform;
+    const h = item.height || 10;
+    const w = item.width || 0;
+    const dirLen = Math.hypot(a, b) || 1;
+    const ux = a / dirLen, uy = b / dirLen;
+    const nx = -uy, ny = ux; // ascent direction (perp, +90° CCW)
+    const pts = [
+      [e, f],
+      [e + ux * w, f + uy * w],
+      [e + ux * w + nx * 0.85 * h, f + uy * w + ny * 0.85 * h],
+      [e + nx * 0.85 * h, f + ny * 0.85 * h],
+      [e - nx * 0.25 * h, f - ny * 0.25 * h],
+      [e + ux * w - nx * 0.25 * h, f + uy * w - ny * 0.25 * h],
+    ];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of pts) {
+      const v = userToVisual(x, y, g);
+      minX = Math.min(minX, v.vx); minY = Math.min(minY, v.vy);
+      maxX = Math.max(maxX, v.vx); maxY = Math.max(maxY, v.vy);
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+
+  // --- pdf.js extraction (also used by the spike oracle) ---
+  let pdfjsCache = null;
+  async function pdfjs() {
+    pdfjsCache ??= await import(pathToFileURL(join(ROOT_PDFJS, 'legacy/build/pdf.mjs')).href);
+    return pdfjsCache;
+  }
+  const ROOT_PDFJS = join(here, '..', '..', 'node_modules', 'pdfjs-dist');
+  async function extractItems(bytes) {
+    const mod = await pdfjs();
+    const task = mod.getDocument({
+      data: new Uint8Array(bytes),
+      useSystemFonts: false,
+      standardFontDataUrl: pathToFileURL(`${join(here, '..', '..', 'node_modules/pdfjs-dist/standard_fonts')}/`).href,
+    });
+    const doc = await task.promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p += 1) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      pages.push(tc.items.filter((i) => 'str' in i && i.str.length > 0));
+    }
+    await task.destroy();
+    return pages;
+  }
+
+  // --- body pages (Roboto subset VN lines, generous 44pt clearance) ---
+  async function bodyDoc(title, pages) {
+    const doc = await PDFDocument.create();
+    doc.setTitle(title);
+    doc.setCreator('pdftoolkit-gen');
+    doc.registerFontkit(fontkit);
+    const roboto = await doc.embedFont(readFileSync(ROBOTO_TTF), { subset: true });
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const made = [];
+    for (let p = 1; p <= pages; p += 1) {
+      const page = doc.addPage([595, 842]);
+      page.drawText(`Hồ sơ kiểm thử ${title} — trang ${p}/${pages}`, { x: 48, y: 800, size: 12, font: roboto });
+      for (let i = 0; i < 7; i += 1) {
+        page.drawText(`Dòng ${i + 1}: nội dung phải giữ nguyên — ăâêôơư ạếềễự 0123456789.`, {
+          x: 48, y: 756 - i * 44, size: 10, font: roboto,
+        });
+      }
+      // Register Helvetica on every page (raw-op fixtures reference it; WinAnsi
+      // is byte-transparent for hand-written ASCII operands).
+      page.drawText('.', { x: 6, y: 6, size: 6, font: helv });
+      made.push({ page, roboto, helv });
+    }
+    return { doc, made };
+  }
+  // First /Font resource name on a page (raw ops reference it).
+  function firstFontName(doc, page) {
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    const fonts = res instanceof PDFDict ? doc.context.lookup(res.get(PDFName.of('Font'))) : null;
+    if (!(fonts instanceof PDFDict)) throw new Error('no /Font resources (decoy drawText missing?)');
+    for (const [k] of fonts.entries()) {
+      const s = String(k);
+      if (s.startsWith('/')) return s.slice(1);
+    }
+    throw new Error('empty /Font dict');
+  }
+  function rawStream(doc, dictObj, bytes) {
+    const dict = doc.context.obj(dictObj);
+    return doc.context.register(PDFRawStream.of(dict, bytes));
+  }
+  function replaceContents(doc, page, opsText) {
+    const bytes = Buffer.from(opsText, 'latin1');
+    const ref = rawStream(doc, { Length: bytes.length, Filter: PDFName.of('FlateDecode') }, deflateSync(bytes));
+    page.node.set(PDFName.of('Contents'), ref);
+  }
+  const escLit = (s) => `(${s.replace(/[\\()]/g, (c) => `\\${c}`)})`;
+  const hexLit = (s) => `<${Buffer.from(s, 'latin1').toString('hex').toUpperCase()}>`;
+
+  // --- rect calibration: find the secret on page `p1`, return visual rects (+pad).
+  // Strategy 1: single items whose str contains the needle (F1/F3/F4/F11/F13).
+  // Strategy 2 (TJ arrays split into per-element items): group items sharing a
+  // visual baseline, sort by x, concatenate, match the needle, merge the boxes
+  // of all items overlapping the char span (F2). Throws when nothing matches.
+  // calibrateItem returns the raw ITEM (F1b needs the box to carve a sub-rect). ---
+  async function calibrateItem(bytes, p1, needle) {
+    const items = (await extractItems(bytes))[p1 - 1] ?? [];
+    const hits = items.filter((i) => i.str.includes(needle));
+    if (hits.length === 0) {
+      throw new Error(`calibration miss: "${needle}" not extracted on page ${p1}`);
+    }
+    return hits[0];
+  }
+  async function calibrateRects(bytes, doc, p1, needle, pad = 3) {
+    const page = doc.getPage(p1 - 1);
+    const g = geomOf(page);
+    const items = (await extractItems(bytes))[p1 - 1] ?? [];
+    const boxOf = (i) => {
+      const r = itemVisualRect(i, g);
+      return { x: r.x - pad, y: r.y - pad, w: r.w + 2 * pad, h: r.h + 2 * pad };
+    };
+    const exact = items.filter((i) => i.str.includes(needle));
+    if (exact.length > 0) return exact.map(boxOf);
+    const groups = new Map();
+    for (const it of items) {
+      const v = userToVisual(it.transform[4], it.transform[5], g);
+      const key = Math.round(v.vy);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    }
+    const rects = [];
+    for (const [, grp] of groups) {
+      grp.sort((a, b) => a.transform[4] - b.transform[4]);
+      const joined = grp.map((i) => i.str).join('');
+      const at = joined.indexOf(needle);
+      if (at < 0) continue;
+      let cursor = 0;
+      const covered = [];
+      for (const it of grp) {
+        const s = cursor, e = cursor + it.str.length;
+        cursor = e;
+        if (e > at && s < at + needle.length) covered.push(it);
+      }
+      if (covered.length > 0) {
+        const boxes = covered.map((i) => itemVisualRect(i, g));
+        const x = Math.min(...boxes.map((b) => b.x)) - pad;
+        const y = Math.min(...boxes.map((b) => b.y)) - pad;
+        const w = Math.max(...boxes.map((b) => b.x + b.w)) - x + pad - pad;
+        const h = Math.max(...boxes.map((b) => b.y + b.h)) - y;
+        rects.push({ x, y, w, h });
+      }
+    }
+    if (rects.length === 0) {
+      throw new Error(`calibration miss (grouped): "${needle}" not extracted on page ${p1}`);
+    }
+    return rects;
+  }
+
+  const manifest = { generated: new Date().toISOString(), secrets: { vn: SECRET_VN, ascii: SECRET_ASCII }, fixtures: [] };
+  async function emit(file, meta, bytes) {
+    writeFileSync(join(REDACT_DIR, file), bytes);
+    manifest.fixtures.push({ file, ...meta });
+  }
+
+  // ---------- F1 simple single-Tj VN body text (eligible; GATING) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f1', 3);
+    made[1].page.drawText(SECRET_VN, { x: 60, y: 400, size: 14, font: made[1].roboto });
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 2, SECRET_VN);
+    await emit('F1-simple.pdf', {
+      class: 'F1', partition: 'eligible', secret: SECRET_VN, pages: 3,
+      redactPages: [2], rectsVisual: { 2: rects }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'single-Tj Roboto line; whole-line rect → surgical',
+    }, bytes);
+  }
+  // ---------- F1b partial-block probe (eligible; expected disposition = refuse page) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f1b', 1);
+    const line = `Mã tham chiếu: ${SECRET_ASCII} hết hiệu lực`;
+    made[0].page.drawText(line, { x: 60, y: 400, size: 12, font: made[0].roboto });
+    const bytes = await doc.save({ useObjectStreams: false });
+    // Sub-rect covering ONLY the secret word inside the single-Tj line:
+    // proportional char offsets on the calibrated item box, kept strictly inside.
+    const item = await calibrateItem(bytes, 1, SECRET_ASCII);
+    const g = geomOf(doc.getPage(0));
+    const r = itemVisualRect(item, g);
+    const pre = line.indexOf(SECRET_ASCII);
+    const fx = pre / line.length;
+    const fw = SECRET_ASCII.length / line.length;
+    const rect = { x: r.x + r.w * fx + 1, y: r.y, w: r.w * fw - 2, h: r.h };
+    await emit('F1b-partial.pdf', {
+      class: 'F1b', partition: 'eligible', secret: SECRET_ASCII, pages: 1,
+      redactPages: [1], rectsVisual: { 1: [rect] }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'rect touches ONE word of a multi-word single-Tj line → must refuse the page, never shred',
+    }, bytes);
+  }
+  // ---------- F2 TJ-array shows, mixed literal/hex elements (eligible; MANDATORY) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f2', 3);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body line replacement - keep) Tj ET`,
+      `BT /${f1} 12 Tf 60 520 Td [(Noise line A) 3 (keep me)] TJ ET`,
+      `BT /${f1} 12 Tf 60 480 Td [(SE) 20 (CR) 20 (ET-0) 20 (07-AL) 20 (PHA)] TJ ET`,
+      `BT /${f1} 12 Tf 60 440 Td [<4E 6F 69 73 65 20 42> 5 (end)] TJ ET`,
+      `BT /${f1} 12 Tf 60 400 Td (Noise line C) Tj ET`,
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 2, SECRET_ASCII);
+    await emit('F2-tj-array.pdf', {
+      class: 'F2', partition: 'eligible', secret: SECRET_ASCII, pages: 3,
+      redactPages: [2], rectsVisual: { 2: rects }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'secret assembled across TJ array elements (literal kerned pieces)',
+    }, bytes);
+  }
+  // ---------- F3 hex-operand + octal-escaped literal shows (eligible) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f3', 2);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body replacement keep) Tj ET`,
+      `BT /${f1} 12 Tf 60 480 Td ${hexLit(SECRET_ASCII)} Tj ET`,
+      `BT /${f1} 12 Tf 60 440 Td (\\123\\105CRET-007-ALPHA) Tj ET`,
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 2, SECRET_ASCII);
+    if (rects.length !== 2) throw new Error(`F3 expected 2 secret items, got ${rects.length}`);
+    await emit('F3-hex.pdf', {
+      class: 'F3', partition: 'eligible', secret: SECRET_ASCII, pages: 2,
+      redactPages: [2], rectsVisual: { 2: rects }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'hex operand Tj + octal-escaped literal Tj',
+    }, bytes);
+  }
+  // ---------- F4 Type 3 font text (expected-escalate) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f4', 2);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    const ctx = doc.context;
+    // One CharProc glyph (a filled rect) shared by every code via /Differences.
+    const gx = rawStream(doc, { Length: 18 }, Buffer.from('0 0 600 700 re f', 'latin1'));
+    const codes = [...SECRET_ASCII].map((_, i) => i + 1);
+    const bf = codes.map((c, i) => `<${String(c).padStart(4, '0')}> <${Buffer.from(SECRET_ASCII[i], 'utf16le').swap16().toString('hex').padStart(4, '0')}>`).join('\n');
+    const cmap = rawStream(doc, { Length: 0 }, Buffer.from([
+      '/CIDInit /ProcSet findresource begin',
+      '12 dict begin', 'begincmap',
+      '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+      '/CMapName /Adobe-Identity-UCS def', '/CMapType 2 def',
+      '1 begincodespacerange', '<0000> <ffff>', 'endcodespacerange',
+      `${codes.length} beginbfchar`, bf, 'endbfchar',
+      'endcmap', 'CMapName currentdict /CMap defineresource pop', 'end', 'end',
+    ].join('\n'), 'latin1'));
+    const diffArr = [PDFNumber.of(1), ...codes.map(() => PDFName.of('gx'))];
+    const t3Dict = ctx.obj({
+      Type: PDFName.of('Font'), Subtype: PDFName.of('Type3'),
+      FontBBox: ctx.obj([0, 0, 1000, 1000].map((n) => PDFNumber.of(n))),
+      FontMatrix: ctx.obj([0.001, 0, 0, 0.001, 0, 0].map((n) => PDFNumber.of(n))),
+      CharProcs: ctx.obj({ gx }),
+      Encoding: ctx.obj({ Type: PDFName.of('Encoding'), Differences: ctx.obj(diffArr) }),
+      FirstChar: PDFNumber.of(1), LastChar: PDFNumber.of(codes.length),
+      Widths: ctx.obj(codes.map(() => PDFNumber.of(600))),
+      ToUnicode: cmap,
+    });
+    const t3Ref = ctx.register(t3Dict);
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    const fonts = doc.context.lookup(res.get(PDFName.of('Font')));
+    fonts.set(PDFName.of('T3'), t3Ref);
+    const codeHex = codes.map((c) => String(c).padStart(2, '0')).join('');
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body replacement keep) Tj ET`,
+      `BT /T3 24 Tf 60 480 Td <${codeHex}> Tj ET`,
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 2, SECRET_ASCII);
+    await emit('F4-type3.pdf', {
+      class: 'F4', partition: 'escalate', secret: SECRET_ASCII, pages: 2,
+      redactPages: [2], rectsVisual: { 2: rects }, expectCensusPages: { 2: ['type3'] }, expectSurvivePages: [],
+      note: 'Type3 font + ToUnicode; census must flag type3 → rasterize',
+    }, bytes);
+  }
+  // ---------- F5 ActualText /Span + 3 Tr invisible text (expected-escalate; marker classes) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f5', 2);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body replacement keep) Tj ET`,
+      `/Span <</ActualText ${escLit(SECRET_ASCII)}>> BDC`,
+      `BT /${f1} 12 Tf 60 480 Td (marked content glyphs) Tj ET`,
+      'EMC',
+      `BT /${f1} 12 Tf 3 Tr 60 440 Td ${escLit(SECRET_ASCII)} Tj ET`,
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    await emit('F5-actualtext.pdf', {
+      class: 'F5', partition: 'escalate', secret: SECRET_ASCII, pages: 2,
+      redactPages: [2], rectsVisual: { 2: [] }, expectCensusPages: { 2: ['actualtext', 'tr3'] }, expectSurvivePages: [],
+      note: 'ActualText BDC marker + invisible 3 Tr show; census must flag both → rasterize',
+    }, bytes);
+  }
+  // ---------- F6 multi-font page, interleaved blocks (eligible; GATING) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f6', 2);
+    const page = made[1].page;
+    // The secret splits ACROSS two blocks/fonts: 'BÍ MẬT' (subset Roboto) and
+    // ' 7431' (Helvetica WinAnsi). Decoy lines in BOTH fonts interleave and
+    // must survive (damage check).
+    page.drawText('Tiêu đề Roboto giữ lại', { x: 48, y: 520, size: 12, font: made[1].roboto });
+    page.drawText('BÍ MẬT', { x: 60, y: 380, size: 14, font: made[1].roboto });
+    page.drawText('7431 - ma duoi', { x: 130, y: 352, size: 12, font: made[1].helv });
+    page.drawText('Helvetica decoy keep', { x: 48, y: 320, size: 12, font: made[1].helv });
+    const bytes = await doc.save({ useObjectStreams: false });
+    const g = geomOf(page);
+    const part1 = await calibrateRects(bytes, doc, 2, 'BÍ MẬT');
+    const part2 = await calibrateRects(bytes, doc, 2, '7431');
+    await emit('F6-multifont.pdf', {
+      class: 'F6', partition: 'eligible', secret: SECRET_VN, pages: 2,
+      redactPages: [2], rectsVisual: { 2: [...part1, ...part2] }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'secret split across 2 fonts/blocks (Roboto glyph-ids + Helvetica WinAnsi); interleaved decoys must survive',
+    }, bytes);
+  }
+  // ---------- F7 PatternType 1 tiling pattern containing glyphs (expected-escalate) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f7', 2);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    const patOps = `0.25 0.35 0.5 rg BT /${f1} 12 Tf 20 40 Td ${escLit(SECRET_ASCII)} Tj ET`;
+    const patRef = rawStream(doc, {
+      Type: PDFName.of('Pattern'), PatternType: PDFNumber.of(1), PaintType: PDFNumber.of(1),
+      TilingType: PDFNumber.of(1), BBox: doc.context.obj([0, 0, 200, 200].map((n) => PDFNumber.of(n))),
+      XStep: PDFNumber.of(200), YStep: PDFNumber.of(200), Length: patOps.length,
+      Resources: doc.context.obj({ Font: doc.context.obj({ [f1]: made[1].helv.ref }) }),
+    }, Buffer.from(patOps, 'latin1'));
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    res.set(PDFName.of('Pattern'), doc.context.obj({ P0: patRef }));
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body replacement keep) Tj ET`,
+      'q /Pattern cs /P0 scn 30 300 520 260 re f Q',
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    await emit('F7-pattern.pdf', {
+      class: 'F7', partition: 'escalate', secret: SECRET_ASCII, pages: 2,
+      redactPages: [2], rectsVisual: { 2: [{ x: 30, y: 300, w: 520, h: 260 }] },
+      expectCensusPages: { 2: ['pattern-text'] }, expectSurvivePages: [],
+      note: 'text inside a tiling pattern (pdf.js extraction misses it — census raw-scan must catch) → rasterize',
+    }, bytes);
+  }
+  // ---------- F8 text-bearing annotation (expected-escalate; outside page /Contents) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f8', 2);
+    const page = made[0].page;
+    const annotRef = doc.context.register(doc.context.obj({
+      Type: PDFName.of('Annot'), Subtype: PDFName.of('FreeText'),
+      Rect: doc.context.obj([60, 380, 320, 410].map((n) => PDFNumber.of(n))),
+      Contents: PDFString.of(SECRET_ASCII), F: PDFNumber.of(4), DA: PDFString.of('/Helv 10 Tf'),
+    }));
+    page.node.set(PDFName.of('Annots'), doc.context.obj([annotRef]));
+    const bytes = await doc.save({ useObjectStreams: false });
+    await emit('F8-annot.pdf', {
+      class: 'F8', partition: 'escalate', secret: SECRET_ASCII, pages: 2,
+      redactPages: [1], rectsVisual: { 1: [{ x: 57, y: 377, w: 266, h: 36 }] },
+      expectCensusPages: { 1: ['annot-text'] }, expectSurvivePages: [],
+      note: 'FreeText /Contents carries the secret (not page content) → census flag; dispose = drop annot + raster',
+    }, bytes);
+  }
+  // ---------- F9 rotated/cropped pages, rects in visual space (eligible; GATING) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f9', 4);
+    const cfgs = [
+      { rot: 90, drawRot: 90 }, { rot: 180, drawRot: 0 }, { rot: 270, drawRot: 270 }, { rot: 0, drawRot: 0, crop: true },
+    ];
+    for (const [i, cfg] of cfgs.entries()) {
+      const { page } = made[i];
+      if (cfg.rot !== 0) page.setRotation(degrees(cfg.rot));
+      if (cfg.crop) page.setCropBox(40, 60, 515, 722);
+      page.drawText(SECRET_VN, { x: 400, y: 420, size: 14, font: made[i].roboto, rotate: degrees(cfg.drawRot) });
+    }
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = {};
+    for (const p of [1, 2, 3, 4]) rects[p] = await calibrateRects(bytes, doc, p, SECRET_VN);
+    await emit('F9-rotated.pdf', {
+      class: 'F9', partition: 'eligible', secret: SECRET_VN, pages: 4,
+      redactPages: [1, 2, 3, 4], rectsVisual: rects, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'r90/r180/r270 + cropped r0; rects calibrated in VISUAL space; draw-angle compensated on 90/270',
+    }, bytes);
+  }
+  // ---------- F10 verify-scoping: secret on a redacted page AND an unredacted page ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f10', 3);
+    made[0].page.drawText(SECRET_VN, { x: 60, y: 400, size: 14, font: made[0].roboto });
+    made[2].page.drawText(SECRET_VN, { x: 60, y: 400, size: 14, font: made[2].roboto });
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = { 1: await calibrateRects(bytes, doc, 1, SECRET_VN) };
+    await emit('F10-scoped.pdf', {
+      class: 'F10', partition: 'scoping', secret: SECRET_VN, pages: 3,
+      redactPages: [1], rectsVisual: rects, expectCensusPages: {}, expectSurvivePages: [3],
+      note: 'page 1 redacted; page 3 copy must SURVIVE (scope proof — unredacted duplicate must not fail, must not be scrubbed)',
+    }, bytes);
+  }
+  // ---------- F11 text inside a Form XObject with non-identity /Matrix (expected-escalate) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f11', 2);
+    const page = made[1].page;
+    const f1 = made[1].helv.name;
+    const formOps = `BT /${f1} 14 Tf 30 40 Td ${escLit(SECRET_ASCII)} Tj ET`;
+    const formRef = rawStream(doc, {
+      Type: PDFName.of('XObject'), Subtype: PDFName.of('Form'),
+      BBox: doc.context.obj([0, 0, 400, 100].map((n) => PDFNumber.of(n))),
+      Matrix: doc.context.obj([1.5, 0, 0, 1.5, 200, 150].map((n) => PDFNumber.of(n))),
+      Length: formOps.length,
+      Resources: doc.context.obj({ Font: doc.context.obj({ [f1]: made[1].helv.ref }) }),
+    }, Buffer.from(formOps, 'latin1'));
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    res.set(PDFName.of('XObject'), doc.context.obj({ X0: formRef }));
+    replaceContents(doc, page, [
+      `BT /${f1} 12 Tf 48 756 Td (Body replacement keep) Tj ET`,
+      'q /X0 Do Q',
+    ].join('\n'));
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 2, SECRET_ASCII);
+    await emit('F11-xobject.pdf', {
+      class: 'F11', partition: 'escalate', secret: SECRET_ASCII, pages: 2,
+      redactPages: [2], rectsVisual: { 2: rects }, expectCensusPages: { 2: ['xobject-text'] }, expectSurvivePages: [],
+      note: 'text inside Form XObject (non-identity /Matrix); pdf.js discovery recurses, WM walker does not → census flag → rasterize',
+    }, bytes);
+  }
+  // ---------- F12 doc-level channels (finding 2) ----------
+  {
+    const { doc } = await bodyDoc('redact-f12', 1);
+    const ctx = doc.context;
+    doc.setAuthor(`Người giữ: ${SECRET_ASCII}`);
+    doc.setSubject(`Chủ đề ${SECRET_VN}`);
+    // XMP metadata stream
+    const xmp = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">${SECRET_ASCII}</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+    const xmpRef = rawStream(doc, { Length: Buffer.byteLength(xmp), Type: PDFName.of('Metadata'), Subtype: PDFName.of('XML') }, Buffer.from(xmp, 'utf8'));
+    doc.catalog.set(PDFName.of('Metadata'), xmpRef);
+    // /Outlines with a secret title
+    const outlineItem = ctx.obj({
+      Title: PDFHexString.fromText(`Mục lục ${SECRET_VN}`), Prev: null, Next: null,
+    });
+    const outlinesRef = ctx.register(ctx.obj({
+      Type: PDFName.of('Outlines'), First: ctx.register(outlineItem), Last: ctx.register(outlineItem), Count: PDFNumber.of(1),
+    }));
+    outlineItem.set(PDFName.of('Parent'), outlinesRef);
+    doc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    // /Names: /JavaScript name + /EmbeddedFile
+    const jsAction = ctx.register(ctx.obj({
+      S: PDFName.of('JavaScript'), JS: PDFString.of(`app.alert("${SECRET_ASCII}")`),
+    }));
+    const efStream = rawStream(doc, { Length: SECRET_ASCII.length, Type: PDFName.of('EmbeddedFile') }, Buffer.from(SECRET_ASCII, 'latin1'));
+    const filespec = ctx.register(ctx.obj({
+      Type: PDFName.of('Filespec'), F: PDFString.of('secret.txt'), UF: PDFHexString.fromText('secret.txt'),
+      EF: ctx.obj({ F: efStream, UF: efStream }),
+    }));
+    doc.catalog.set(PDFName.of('Names'), ctx.obj({
+      JavaScript: ctx.obj({ Names: ctx.obj([PDFString.of(`két-xuất-${SECRET_ASCII}`), jsAction]) }),
+      EmbeddedFiles: ctx.obj({ Names: ctx.obj([PDFString.of(`tệp-${SECRET_ASCII}.txt`), filespec]) }),
+    }));
+    // AcroForm field /V
+    const fieldRef = ctx.register(ctx.obj({
+      FT: PDFName.of('Tx'), T: PDFString.of('SecretField'), V: PDFHexString.fromText(SECRET_ASCII),
+      Rect: ctx.obj([100, 100, 260, 120].map((n) => PDFNumber.of(n))),
+    }));
+    doc.catalog.set(PDFName.of('AcroForm'), ctx.obj({ Fields: ctx.obj([fieldRef]) }));
+    const bytes = await doc.save({ useObjectStreams: false });
+    await emit('F12-doc-channels.pdf', {
+      class: 'F12', partition: 'doc-channels', secret: SECRET_ASCII, secretsAll: [SECRET_VN, SECRET_ASCII], pages: 1,
+      redactPages: [], rectsVisual: {}, expectCensusPages: {}, expectSurvivePages: [],
+      docChannels: ['doc-info:Author', 'doc-info:Subject', 'doc-xmp', 'doc-outlines', 'doc-javascript', 'doc-embeddedfile', 'doc-acroform:V'],
+      note: 'secret in 7 doc channels; scrub must clean all; body content untouched',
+    }, bytes);
+  }
+  // ---------- F13 A0 poster oversized page (edge; raster clamp proof) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f13', 1);
+    const page = made[0].page;
+    page.node.set(PDFName.of('MediaBox'), doc.context.obj([0, 0, 2384, 3370].map((n) => PDFNumber.of(n))));
+    page.drawText(`Bản vẽ khổ A0 — ${SECRET_VN}`, { x: 200, y: 2800, size: 36, font: made[0].roboto });
+    for (let i = 0; i < 30; i += 1) {
+      page.drawText(`Chi tiết kỹ thuật dòng ${i + 1}: kích thước kiểm soát 0912-33xx-mm.`, { x: 200, y: 2600 - i * 60, size: 20, font: made[0].roboto });
+    }
+    const bytes = await doc.save({ useObjectStreams: false });
+    const rects = await calibrateRects(bytes, doc, 1, SECRET_VN);
+    await emit('F13-poster.pdf', {
+      class: 'F13', partition: 'edge', secret: SECRET_VN, pages: 1,
+      redactPages: [1], rectsVisual: { 1: rects }, expectCensusPages: {}, expectSurvivePages: [],
+      note: 'A0 poster 2384x3370 — raster clamp formula + pre-encode rect painting proof',
+    }, bytes);
+  }
+  // ---------- F14 widget/hidden/AP-annot inventory (edge; finding 7) ----------
+  {
+    const { doc, made } = await bodyDoc('redact-f14', 1);
+    const page = made[0].page;
+    const ctx = doc.context;
+    // Multi-widget field: shared /T, two sibling widgets.
+    const fieldDict = ctx.obj({
+      FT: PDFName.of('Tx'), T: PDFString.of('JointField'), V: PDFHexString.fromText(SECRET_ASCII),
+    });
+    const fieldRef = ctx.register(fieldDict);
+    const w1 = ctx.register(ctx.obj({
+      Type: PDFName.of('Annot'), Subtype: PDFName.of('Widget'), Parent: fieldRef,
+      Rect: ctx.obj([60, 380, 260, 404].map((n) => PDFNumber.of(n))),
+    }));
+    const w2 = ctx.register(ctx.obj({
+      Type: PDFName.of('Annot'), Subtype: PDFName.of('Widget'), Parent: fieldRef,
+      Rect: ctx.obj([60, 330, 260, 354].map((n) => PDFNumber.of(n))),
+    }));
+    fieldDict.set(PDFName.of('Kids'), ctx.obj([w1, w2]));
+    // FreeText whose /AP stream draws the secret across a BBox wider than /Rect.
+    const f1 = made[0].helv.name;
+    const apOps = `BT /${f1} 10 Tf 5 30 Td ${escLit(SECRET_ASCII)} Tj ET`;
+    const apRef = rawStream(doc, {
+      Type: PDFName.of('XObject'), Subtype: PDFName.of('Form'),
+      BBox: doc.context.obj([0, 0, 400, 100].map((n) => PDFNumber.of(n))), Length: apOps.length,
+      Resources: doc.context.obj({ Font: doc.context.obj({ [f1]: made[0].helv.ref }) }),
+    }, Buffer.from(apOps, 'latin1'));
+    const freeText = ctx.register(ctx.obj({
+      Type: PDFName.of('Annot'), Subtype: PDFName.of('FreeText'),
+      Rect: ctx.obj([300, 500, 420, 520].map((n) => PDFNumber.of(n))),
+      Contents: PDFString.of(SECRET_ASCII), F: PDFNumber.of(4),
+      AP: ctx.obj({ N: apRef }), DA: PDFString.of('/F1 10 Tf'),
+    }));
+    // Hidden annotation (/F bit 2).
+    const hidden = ctx.register(ctx.obj({
+      Type: PDFName.of('Annot'), Subtype: PDFName.of('Square'),
+      Rect: ctx.obj([100, 150, 200, 180].map((n) => PDFNumber.of(n))),
+      Contents: PDFString.of(SECRET_ASCII), F: PDFNumber.of(2),
+    }));
+    page.node.set(PDFName.of('Annots'), ctx.obj([w1, w2, freeText, hidden]));
+    const bytes = await doc.save({ useObjectStreams: false });
+    await emit('F14-annots.pdf', {
+      class: 'F14', partition: 'edge', secret: SECRET_ASCII, pages: 1,
+      redactPages: [1], rectsVisual: { 1: [{ x: 57, y: 497, w: 366, h: 26 }] },
+      expectCensusPages: { 1: ['widget', 'annot-text', 'annot-ap-text', 'annot-hidden'] }, expectSurvivePages: [],
+      note: 'multi-widget field (shared /T) + FreeText AP text + hidden /F 2 annot → census flags all; dispose = drop annots, clear /V, raster',
+    }, bytes);
+  }
+
+  writeFileSync(join(REDACT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  console.log(JSON.stringify({
+    redactCorpus: manifest.fixtures.length,
+    dir: 'tests/fixtures/redact/',
+  }));
+
+  }
