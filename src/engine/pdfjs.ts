@@ -105,6 +105,39 @@ export async function getPageVisualSize(
   return { width: vp.width, height: vp.height };
 }
 
+/** Raw positional text items of a page (pdf.js getTextContent, unfiltered —
+ * callers decide). One extraction path for every consumer: highlight
+ * quads (annotate M2), run selection (editor M3), text-search marking. */
+export interface PdfTextItem {
+  str: string;
+  /** pdf.js text-space transform [a b c d e f]. */
+  transform: number[];
+  width: number;
+  height: number;
+  fontName: string;
+}
+
+export async function getPageTextItems(
+  data: Uint8Array,
+  pageNumber: number,
+): Promise<PdfTextItem[]> {
+  const doc = await getDoc(data);
+  const page = await doc.getPage(pageNumber);
+  const content = await page.getTextContent();
+  const out: PdfTextItem[] = [];
+  for (const item of content.items) {
+    if (!('str' in item)) continue;
+    out.push({
+      str: item.str,
+      transform: [...item.transform],
+      width: item.width,
+      height: item.height,
+      fontName: item.fontName,
+    });
+  }
+  return out;
+}
+
 /** Every text item's bounding box on a page, in VISUAL space (redact
  * semantic-verify leg). Zero-width items (EOL markers) are skipped. */
 export async function getTextItemRects(

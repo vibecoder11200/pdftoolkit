@@ -250,12 +250,14 @@ export interface AnnotateItem {
   id: string;
   /** 1-based page. */
   page: number;
-  /** Fractions of the visible page box, top-left anchor. */
+  /** Fractions of the visible page box, top-left anchor. For highlights
+   * this is the UNION box (selection + move); the per-line quads live in
+   * `quads`. */
   nx: number;
   nyTop: number;
   nw: number;
   nh: number;
-  kind: 'text' | 'rect' | 'line' | 'ellipse';
+  kind: 'text' | 'rect' | 'line' | 'ellipse' | 'highlight' | 'note';
   /** '#rrggbb'. */
   color: string;
   /** 0..1. */
@@ -264,8 +266,10 @@ export interface AnnotateItem {
   size: number;
   /** Shapes: filled vs outline. */
   fill: boolean;
-  /** Text content (text kind). */
+  /** Text content (text/note kinds). */
   text?: string;
+  /** Highlight: per-line source rects (fractions, union-box coordinates). */
+  quads?: MarkDraft[];
 }
 
 export function AnnotateCanvas({
@@ -434,21 +438,47 @@ export function AnnotateCanvas({
             </div>
           );
         }
-        if (item.kind === 'text') {
+        if (item.kind === 'highlight') {
+          // Translucent per-line quads over the text (multiply keeps the
+          // glyphs visible underneath, like a real highlighter).
+          return (
+            <div key={item.id} {...common} className={`absolute ${selected ? 'ring-2 ring-accent' : ''}`}>
+              {(item.quads ?? []).map((q, qi) => (
+                <div
+                  key={qi}
+                  className="absolute"
+                  style={{
+                    left: `${(q.nx - item.nx) * 100}%`,
+                    top: `${(q.nyTop - item.nyTop) * 100}%`,
+                    width: `${q.nw * 100}%`,
+                    height: `${q.nh * 100}%`,
+                    backgroundColor: item.color,
+                    opacity: item.opacity,
+                    mixBlendMode: 'multiply',
+                  }}
+                />
+              ))}
+            </div>
+          );
+        }
+        if (item.kind === 'note' || item.kind === 'text') {
+          const isNote = item.kind === 'note';
           return (
             <div
               key={item.id}
               {...common}
-              className={`absolute cursor-move whitespace-pre ${selected ? 'outline-2 outline-accent' : ''}`}
+              className={`absolute cursor-move overflow-hidden ${selected ? 'outline-2 outline-accent' : ''}`}
               style={{
                 ...itemStyle(shown),
-                height: 'auto',
+                height: isNote ? `${shown.nh * 100}%` : 'auto',
                 minHeight: `${item.nh * 100}%`,
-                transform: 'translateY(0)',
-                color: item.color,
+                backgroundColor: isNote ? item.color : 'transparent',
+                opacity: isNote ? Math.max(0.85, item.opacity) : item.opacity,
+                color: '#1a1a1a',
                 fontSize: `${Math.max(6, item.size * px)}px`,
-                lineHeight: 1.15,
-                opacity: item.opacity,
+                lineHeight: 1.25,
+                padding: isNote ? '2px 4px' : undefined,
+                whiteSpace: 'pre-wrap',
               }}
             >
               {item.text}

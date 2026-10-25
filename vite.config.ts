@@ -306,5 +306,15 @@ export default defineConfig({
     // *.e2e.spec.ts are Playwright specs (preview server); keep vitest on
     // the node-side engine/matrix suites only.
     exclude: [...configDefaults.exclude, 'tests/*.e2e.spec.ts'],
+    alias: [
+      {
+        // src/engine/pdfjs.ts is the main-thread (browser/modern-build)
+        // adapter; under Node only the legacy pdf.js build works. This
+        // makes the "legacy build is test-only (Node)" seam real for specs
+        // importing the module (getPageTextItems et al).
+        find: /^pdfjs-dist$/,
+        replacement: 'pdfjs-dist/legacy/build/pdf.mjs',
+      },
+    ],
   },
 });

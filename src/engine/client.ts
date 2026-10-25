@@ -174,6 +174,19 @@ export const engine = {
       r.stampAnnotations(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
     );
   },
+  // Annotate M2 (v0.9.0 phase 5): the COMPOSED op — stamps + annotations in
+  // one worker call. A mid-apply crash rejects; a retry restarts from the
+  // original bytes (the caller holds them) and can never double-stamp.
+  applyAnnotate: async (
+    bytes: Uint8Array,
+    opts: import('../engine/pdf-lib').ApplyAnnotateOptions,
+    fontTtf?: Uint8Array,
+  ) => {
+    const font = (fontTtf ?? (await robotoBytes())).slice();
+    return call((r) =>
+      r.applyAnnotate(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
+    );
+  },
   applyPageNumbers: async (
     bytes: Uint8Array,
     opts: import('../engine/pdf-lib').PageNumbersOptions,

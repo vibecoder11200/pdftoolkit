@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -112,6 +113,103 @@ async function drawBox(page: Page, x0: number, y0: number, x1: number, y1: numbe
   await page.mouse.up();
 }
 
+
+/** Raw /QuadPoints (Highlight) or /Rect (FreeText) numbers of every annot
+ * of `sub` in the output, read straight from pdf-lib. */
+async function annotNumsOf(pdfPath: string, sub: 'Highlight' | 'FreeText'): Promise<number[][]> {
+  const doc = await PDFDocument.load(readFileSync(pdfPath));
+  const out: number[][] = [];
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    const dict = obj as import('pdf-lib').PDFDict;
+    const st = dict.get?.(PDFName.of('Subtype'));
+    if (st && st.toString() === `/${sub}`) {
+      const key = sub === 'Highlight' ? 'QuadPoints' : 'Rect';
+      const arr = dict.get(PDFName.of(key)) as import('pdf-lib').PDFArray;
+      out.push(arr.asArray().map((v) => (v as import('pdf-lib').PDFNumber).asNumber()));
+    }
+  }
+  return out;
+}
+
+/** Non-white coverage inside a VISUAL-space top-origin box, annotations
+ * rendered iff `withAnnots` (pdf.js annotationMode 2 vs 0). */
+async function coverageAt(
+  pdfPath: string,
+  pageNumber: number,
+  box: { x: number; y: number; w: number; h: number },
+  visW: number,
+  visH: number,
+  withAnnots: boolean,
+): Promise<number> {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const legacy = await pdfjsLegacy();
+  const task = legacy.getDocument({
+    data: new Uint8Array(readFileSync(pdfPath)),
+    useSystemFonts: false,
+    standardFontDataUrl: `${pathToFileURL(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts')).href}/`,
+    canvasFactory: {
+      create(w: number, h: number) {
+        const c = createCanvas(w, h);
+        return { canvas: c, context: c.getContext('2d') };
+      },
+      reset(cf: { canvas: { width: number; height: number } }, w: number, h: number) {
+        cf.canvas.width = w;
+        cf.canvas.height = h;
+      },
+      destroy(cf: { canvas: { width: number; height: number } }) {
+        cf.canvas.width = 0;
+        cf.canvas.height = 0;
+      },
+    },
+  } as unknown as Parameters<typeof import('pdfjs-dist')['getDocument']>[0]);
+  const doc = await task.promise;
+  try {
+    const page = await doc.getPage(pageNumber);
+    const vp = page.getViewport({ scale: 1.2 });
+    const canvas = createCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, viewport: vp, annotationMode: withAnnots ? 2 : 0 } as unknown as Parameters<typeof page.render>[0]).promise;
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const x0 = Math.max(0, Math.round((box.x / visW) * img.width));
+    const x1 = Math.min(img.width, Math.round(((box.x + box.w) / visW) * img.width));
+    const y0 = Math.max(0, Math.round((box.y / visH) * img.height));
+    const y1 = Math.min(img.height, Math.round(((box.y + box.h) / visH) * img.height));
+    let inked = 0;
+    let total = 0;
+    for (let y = y0; y < y1; y += 1) {
+      for (let x = x0; x < x1; x += 1) {
+        const o = (y * img.width + x) * 4;
+        total += 1;
+        if (img.data[o]! < 235 || img.data[o + 1]! < 235 || img.data[o + 2]! < 235) inked += 1;
+      }
+    }
+    return total === 0 ? 0 : inked / total;
+  } finally {
+    await task.destroy();
+  }
+}
+
+/** Visual top-origin union box of QuadPoints/Rect arrays on a rot-0 A4 page. */
+function visualUnion(flat: number[], isQuadPoints: boolean): { x: number; y: number; w: number; h: number } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  if (isQuadPoints) {
+    for (let i = 0; i < flat.length; i += 2) {
+      xs.push(flat[i]!);
+      ys.push(flat[i + 1]!);
+    }
+  } else {
+    xs.push(flat[0]!, flat[2]!);
+    ys.push(flat[1]!, flat[3]!);
+  }
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const yTop = 842 - Math.max(...ys); // rot 0: visual top-origin
+  return { x: x0, y: yTop, w: x1 - x0, h: Math.max(...ys) - Math.min(...ys) };
+}
+
 test('annotate: drag a text stamp, apply, stamp lands at the visual position', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const outPath = join(testInfo.outputDir, 'out.pdf');
@@ -169,4 +267,74 @@ test('annotate: undo removes the element and apply stays disabled', async ({ pag
   await page.getByRole('button', { name: 'Hoàn tác' }).click();
   await expect(page.getByText('0 phần tử')).toBeVisible();
   await expect(apply).toBeDisabled();
+});
+
+test('annotate M2: drag-highlight lands a real /Highlight with /AP over the glyphs', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  const outPath = join(testInfo.outputDir, 'out-hl.pdf');
+  await buildAnnotateFixture(FIX_OUT);
+
+  await page.goto('./tools/editor');
+  await page.setInputFiles('input[type="file"]', FIX_OUT);
+  await expect(page.getByTestId('editor-overlay')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('tab', { name: 'Ghi chú' }).click();
+  await page.getByRole('button', { name: 'Đánh dấu sáng' }).click();
+
+  // Drag across the page-1 text line (visual fractions; the hit-test snaps
+  // the quads to the actual text-item rects).
+  await drawBox(page, 0.05, 0.07, 0.35, 0.12);
+  // The element LIST entry (not the palette button with the same label).
+  await expect(page.locator('li').filter({ hasText: 'Đánh dấu sáng' })).toBeVisible();
+  const apply = page.getByRole('button', { name: 'Áp dụng và tải xuống' });
+  await expect(apply).toBeEnabled();
+
+  await apply.click();
+  const download = await page.waitForEvent('download', { timeout: 120_000 });
+  await download.saveAs(outPath);
+
+  // The output carries ONE Highlight with 8 numbers per quad, page 1 only.
+  const hl = await annotNumsOf(outPath, 'Highlight');
+  expect(hl).toHaveLength(1);
+  expect(hl[0]!.length).toBeGreaterThanOrEqual(8);
+  expect((await annotNumsOf(outPath, 'FreeText'))).toHaveLength(0);
+
+  // pdf.js renders the /AP: the quad union paints only with annotations on.
+  const box = visualUnion(hl[0]!, true);
+  const on = await coverageAt(outPath, 1, box, 595, 842, true);
+  const off = await coverageAt(outPath, 1, box, 595, 842, false);
+  expect(on).toBeGreaterThan(0.55);
+  expect(off).toBeLessThan(0.35);
+});
+
+test('annotate M2: a note lands a real /FreeText whose /AP paints its box', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  const outPath = join(testInfo.outputDir, 'out-note.pdf');
+  await buildAnnotateFixture(FIX_OUT);
+
+  await page.goto('./tools/editor');
+  await page.setInputFiles('input[type="file"]', FIX_OUT);
+  await expect(page.getByTestId('editor-overlay')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('tab', { name: 'Ghi chú' }).click();
+  await page.getByRole('button', { name: 'Ghi chú', exact: true }).click();
+  await page.getByLabel('Nội dung ghi chú').fill('NOTE-77');
+
+  // Place the note over an EMPTY area (nothing to hit-test) that stays
+  // INSIDE the visible viewport band — the fit-width canvas extends well
+  // below the fold and pointer events outside the viewport are clipped.
+  await drawBox(page, 0.55, 0.02, 0.85, 0.1);
+  await expect(page.getByText('· NOTE-77')).toBeVisible();
+  const apply = page.getByRole('button', { name: 'Áp dụng và tải xuống' });
+  await expect(apply).toBeEnabled();
+
+  await apply.click();
+  const download = await page.waitForEvent('download', { timeout: 120_000 });
+  await download.saveAs(outPath);
+
+  const ft = await annotNumsOf(outPath, 'FreeText');
+  expect(ft).toHaveLength(1);
+  const box = visualUnion(ft[0]!, false);
+  const on = await coverageAt(outPath, 1, box, 595, 842, true);
+  const off = await coverageAt(outPath, 1, box, 595, 842, false);
+  expect(on).toBeGreaterThan(0.6);
+  expect(off).toBeLessThan(0.05);
 });

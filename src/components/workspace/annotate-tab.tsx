@@ -8,7 +8,7 @@ import { useLastOutput } from '../../hooks/use-last-output';
 import { Button } from '../ui/button';
 import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
 import { isEngineCrashedError } from '../../lib/engine-error';
-import type { AnnotateElementKind } from '../../engine/pdf-lib';
+import type { RedactRect } from '../../engine/pdf-lib';
 
 /*
  * Annotate tab (v0.9.0 phase 4): stamps & shapes as an EDIT LIST — elements
@@ -21,7 +21,8 @@ import type { AnnotateElementKind } from '../../engine/pdf-lib';
  * (under the shared page nav) and `AnnotateControls` in the side panel.
  */
 
-type Kind = AnnotateElementKind;
+/** Edit-list kind union: the 4 stamp kinds + the 2 real-annotation kinds. */
+type Kind = AnnotateItem['kind'];
 
 const COLORS = ['#111111', '#e11d48', '#2563eb', '#16a34a', '#f59e0b', '#ffffff'];
 
@@ -32,7 +33,26 @@ const kindLabelKey = (k: Kind): string =>
       ? 'editor.shape_rect'
       : k === 'line'
         ? 'editor.shape_line'
-        : 'editor.shape_ellipse';
+        : k === 'ellipse'
+          ? 'editor.shape_ellipse'
+          : k === 'highlight'
+            ? 'editor.tool_highlight'
+            : 'editor.tool_note';
+
+/** The 4 phase-4 kinds ride the content-stream stamp path; highlight/note
+ * are real annotations and go through the annots leg of applyAnnotate. */
+const STAMP_KINDS: ReadonlySet<string> = new Set(['text', 'rect', 'line', 'ellipse']);
+
+/** Axis-aligned overlap for the highlight hit-test (5% inset so a graze at
+ * the drag edge doesn't pick up whole neighbouring lines). */
+function rectsOverlap(a: RedactRect, b: RedactRect): boolean {
+  return (
+    a.x + a.w * 0.05 < b.x + b.w &&
+    b.x + b.w * 0.05 < a.x + a.w &&
+    a.y + a.h * 0.05 < b.y + b.h &&
+    b.y + b.h * 0.05 < a.y + a.h
+  );
+}
 
 interface DrawShape {
   nx: number;
@@ -99,28 +119,106 @@ export function useAnnotateState(
 
   const onDraw = useCallback(
     (draft: DrawShape) => {
-      pushHistory(itemsRef.current);
-      const item: AnnotateItem = {
-        id: newMarkId(),
-        page,
-        ...draft,
-        kind,
-        color,
-        opacity: opacity / 100,
-        size,
-        fill: kind === 'rect' || kind === 'ellipse' ? fill : false,
-        text: kind === 'text' ? textValue || ' ' : undefined,
-      };
-      setItems((prev) => [...prev, item]);
-      setSelectedId(item.id);
+      void (async () => {
+        if (kind === 'highlight') {
+          // Hit-test pdf.js text items against the drag rect; per-line rects
+          // become the quads. Dragging over empty space draws nothing.
+          const { getTextItemRects, getPageVisualSize } = await import('../../engine/pdfjs');
+          const { width: vw, height: vh } = await getPageVisualSize(bytes, page);
+          const drag: RedactRect = {
+            x: draft.nx * vw,
+            y: (1 - draft.nyTop - draft.nh) * vh,
+            w: draft.nw * vw,
+            h: draft.nh * vh,
+          };
+          const itemsV = await getTextItemRects(bytes, page);
+          const hit = itemsV.filter((r) => rectsOverlap(r, drag));
+          if (hit.length === 0) return;
+          // Merge per line (band the vertical centres, 6pt resolution).
+          const lines = new Map<number, RedactRect[]>();
+          for (const r of hit) {
+            const key = Math.round((r.y + r.h / 2) / 6);
+            const list = lines.get(key) ?? [];
+            list.push(r);
+            lines.set(key, list);
+          }
+          const quadsV = [...lines.values()].map((line) => ({
+            x: Math.min(...line.map((r) => r.x)),
+            y: Math.min(...line.map((r) => r.y)),
+            w: Math.max(...line.map((r) => r.x + r.w)) - Math.min(...line.map((r) => r.x)),
+            h: Math.max(...line.map((r) => r.y + r.h)) - Math.min(...line.map((r) => r.y)),
+          }));
+          const toFrac = (q: RedactRect): DrawShape => ({
+            nx: q.x / vw,
+            nyTop: 1 - (q.y + q.h) / vh,
+            nw: q.w / vw,
+            nh: q.h / vh,
+          });
+          const quads = quadsV.map(toFrac);
+          const union: DrawShape = {
+            nx: Math.min(...quads.map((q) => q.nx)),
+            nyTop: Math.min(...quads.map((q) => q.nyTop)),
+            nw: Math.max(...quads.map((q) => q.nx + q.nw)) - Math.min(...quads.map((q) => q.nx)),
+            nh: Math.max(...quads.map((q) => q.nyTop + q.nh)) - Math.min(...quads.map((q) => q.nyTop)),
+          };
+          pushHistory(itemsRef.current);
+          const item: AnnotateItem = {
+            id: newMarkId(),
+            page,
+            ...union,
+            kind: 'highlight',
+            color,
+            opacity: opacity / 200,
+            size,
+            fill: false,
+            quads,
+          };
+          setItems((prev) => [...prev, item]);
+          setSelectedId(item.id);
+          return;
+        }
+        pushHistory(itemsRef.current);
+        const item: AnnotateItem = {
+          id: newMarkId(),
+          page,
+          ...draft,
+          kind,
+          color,
+          opacity: opacity / 100,
+          size: kind === 'note' ? Math.max(8, size) : size,
+          fill: kind === 'rect' || kind === 'ellipse' ? fill : false,
+          text: kind === 'text' || kind === 'note' ? textValue || ' ' : undefined,
+        };
+        setItems((prev) => [...prev, item]);
+        setSelectedId(item.id);
+      })();
     },
-    [page, kind, color, opacity, size, fill, textValue, pushHistory],
+    [bytes, page, kind, color, opacity, size, fill, textValue, pushHistory],
   );
 
   const onItemMove = useCallback(
     (id: string, pos: DrawShape) => {
+      const moving = itemsRef.current.find((i) => i.id === id);
+      if (!moving) return;
       pushHistory(itemsRef.current);
-      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...pos } : i)));
+      const dx = pos.nx - moving.nx;
+      const dy = pos.nyTop - moving.nyTop;
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                ...pos,
+                quads: i.quads?.map((q) => ({
+                  nx: q.nx + dx,
+                  nyTop: q.nyTop + dy,
+                  nw: q.nw,
+                  nh: q.nh,
+                })),
+              }
+            : i,
+        ),
+      );
     },
     [pushHistory],
   );
@@ -174,23 +272,56 @@ export function useAnnotateState(
             sizeCache.current.set(p, await getPageVisualSize(bytes, p));
           }
         }
-        const elements = itemsRef.current.map((i) => {
+        const toVisual = (i: AnnotateItem) => {
           const { width, height } = sizeCache.current.get(i.page)!;
           return {
-            kind: i.kind,
-            page: i.page,
             x: i.nx * width,
             y: (1 - i.nyTop - i.nh) * height,
             w: i.nw * width,
             h: i.nh * height,
+          };
+        };
+        const stamps = itemsRef.current
+          .filter((i) => STAMP_KINDS.has(i.kind))
+          .map((i) => ({
+            kind: i.kind as 'text' | 'rect' | 'line' | 'ellipse',
+            page: i.page,
+            ...toVisual(i),
             color: i.color,
             opacity: i.opacity,
             size: i.size,
             fill: i.fill,
             text: i.text,
-          };
-        });
-        const out = await engine.stampAnnotations(bytes, { elements });
+          }));
+        const annots = itemsRef.current
+          .filter((i) => i.kind === 'highlight' || i.kind === 'note')
+          .map((i) =>
+            i.kind === 'highlight'
+              ? {
+                  kind: 'highlight' as const,
+                  page: i.page,
+                  quads: (i.quads ?? []).map((q) => {
+                    const { width, height } = sizeCache.current.get(i.page)!;
+                    return {
+                      x: q.nx * width,
+                      y: (1 - q.nyTop - q.nh) * height,
+                      w: q.nw * width,
+                      h: q.nh * height,
+                    };
+                  }),
+                  color: i.color,
+                  opacity: i.opacity * 2,
+                }
+              : {
+                  kind: 'note' as const,
+                  page: i.page,
+                  rect: toVisual(i),
+                  text: i.text ?? '',
+                  color: i.color,
+                  fontSize: i.size,
+                },
+          );
+        const out = await engine.applyAnnotate(bytes, { stamps, annots });
         const name = annotatedName(fileName);
         if (await deliverBytes(out, name, 'download')) {
           keep(out, name);
@@ -292,11 +423,11 @@ export function AnnotateControls({ state }: { state: AnnotateState }) {
   return (
     <div className="flex flex-col gap-3">
       <div
-        className="grid grid-cols-4 gap-1 rounded-lg border border-border-strong p-1"
+        className="grid grid-cols-3 gap-1 rounded-lg border border-border-strong p-1"
         role="group"
         aria-label={t('editor.tab_annotate')}
       >
-        {(['text', 'rect', 'line', 'ellipse'] as Kind[]).map((k) => (
+        {(['text', 'rect', 'line', 'ellipse', 'highlight', 'note'] as Kind[]).map((k) => (
           <button
             key={k}
             type="button"
@@ -333,9 +464,9 @@ export function AnnotateControls({ state }: { state: AnnotateState }) {
         />
       </div>
 
-      {state.kind === 'text' ? (
+      {state.kind === 'text' || state.kind === 'note' ? (
         <label className="block text-[13px] font-semibold">
-          {t('editor.stamp_text_label')}
+          {t(state.kind === 'note' ? 'editor.note_text' : 'editor.stamp_text_label')}
           <input
             type="text"
             value={state.textValue}
@@ -413,7 +544,9 @@ export function AnnotateControls({ state }: { state: AnnotateState }) {
               >
                 <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: i.color }} />
                 <span>{t(kindLabelKey(i.kind))}</span>
-                {i.kind === 'text' ? <span className="truncate">· {i.text}</span> : null}
+                {i.kind === 'text' || i.kind === 'note' ? (
+                  <span className="truncate">· {i.text}</span>
+                ) : null}
               </button>
             </li>
           ))}

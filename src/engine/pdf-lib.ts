@@ -3136,7 +3136,17 @@ export async function stampAnnotations(
     );
   }
   const font = await embedRobotoSubset(doc, fontTtf);
-  const elements = opts.elements ?? [];
+  stampElementsOnDoc(doc, opts.elements ?? [], font);
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Validation + the per-page draw loop of stampAnnotations, shared with the
+ * composed applyAnnotate op (ONE loaded document, ONE save). */
+function stampElementsOnDoc(
+  doc: PDFDocument,
+  elements: AnnotateElement[],
+  font: import('pdf-lib').PDFFont,
+): void {
   if (elements.length === 0) {
     throw new AnnotationRefusedError('No annotation elements were provided.');
   }
@@ -3238,5 +3248,278 @@ export async function stampAnnotations(
       }
     }
   }
+}
+
+
+// ───────────────── Annotate M2: real annotations + /AP (v0.9.0 phase 5) ─────────────────
+
+export interface HighlightAnnot {
+  kind: 'highlight';
+  page: number;
+  /** Visual-space rects over the highlighted text — one per text line. */
+  quads: RedactRect[];
+  /** Default classic yellow #ffeb3b. */
+  color?: string;
+  /** Default 0.4. */
+  opacity?: number;
+}
+
+export interface NoteAnnot {
+  kind: 'note';
+  page: number;
+  /** Visual-space box; the bottom edge is the text baseline. */
+  rect: RedactRect;
+  text: string;
+  /** Note fill (default pale yellow #fff9c4). */
+  color?: string;
+  /** Default 12. */
+  fontSize?: number;
+}
+
+export type PdfAnnot = HighlightAnnot | NoteAnnot;
+
+export interface ApplyAnnotateOptions {
+  /** Phase-4 content-stream stamps/shapes. */
+  stamps?: AnnotateElement[];
+  /** Real PDF annotations (/Highlight, /FreeText) with hand-built /AP. */
+  annots?: PdfAnnot[];
+}
+
+function annotRgb(hex: string | undefined, fb: [number, number, number]): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim());
+  if (!m) return fb;
+  const n = parseInt(m[1], 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/** Missing-glyph check BEFORE any mutation (PDFCraft refusal precedent): a
+ * character the Roboto subset cannot draw refuses the WHOLE apply. */
+function assertDrawable(font: import('pdf-lib').PDFFont, text: string): void {
+  // embedder is private in pdf-lib's typings but the fontkit font lives at
+  // embedder.font (subset embedders only — standard fonts have none).
+  const fk = (font as unknown as {
+    embedder?: { font?: { layout(t: string): { glyphs: { id: number }[] } } };
+    font?: { layout(t: string): { glyphs: { id: number }[] } };
+  }).embedder?.font;
+  if (!fk) return; // standard font — assume drawable
+  for (const ch of text) {
+    if (ch === '\n' || ch === '\r' || ch === ' ') continue;
+    try {
+      const { glyphs } = fk.layout(ch);
+      if (glyphs.length === 0 || glyphs.every((g) => g.id === 0)) {
+        throw new Error('missing glyph');
+      }
+    } catch {
+      throw new AnnotationRefusedError(
+        `Undrawable character in note text: ${JSON.stringify(ch)}`,
+      );
+    }
+  }
+}
+
+/** Isometry basis: the visual x/y unit axes in user space (the AP text
+ * matrix for any /Rotate — never per-rotation case math). */
+function visualBasis(geom: PageGeometry): {
+  xdir: { x: number; y: number };
+  ydir: { x: number; y: number };
+  origin: { x: number; y: number };
+} {
+  const origin = visualToPageSpace(0, 0, geom);
+  const ux = visualToPageSpace(1, 0, geom);
+  const uy = visualToPageSpace(0, 1, geom);
+  return {
+    xdir: { x: ux.x - origin.x, y: ux.y - origin.y },
+    ydir: { x: uy.x - origin.x, y: uy.y - origin.y },
+    origin,
+  };
+}
+
+function pdfDate(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `D:${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+}
+
+/**
+ * The COMPOSED annotate op (red-team mandate: stamps + annotations ride ONE
+ * loaded PDFDocument and ONE save — under the no-auto-retry crash rule a
+ * mid-apply crash rejects the whole call, so a retry restarts from the
+ * ORIGINAL bytes and can never double-stamp). Refusals (encrypted input,
+ * undrawable characters, invalid geometry) happen BEFORE any mutation and
+ * leave the input untouched.
+ */
+export async function applyAnnotate(
+  bytes: Uint8Array,
+  opts: ApplyAnnotateOptions,
+  fontTtf: Uint8Array,
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFHexString, PDFString } = pdfLib;
+  let doc: import('pdf-lib').PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  } catch (e) {
+    throw new AnnotationRefusedError(
+      `The file cannot be annotated (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const stamps = opts.stamps ?? [];
+  const annots = opts.annots ?? [];
+  if (stamps.length === 0 && annots.length === 0) {
+    throw new AnnotationRefusedError('Nothing to apply was provided.');
+  }
+  const font = await embedRobotoSubset(doc, fontTtf);
+  const pageCount = doc.getPageCount();
+  // Pre-checks BEFORE any mutation (fail closed, nothing half-applied).
+  for (const a of annots) {
+    if (a.page < 1 || a.page > pageCount) {
+      throw new AnnotationRefusedError(`Annotation page ${a.page} is out of range.`);
+    }
+    if (a.kind === 'note') {
+      if (!a.text.trim()) throw new AnnotationRefusedError('A note has no text.');
+      assertDrawable(font, a.text);
+    } else if (a.quads.length === 0) {
+      throw new AnnotationRefusedError('A highlight has no quads.');
+    }
+  }
+  if (stamps.length > 0) stampElementsOnDoc(doc, stamps, font);
+
+  const now = pdfDate();
+  for (const a of annots) {
+    const page = doc.getPage(a.page - 1);
+    const geom = visibleGeometry(page);
+    const node = page.node;
+
+    if (a.kind === 'highlight') {
+      const [r, g, b] = annotRgb(a.color, [1, 0.92, 0.23]);
+      const alpha = Math.min(1, Math.max(0.05, a.opacity ?? 0.4));
+      // Map every quad corner to user space; QuadPoints order per spec:
+      // TL, TR, BL, BR of each quad.
+      const corners = a.quads.map((q) => ({
+        tl: visualToPageSpace(q.x, q.y + q.h, geom),
+        tr: visualToPageSpace(q.x + q.w, q.y + q.h, geom),
+        bl: visualToPageSpace(q.x, q.y, geom),
+        br: visualToPageSpace(q.x + q.w, q.y, geom),
+      }));
+      const xs = corners.flatMap((c) => [c.tl.x, c.tr.x, c.bl.x, c.br.x]);
+      const ys = corners.flatMap((c) => [c.tl.y, c.tr.y, c.bl.y, c.br.y]);
+      const x0 = Math.min(...xs) - 2;
+      const y0 = Math.min(...ys) - 2;
+      const x1 = Math.max(...xs) + 2;
+      const y1 = Math.max(...ys) + 2;
+      // AP content: one filled path per quad, in user space via the
+      // translate matrix (the viewer applies /CA when compositing).
+      let content = `q ${r} ${g} ${b} rg\n`;
+      for (const c of corners) {
+        content += `${c.tl.x} ${c.tl.y} m ${c.tr.x} ${c.tr.y} l ${c.br.x} ${c.br.y} l ${c.bl.x} ${c.bl.y} l h f\n`;
+      }
+      content += 'Q';
+      const apDict = PDFDict.withContext(doc.context);
+      apDict.set(PDFName.of('Type'), PDFName.of('XObject'));
+      apDict.set(PDFName.of('Subtype'), PDFName.of('Form'));
+      apDict.set(PDFName.of('BBox'), doc.context.obj([PDFNumber.of(x0), PDFNumber.of(y0), PDFNumber.of(x1), PDFNumber.of(y1)]));
+      apDict.set(PDFName.of('Matrix'), doc.context.obj([PDFNumber.of(1), PDFNumber.of(0), PDFNumber.of(0), PDFNumber.of(1), PDFNumber.of(-x0), PDFNumber.of(-y0)]));
+      const apRef = doc.context.register(PDFRawStream.of(apDict, new TextEncoder().encode(content)));
+
+      const quads = PDFArray.withContext(doc.context);
+      for (const c of corners) {
+        for (const pt of [c.tl, c.tr, c.bl, c.br]) {
+          quads.push(PDFNumber.of(pt.x));
+          quads.push(PDFNumber.of(pt.y));
+        }
+      }
+      const dict = PDFDict.withContext(doc.context);
+      dict.set(PDFName.of('Type'), PDFName.of('Annot'));
+      dict.set(PDFName.of('Subtype'), PDFName.of('Highlight'));
+      dict.set(PDFName.of('Rect'), doc.context.obj([PDFNumber.of(x0), PDFNumber.of(y0), PDFNumber.of(x1), PDFNumber.of(y1)]));
+      dict.set(PDFName.of('QuadPoints'), quads);
+      dict.set(PDFName.of('F'), PDFNumber.of(4));
+      dict.set(PDFName.of('M'), PDFString.of(now));
+      dict.set(PDFName.of('C'), doc.context.obj([PDFNumber.of(r), PDFNumber.of(g), PDFNumber.of(b)]));
+      dict.set(PDFName.of('IC'), doc.context.obj([PDFNumber.of(r), PDFNumber.of(g), PDFNumber.of(b)]));
+      dict.set(PDFName.of('CA'), PDFNumber.of(alpha));
+      dict.set(PDFName.of('Border'), doc.context.obj([PDFNumber.of(0), PDFNumber.of(0), PDFNumber.of(0)]));
+      const apN = PDFDict.withContext(doc.context);
+      apN.set(PDFName.of('N'), apRef);
+      dict.set(PDFName.of('AP'), apN);
+      addAnnotToPage(doc, node, dict);
+    } else {
+      // FreeText note: visible box with a Roboto /AP (portable rendering —
+      // without /AP FreeText is viewer-dependent; annotpdf 1.0.15 added AP
+      // generation for exactly this reason).
+      const [r, g, b] = annotRgb(a.color, [1, 0.976, 0.769]);
+      const size = Math.max(6, a.fontSize ?? 12);
+      const basis = visualBasis(geom);
+      const rectBL = visualToPageSpace(a.rect.x, a.rect.y, geom);
+      const rectTR = visualToPageSpace(a.rect.x + a.rect.w, a.rect.y + a.rect.h, geom);
+      const x0 = Math.min(rectBL.x, rectTR.x) - 1;
+      const y0 = Math.min(rectBL.y, rectTR.y) - 1;
+      const x1 = Math.max(rectBL.x, rectTR.x) + 1;
+      const y1 = Math.max(rectBL.y, rectTR.y) + 1;
+      // Note box as an explicit quad path (axis-aligned in VISUAL space).
+      const cTL = visualToPageSpace(a.rect.x, a.rect.y + a.rect.h, geom);
+      const cTR = visualToPageSpace(a.rect.x + a.rect.w, a.rect.y + a.rect.h, geom);
+      const cBL = rectBL;
+      const cBR = visualToPageSpace(a.rect.x + a.rect.w, a.rect.y, geom);
+      const textHex = font.encodeText(a.text.replace(/\r\n?/g, '\n'));
+      const dark = 0.1;
+      const content = [
+        `q ${r} ${g} ${b} rg`,
+        `${cTL.x} ${cTL.y} m ${cTR.x} ${cTR.y} l ${cBR.x} ${cBR.y} l ${cBL.x} ${cBL.y} l h f`,
+        'Q',
+        `BT ${dark} ${dark} ${dark} rg /F0 ${size} Tf`,
+        `${basis.xdir.x} ${basis.xdir.y} ${basis.ydir.x} ${basis.ydir.y} ${rectBL.x + 2} ${rectBL.y + 2} Tm`,
+        `${textHex.toString()} Tj`,
+        'ET',
+      ].join('\n');
+      const apDict = PDFDict.withContext(doc.context);
+      apDict.set(PDFName.of('Type'), PDFName.of('XObject'));
+      apDict.set(PDFName.of('Subtype'), PDFName.of('Form'));
+      apDict.set(PDFName.of('BBox'), doc.context.obj([PDFNumber.of(x0), PDFNumber.of(y0), PDFNumber.of(x1), PDFNumber.of(y1)]));
+      apDict.set(PDFName.of('Matrix'), doc.context.obj([PDFNumber.of(1), PDFNumber.of(0), PDFNumber.of(0), PDFNumber.of(1), PDFNumber.of(-x0), PDFNumber.of(-y0)]));
+      // By REF, never context.lookup: subset-font dicts materialize only
+      // during save's embedAll (embedFont takes the ref upfront), so a
+      // pre-save lookup is always undefined.
+      const fontRes = PDFDict.withContext(doc.context);
+      fontRes.set(PDFName.of('F0'), font.ref);
+      const res = PDFDict.withContext(doc.context);
+      res.set(PDFName.of('Font'), fontRes);
+      apDict.set(PDFName.of('Resources'), res);
+      const apRef = doc.context.register(PDFRawStream.of(apDict, new TextEncoder().encode(content)));
+
+      const dict = PDFDict.withContext(doc.context);
+      dict.set(PDFName.of('Type'), PDFName.of('Annot'));
+      dict.set(PDFName.of('Subtype'), PDFName.of('FreeText'));
+      dict.set(PDFName.of('Rect'), doc.context.obj([PDFNumber.of(x0), PDFNumber.of(y0), PDFNumber.of(x1), PDFNumber.of(y1)]));
+      dict.set(PDFName.of('F'), PDFNumber.of(4));
+      dict.set(PDFName.of('M'), PDFString.of(now));
+      dict.set(PDFName.of('Contents'), PDFHexString.fromText(a.text));
+      dict.set(PDFName.of('DA'), PDFString.of('(Helv 0 Tf 0 g)'));
+      dict.set(PDFName.of('C'), doc.context.obj([PDFNumber.of(1), PDFNumber.of(1), PDFNumber.of(0.6)]));
+      const apN2 = PDFDict.withContext(doc.context);
+      apN2.set(PDFName.of('N'), apRef);
+      dict.set(PDFName.of('AP'), apN2);
+      addAnnotToPage(doc, node, dict);
+    }
+  }
   return doc.save({ useObjectStreams: false });
+}
+
+/** Appends an annotation dict (indirect) to the page's /Annots array. */
+function addAnnotToPage(
+  doc: import('pdf-lib').PDFDocument,
+  node: import('pdf-lib').PDFPageLeaf,
+  dict: import('pdf-lib').PDFDict,
+): void {
+  const { PDFArray, PDFName } = pdfLibCache!;
+  const ref = doc.context.register(dict);
+  const existing = doc.context.lookup(node.get(PDFName.of('Annots')));
+  if (existing instanceof PDFArray) {
+    existing.push(ref);
+  } else {
+    const arr = PDFArray.withContext(doc.context);
+    arr.push(ref);
+    node.set(PDFName.of('Annots'), arr);
+  }
 }
