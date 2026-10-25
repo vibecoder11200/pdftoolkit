@@ -76,6 +76,12 @@ jobs:
         env:
           MATRIX_100MB: '1'
           NODE_OPTIONS: --max-old-space-size=8192
+      # redact finalize on the same 100MB fixture (v0.9.0 finding 11): bounds
+      # the peak-hold (original + output + canonical copy) before the op ships
+      - run: npx vitest run tests/matrix-redact.spec.ts --no-file-parallelism --reporter=default --reporter=json --outputFile=test-results/matrix-redact.json
+        env:
+          MATRIX_100MB: '1'
+          NODE_OPTIONS: --max-old-space-size=8192
       - uses: actions/upload-artifact@v4
         if: always()
         with:

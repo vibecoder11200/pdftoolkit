@@ -1,4 +1,17 @@
-import { PDFDocument, degrees, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFArray,
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFNull,
+  PDFNumber,
+  PDFRawStream,
+  PDFString,
+  degrees,
+  rgb,
+} from 'pdf-lib';
+import { QpdfRewriteRefusedError, qpdfCanonicalUncompress, qpdfRewrite } from './qpdf';
 
 export interface PageInfo {
   pageNumber: number;
@@ -1532,4 +1545,1498 @@ export async function reverseOwnWatermark(
   }
   deleteWmTag(doc);
   return doc.save({ useObjectStreams: false });
+}
+
+// ═══════════════════════════ Redact engine (v0.9.0 phase 2) ═══════════════════════════
+
+type PO = import('pdf-lib').PDFObject;
+// Promoted from the GO spike (plans/reports/spike-redact-2026-10-25.md). The
+// security contract: `redactFinalize` is the ONLY op whose output may reach
+// deliverBytes — its tail is always pdf-lib full rewrite → internal qpdf
+// rewrite (orphan GC) → scoped decompressed byte-scan. Never incremental
+// saves. The v0.8.1 watermark machinery above is deliberately untouched (its
+// /BT[\s\S]*?ET/ regex is fragile for hints containing "ET" — spike finding 1;
+// this section's walker is token-aware instead).
+
+/** Parse anomaly mid-pipeline — output untouched (WatermarkParseError pattern). */
+export class RedactParseError extends Error {
+  constructor(message = 'PDF parse anomaly while redacting.') {
+    super(message);
+    this.name = 'RedactParseError';
+  }
+}
+
+/** Refusal BEFORE any mutation: encrypted input, signed input, vertical text,
+ * a marked page the pipeline cannot clean surgically and has no raster JPEG
+ * for, or a qpdf rewrite the file cannot survive (exit 2). */
+export class RedactRefusedError extends Error {
+  constructor(message = 'The file cannot be redacted safely.') {
+    super(message);
+    this.name = 'RedactRefusedError';
+  }
+}
+
+/** Post-output verification failure (scoped decompressed byte-scan hit) —
+ * the output is discarded, never returned. Rasterize cannot fix object-level
+ * residue, so there is no retry at this leg (finding 4). */
+export class RedactVerifyError extends Error {
+  constructor(message = 'Redaction verification failed — output discarded.') {
+    super(message);
+    this.name = 'RedactVerifyError';
+  }
+}
+
+/** Visual-space rectangle (displayed page: origin bottom-left of the visible
+ * box, x right, y up — the space pdf.js items and the user's drags live in). */
+export interface RedactRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface RedactSurgicalPage {
+  /** 1-based page number. */
+  page: number;
+  rects: RedactRect[];
+}
+
+// ─────────────────────────── census ───────────────────────────
+
+/** Construct hits that force the rasterize-or-refuse tier (finding 7) —
+ * extraction-visible does not mean surgically-removable. */
+export type RedactCensusKind =
+  | 'type3'
+  | 'font-no-tounicode'
+  | 'actualtext'
+  | 'tr3'
+  | 'pattern-text'
+  | 'xobject-text'
+  | 'vertical-text'
+  | 'oc-props'
+  | 'widget'
+  | 'annot-text'
+  | 'annot-hidden'
+  | 'annot-ap-text'
+  | 'stream-undecodable';
+
+export interface RedactCensusReport {
+  pageCount: number;
+  /** Only pages WITH hits are listed. */
+  pages: { page: number; kinds: RedactCensusKind[] }[];
+  /** Doc-level channels present and scrub-able (id form: 'info:Author',
+   * 'xmp', 'outlines', 'names:JavaScript', 'names:EmbeddedFiles',
+   * 'acroform:V', 'structtree'). */
+  docChannels: string[];
+}
+
+function redactDecodeString(obj: unknown): string | null {
+  try {
+    if (obj instanceof PDFHexString || obj instanceof PDFString) return obj.decodeText();
+  } catch {
+    /* malformed string — treat as absent */
+  }
+  return null;
+}
+
+/** Read-only whole-document construct census (spike promotion). */
+export async function redactCensus(bytes: Uint8Array): Promise<RedactCensusReport> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument, PDFArray, PDFDict, PDFName } = pdfLib;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const pageHits = new Map<number, RedactCensusKind[]>();
+  const flag = (p1: number, kind: RedactCensusKind): void => {
+    const list = pageHits.get(p1) ?? [];
+    if (!list.includes(kind)) list.push(kind);
+    pageHits.set(p1, list);
+  };
+  const hasShowOps = (text: string): boolean =>
+    /(?:\)|>|\])\s*(?:Tj|TJ)\b|(?:\)|>)\s*'/.test(text.replace(/\s+/g, ' '));
+
+  doc.getPages().forEach((page, pi) => {
+    const p1 = pi + 1;
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    if (res instanceof PDFDict) {
+      const fonts = doc.context.lookup(res.get(PDFName.of('Font')));
+      if (fonts instanceof PDFDict) {
+        for (const [, v] of fonts.entries()) {
+          const fd = doc.context.lookup(v);
+          if (!(fd instanceof PDFDict)) continue;
+          const sub = String(fd.get(PDFName.of('Subtype')) ?? '');
+          if (sub === '/Type3') flag(p1, 'type3');
+          if (Number(fd.get(PDFName.of('Wmode')) ?? 0) === 1) flag(p1, 'vertical-text');
+          if ((sub === '/Type0' || sub === '/TrueType') && !fd.get(PDFName.of('ToUnicode'))) {
+            flag(p1, 'font-no-tounicode');
+          }
+        }
+      }
+      const walkXObjects = (dict: unknown, depth: number): void => {
+        if (!(dict instanceof PDFDict) || depth > 4) return;
+        for (const [, v] of dict.entries()) {
+          const s = doc.context.lookup(v);
+          if (!(s instanceof PDFRawStream)) continue;
+          if (String(s.dict.get(PDFName.of('Subtype')) ?? '') === '/Form') {
+            const text = redactStreamText(s);
+            if (text !== null && hasShowOps(text)) flag(p1, 'xobject-text');
+            const inner = doc.context.lookup(s.dict.get(PDFName.of('Resources')));
+            if (inner instanceof PDFDict) walkXObjects(doc.context.lookup(inner.get(PDFName.of('XObject'))), depth + 1);
+          }
+        }
+      };
+      const xobjs = doc.context.lookup(res.get(PDFName.of('XObject')));
+      if (xobjs instanceof PDFDict) walkXObjects(xobjs, 0);
+      const pats = doc.context.lookup(res.get(PDFName.of('Pattern')));
+      if (pats instanceof PDFDict) {
+        for (const [, v] of pats.entries()) {
+          const s = doc.context.lookup(v);
+          if (s instanceof PDFRawStream && Number(s.dict.get(PDFName.of('PatternType')) ?? -1) === 1) {
+            const text = redactStreamText(s);
+            if (text !== null && hasShowOps(text)) flag(p1, 'pattern-text');
+          }
+        }
+      }
+    }
+    for (const { stream } of pageContentStreams(doc, page)) {
+      const text = redactStreamText(stream);
+      if (text === null) {
+        flag(p1, 'stream-undecodable');
+        continue;
+      }
+      if (text.includes('/ActualText')) flag(p1, 'actualtext');
+      if (/(^|[^\d])3\s+Tr(?![\d])/.test(text)) flag(p1, 'tr3');
+    }
+    if (page.node.get(PDFName.of('Properties'))) flag(p1, 'oc-props');
+    const annots = doc.context.lookup(page.node.get(PDFName.of('Annots')));
+    if (annots instanceof PDFArray) {
+      for (let i = 0; i < annots.size(); i += 1) {
+        const a = doc.context.lookup(annots.get(i));
+        if (!(a instanceof PDFDict)) continue;
+        if (String(a.get(PDFName.of('Subtype')) ?? '') === '/Widget') flag(p1, 'widget');
+        if (Number(a.get(PDFName.of('F')) ?? 0) & 2) flag(p1, 'annot-hidden');
+        const c = redactDecodeString(a.get(PDFName.of('Contents')));
+        if (c && c.trim().length > 0) flag(p1, 'annot-text');
+        const ap = doc.context.lookup(a.get(PDFName.of('AP')));
+        if (ap instanceof PDFDict) {
+          for (const key of ['N', 'D', 'R'] as const) {
+            const s = doc.context.lookup(ap.get(PDFName.of(key)));
+            if (s instanceof PDFRawStream) {
+              const text = redactStreamText(s);
+              if (text !== null && hasShowOps(text)) flag(p1, 'annot-ap-text');
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const docChannels: string[] = [];
+  const info = doc.context.lookup(doc.context.trailerInfo.Info);
+  if (info instanceof PDFDict) {
+    for (const [k, v] of info.entries()) {
+      const s = redactDecodeString(v);
+      if (s && s.trim().length > 0) docChannels.push(`info:${k.toString().replace(/^\//, '')}`);
+    }
+  }
+  if (doc.catalog.get(PDFName.of('Metadata'))) docChannels.push('xmp');
+  if (doc.catalog.get(PDFName.of('Outlines'))) docChannels.push('outlines');
+  const names = doc.context.lookup(doc.catalog.get(PDFName.of('Names')));
+  if (names instanceof PDFDict) {
+    if (names.get(PDFName.of('JavaScript'))) docChannels.push('names:JavaScript');
+    if (names.get(PDFName.of('EmbeddedFiles'))) docChannels.push('names:EmbeddedFiles');
+  }
+  if (doc.catalog.get(PDFName.of('AcroForm'))) docChannels.push('acroform:V');
+  if (doc.catalog.get(PDFName.of('StructTreeRoot'))) docChannels.push('structtree');
+
+  return {
+    pageCount: doc.getPageCount(),
+    pages: [...pageHits.entries()].map(([page, kinds]) => ({ page, kinds })).sort((a, b) => a.page - b.page),
+    docChannels,
+  };
+}
+
+/** Decoded stream text for the redact section — reuses the watermark
+ * machinery's inflate + typed-anomaly convention, but re-emits as null so
+ * census can flag undecodable streams instead of failing the whole run. */
+function redactStreamText(stream: import('pdf-lib').PDFRawStream): string | null {
+  const flate = String(stream.dict.get(PDFName.of('Filter')) ?? '') === '/FlateDecode';
+  try {
+    return streamOpsText(stream, flate);
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────── token walker (spike promotion) ───────────────────────────
+
+type RedactToken =
+  | { t: 'num'; v: string; i: number }
+  | { t: 'name'; v: string; i: number }
+  | { t: 'str'; v: string; i: number }
+  | { t: 'hex'; v: string; i: number }
+  | { t: 'op'; v: string; i: number }
+  | { t: 'dict'; v: '<<'; i: number }
+  | { t: 'dictend'; v: '>>'; i: number }
+  | { t: 'arr'; v: '['; i: number }
+  | { t: 'arre'; v: ']'; i: number; elems: RedactToken[] };
+
+/** Content-stream tokenizer (latin1) — literal strings with nesting + escapes,
+ * hex strings, names, numbers, arrays (elements ride the matching ']' token). */
+function redactTokenize(text: string): RedactToken[] {
+  const toks: RedactToken[] = [];
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t' || ch === '\f' || ch === '\0') {
+      i += 1;
+      continue;
+    }
+    if (ch === '(') {
+      let depth = 1;
+      let j = i + 1;
+      let out = '';
+      while (j < n && depth > 0) {
+        const c = text[j];
+        if (c === '\\') {
+          out += c + (text[j + 1] ?? '');
+          j += 2;
+          continue;
+        }
+        if (c === '(') depth += 1;
+        else if (c === ')') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+        out += c;
+        j += 1;
+      }
+      if (depth !== 0) throw new RedactParseError('Unterminated literal string in content stream.');
+      toks.push({ t: 'str', v: `(${out})`, i });
+      i = j + 1;
+      continue;
+    }
+    if (ch === '<' && text[i + 1] !== '<') {
+      const j = text.indexOf('>', i);
+      if (j < 0) throw new RedactParseError('Unterminated hex string in content stream.');
+      toks.push({ t: 'hex', v: text.slice(i, j + 1), i });
+      i = j + 1;
+      continue;
+    }
+    if (ch === '<') {
+      toks.push({ t: 'dict', v: '<<', i });
+      i += 2;
+      continue;
+    }
+    if (ch === '>' && text[i + 1] === '>') {
+      toks.push({ t: 'dictend', v: '>>', i });
+      i += 2;
+      continue;
+    }
+    if (ch === '[') {
+      toks.push({ t: 'arr', v: '[', i });
+      i += 1;
+      continue;
+    }
+    if (ch === ']') {
+      // attach the elements that appeared since the matching '['
+      let depth = 1;
+      let k = toks.length - 1;
+      while (k >= 0) {
+        const t = toks[k];
+        if (t.t === 'arre') depth += 1;
+        else if (t.t === 'arr') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+        k -= 1;
+      }
+      const elems = k >= 0 ? toks.slice(k + 1) : [];
+      if (k < 0) throw new RedactParseError('Unmatched ] in content stream.');
+      toks.splice(k + 1);
+      toks.push({ t: 'arre', v: ']', i, elems });
+      i += 1;
+      continue;
+    }
+    if (ch === '/') {
+      let j = i + 1;
+      while (j < n && !/[\s/[\]<>(){}]/.test(text[j])) j += 1;
+      toks.push({ t: 'name', v: text.slice(i, j), i });
+      i = j;
+      continue;
+    }
+    if (/[-+.\d]/.test(ch)) {
+      let j = i;
+      while (j < n && /[-+.\d]/.test(text[j])) j += 1;
+      toks.push({ t: 'num', v: text.slice(i, j), i });
+      i = j;
+      continue;
+    }
+    let j = i;
+    while (j < n && !/[\s/[\]<>()]/.test(text[j])) j += 1;
+    toks.push({ t: 'op', v: text.slice(i, j), i });
+    i = j;
+  }
+  return toks;
+}
+
+function redactDecodeOperand(tok: RedactToken & { t: 'str' | 'hex' }): Uint8Array {
+  const s = tok.v;
+  if (tok.t === 'hex') {
+    const clean = s.slice(1, -1).replace(/\s+/g, '');
+    const out = new Uint8Array(Math.floor(clean.length / 2));
+    for (let i = 0; i < out.length; i += 1) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  const inner = s.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < inner.length; i += 1) {
+    const c = inner[i];
+    if (c === '\\') {
+      const nx = inner[++i];
+      if (nx === 'n') bytes.push(10);
+      else if (nx === 'r') bytes.push(13);
+      else if (nx === 't') bytes.push(9);
+      else if (nx === 'b') bytes.push(8);
+      else if (nx === 'f') bytes.push(12);
+      else if (nx >= '0' && nx <= '7') {
+        let oct = nx;
+        while (oct.length < 3 && inner[i + 1] >= '0' && inner[i + 1] <= '7') oct += inner[++i];
+        bytes.push(parseInt(oct, 8));
+      } else bytes.push(nx.charCodeAt(0) & 0xff);
+    } else bytes.push(c.charCodeAt(0) & 0xff);
+  }
+  return new Uint8Array(bytes);
+}
+
+/** Operand text: UTF-16BE with BOM → text; otherwise latin1 (WinAnsi/simple
+ * fonts; subset-CID glyph bytes stay opaque — matching happens geometrically). */
+function redactOperandText(bytes: Uint8Array): string {
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let r = '';
+    for (let i = 2; i + 1 < bytes.length; i += 2) r += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+    return r;
+  }
+  return bytesToLatin1(bytes);
+}
+
+/** a,b,c,d,e,f column-vector convention. */
+function redactMul(m: number[], n: number[]): number[] {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+function redactApply(m: number[], x: number, y: number): { x: number; y: number } {
+  return { x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] };
+}
+
+interface RedactShow {
+  text: string;
+  size: number;
+  trm: number[];
+  nglyphs: number;
+}
+
+const REDACT_PENDING_MAX = 8;
+
+/** Numeric operands immediately before an operator (bounded backward scan). */
+function redactPendingNums(toks: RedactToken[], opIdx: number): number[] {
+  const out: number[] = [];
+  let j = opIdx - 1;
+  while (j >= 0 && toks[j].t === 'num' && out.length <= REDACT_PENDING_MAX) {
+    out.unshift(Number(toks[j].v));
+    j -= 1;
+  }
+  return out;
+}
+function redactPendingName(toks: RedactToken[], beforeIdx: number): string | null {
+  let j = beforeIdx;
+  while (j >= 0) {
+    const t = toks[j];
+    if (t.t === 'name') return t.v;
+    if (t.t !== 'num') return null;
+    j -= 1;
+  }
+  return null;
+}
+
+/** Interprets ONE BT..ET block: every show op with its text-render matrix.
+ * Throw-typed on structural anomalies (conservatism invariant 4). */
+function redactBlockShows(block: string): RedactShow[] {
+  const toks = redactTokenize(block);
+  let tm = [1, 0, 0, 1, 0, 0];
+  let tlm = [1, 0, 0, 1, 0, 0];
+  let leading = 0;
+  let size = 0;
+  const shows: RedactShow[] = [];
+  for (let i = 0; i < toks.length; i += 1) {
+    const tok = toks[i];
+    if (tok.t !== 'op') continue;
+    switch (tok.v) {
+      case 'Tf': {
+        const pending = redactPendingNums(toks, i);
+        const name = redactPendingName(toks, i - pending.length);
+        if (name && pending.length >= 1) size = pending[pending.length - 1];
+        break;
+      }
+      case 'Tm': {
+        const pending = redactPendingNums(toks, i);
+        if (pending.length >= 6) {
+          tm = pending.slice(-6);
+          tlm = tm.slice();
+        } else throw new RedactParseError('Tm with fewer than 6 operands.');
+        break;
+      }
+      case 'Td': {
+        const pending = redactPendingNums(toks, i);
+        if (pending.length >= 2) {
+          const [tx, ty] = pending.slice(-2);
+          tlm = redactMul([1, 0, 0, 1, tx, ty], tlm);
+          tm = tlm.slice();
+        } else throw new RedactParseError('Td with fewer than 2 operands.');
+        break;
+      }
+      case 'TD': {
+        const pending = redactPendingNums(toks, i);
+        if (pending.length >= 2) {
+          const [tx, ty] = pending.slice(-2);
+          leading = -ty;
+          tlm = redactMul([1, 0, 0, 1, tx, ty], tlm);
+          tm = tlm.slice();
+        } else throw new RedactParseError('TD with fewer than 2 operands.');
+        break;
+      }
+      case 'TL': {
+        const pending = redactPendingNums(toks, i);
+        if (pending.length >= 1) leading = pending[pending.length - 1];
+        break;
+      }
+      case 'T*': {
+        tlm = redactMul([1, 0, 0, 1, 0, -leading], tlm);
+        tm = tlm.slice();
+        break;
+      }
+      case 'Tj':
+      case "'":
+      case '"': {
+        const nums = redactPendingNums(toks, i);
+        let j = i - nums.length - 1;
+        let sTok: (RedactToken & { t: 'str' | 'hex' }) | null = null;
+        while (j >= 0) {
+          const t = toks[j];
+          if (t.t === 'str' || t.t === 'hex') {
+            sTok = t;
+            break;
+          }
+          if (t.t !== 'num') break;
+          j -= 1;
+        }
+        if (!sTok) throw new RedactParseError(`Show op ${tok.v} without a string operand.`);
+        if (tok.v !== 'Tj') {
+          tlm = redactMul([1, 0, 0, 1, 0, -leading], tlm);
+          tm = tlm.slice();
+        }
+        const bytes = redactDecodeOperand(sTok);
+        shows.push({
+          text: redactOperandText(bytes),
+          size,
+          trm: tm.slice(),
+          nglyphs: sTok.t === 'hex' ? Math.max(1, bytes.length / 2) : Math.max(1, bytes.length),
+        });
+        break;
+      }
+      case 'TJ': {
+        let j = i - 1;
+        while (j >= 0 && toks[j].t !== 'arre') j -= 1;
+        if (j < 0) throw new RedactParseError('TJ without an array operand.');
+        const elems = (toks[j] as { elems: RedactToken[] }).elems.filter(
+          (e): e is RedactToken & { t: 'str' | 'hex' } => e.t === 'str' || e.t === 'hex',
+        );
+        if (elems.length === 0) break;
+        let text = '';
+        for (const e of elems) text += redactOperandText(redactDecodeOperand(e));
+        shows.push({ text, size, trm: tm.slice(), nglyphs: Math.max(1, text.length) });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return shows;
+}
+
+/** CTM at a given byte offset (q/Q/cm replay over the token stream prefix). */
+function redactCtmBefore(toks: RedactToken[], offset: number): number[] {
+  const stack: number[][] = [];
+  let ctm = [1, 0, 0, 1, 0, 0];
+  for (let i = 0; i < toks.length && toks[i].i < offset; i += 1) {
+    const tok = toks[i];
+    if (tok.t !== 'op') continue;
+    if (tok.v === 'q') stack.push(ctm.slice());
+    else if (tok.v === 'Q') ctm = stack.pop() ?? ctm;
+    else if (tok.v === 'cm') {
+      const pending = redactPendingNums(toks, i);
+      if (pending.length >= 6) ctm = redactMul(pending.slice(-6), ctm);
+    }
+  }
+  return ctm;
+}
+
+interface RedactStreamOp {
+  stream: import('pdf-lib').PDFRawStream;
+  flate: boolean;
+}
+
+function redactPageStreams(doc: PDFDocument, page: import('pdf-lib').PDFPage): RedactStreamOp[] {
+  return pageContentStreams(doc, page).map(({ stream, flate }) => ({ stream, flate }));
+}
+
+// ─────────────────────────── surgical walker ───────────────────────────
+
+const REDACT_W_FACTOR = 0.55; // avg glyph-width estimate (fallback only)
+const REDACT_CONTAIN_TOL = 6; // pt containment tolerance
+
+export interface RedactSurgicalOutcome {
+  /** Pages refused (partial block / anomaly) — caller must supply raster. */
+  refusedPages: number[];
+  removedBlocks: number;
+}
+
+/**
+ * TJ-aware surgical removal on the census-CLEAN pages of `scope`. A BT..ET
+ * block is removed ONLY when every show touching a rect lies FULLY inside one
+ * (spike-classified); any partial coverage refuses the page. Token-aware BT..ET
+ * ranges — the v0.8.1 block regex breaks on secrets containing "ET"
+ * (spike finding 1). Rects are VISUAL-space; mapping goes through the shared
+ * geometry primitives (invariant 3).
+ */
+function redactSurgicalRemove(
+  doc: PDFDocument,
+  scope: Map<number, RedactRect[]>, // 0-based page index → visual rects
+): RedactSurgicalOutcome {
+  const refusedPages: number[] = [];
+  let removedBlocks = 0;
+  const removals: { stream: RedactStreamOp; block: string }[] = [];
+
+  doc.getPages().forEach((page, pi) => {
+    const rectsVisual = scope.get(pi);
+    if (!rectsVisual || rectsVisual.length === 0) return;
+    const eg = visibleGeometry(page);
+    const rectsUser = rectsVisual.map((r) => {
+      const corners = [
+        visualToPageSpace(r.x, r.y, eg),
+        visualToPageSpace(r.x + r.w, r.y, eg),
+        visualToPageSpace(r.x, r.y + r.h, eg),
+        visualToPageSpace(r.x + r.w, r.y + r.h, eg),
+      ];
+      const xs = corners.map((c) => c.x);
+      const ys = corners.map((c) => c.y);
+      return {
+        x0: Math.min(...xs) - REDACT_CONTAIN_TOL,
+        y0: Math.min(...ys) - REDACT_CONTAIN_TOL,
+        x1: Math.max(...xs) + REDACT_CONTAIN_TOL,
+        y1: Math.max(...ys) + REDACT_CONTAIN_TOL,
+      };
+    });
+    const inAnyRect = (b: { x: number; y: number; w: number; h: number }): boolean =>
+      rectsUser.some((r) => b.x >= r.x0 && b.y >= r.y0 && b.x + b.w <= r.x1 && b.y + b.h <= r.y1);
+    const touchesAnyRect = (b: { x: number; y: number; w: number; h: number }): boolean =>
+      rectsUser.some((r) => b.x < r.x1 && b.x + b.w > r.x0 && b.y < r.y1 && b.y + b.h > r.y0);
+
+    let pageRefused = false;
+    for (const { stream, flate } of redactPageStreams(doc, page)) {
+      const text = redactStreamText(stream);
+      if (text === null) {
+        pageRefused = true;
+        continue;
+      }
+      const toks = redactTokenize(text);
+      let btIdx = -1;
+      for (const tok of toks) {
+        if (tok.t === 'op' && tok.v === 'BT') {
+          btIdx = tok.i;
+          continue;
+        }
+        if (!(tok.t === 'op' && tok.v === 'ET' && btIdx >= 0)) continue;
+        const blockStart = btIdx;
+        const block = text.slice(btIdx, tok.i + 2);
+        btIdx = -1;
+        const ctm = redactCtmBefore(toks, blockStart);
+        let shows: RedactShow[];
+        try {
+          shows = redactBlockShows(block);
+        } catch (e) {
+          if (e instanceof RedactParseError) {
+            pageRefused = true;
+            continue;
+          }
+          throw e;
+        }
+        if (shows.length === 0) continue;
+        let touched = false;
+        let ok = true;
+        for (const s of shows) {
+          const w = REDACT_W_FACTOR * s.size * s.nglyphs;
+          const dirLen = Math.hypot(s.trm[0], s.trm[1]) || 1;
+          const ux = s.trm[0] / dirLen;
+          const uy = s.trm[1] / dirLen;
+          const cornersUser = [
+            redactApply(ctm, s.trm[4], s.trm[5]),
+            redactApply(ctm, s.trm[4] + ux * w, s.trm[5] + uy * w),
+            redactApply(ctm, s.trm[4] - uy * -0.25 * s.size, s.trm[5] + ux * -0.25 * s.size),
+            redactApply(ctm, s.trm[4] + ux * w - uy * -0.25 * s.size, s.trm[5] + uy * w + ux * -0.25 * s.size),
+            redactApply(ctm, s.trm[4] - uy * 0.85 * s.size, s.trm[5] + ux * 0.85 * s.size),
+            redactApply(ctm, s.trm[4] + ux * w - uy * 0.85 * s.size, s.trm[5] + uy * w + ux * 0.85 * s.size),
+          ];
+          const xs = cornersUser.map((c) => c.x);
+          const ys = cornersUser.map((c) => c.y);
+          const box = {
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            w: Math.max(...xs) - Math.min(...xs),
+            h: Math.max(...ys) - Math.min(...ys),
+          };
+          const inside = inAnyRect(box);
+          if (inside || touchesAnyRect(box)) {
+            touched = true;
+            if (!inside) ok = false;
+          }
+        }
+        if (touched && !ok) pageRefused = true;
+        else if (touched && ok) removals.push({ stream: { stream, flate }, block });
+      }
+    }
+    if (pageRefused) refusedPages.push(pi);
+  });
+
+  // replace AFTER the scan (multiple removals may target one stream)
+  const byStream = new Map<RedactStreamOp, string[]>();
+  for (const r of removals) {
+    const list = byStream.get(r.stream) ?? [];
+    list.push(r.block);
+    byStream.set(r.stream, list);
+  }
+  for (const [op, blocks] of byStream) {
+    let text = redactStreamText(op.stream);
+    if (text === null) continue;
+    for (const b of blocks) {
+      if (!text.includes(b)) continue;
+      text = text.replace(b, '');
+      removedBlocks += 1;
+    }
+    const out = latin1ToBytes(text);
+    (op.stream as { contents: Uint8Array }).contents = out; // readonly in .d.ts only
+    op.stream.dict.delete(PDFName.of('Filter'));
+    op.stream.dict.set(PDFName.of('Length'), PDFNumber.of(out.length));
+  }
+  return { refusedPages, removedBlocks };
+}
+
+// ─────────────────────────── images / annots / scrub / raster ───────────────────────────
+
+/** Deep clone of a PDF object graph for copy-on-write (refs stay refs). */
+function redactCloneObject(doc: PDFDocument, value: unknown): import('pdf-lib').PDFObject {
+  if (value instanceof PDFDict) {
+    const out = PDFDict.withContext(doc.context);
+    for (const [k, v] of value.entries()) {
+      out.set(PDFName.of(k.toString().slice(1)), redactCloneObject(doc, v));
+    }
+    return out;
+  }
+  if (value instanceof PDFArray) {
+    const out = PDFArray.withContext(doc.context);
+    for (let i = 0; i < value.size(); i += 1) {
+      out.push(redactCloneObject(doc, doc.context.lookup(value.get(i))));
+    }
+    return out;
+  }
+  return value as import('pdf-lib').PDFObject;
+}
+
+/**
+ * Removes image XObjects whose paint rectangle (CTM at `Do` time) intersects
+ * a redact rect on their page — a painted-over image keeps its pixels in the
+ * file, so true redaction must drop the object (the Do op AND the resource
+ * entry; /SMask + /Alternates die in the qpdf GC pass as unreferenced).
+ * Pages without their own /Resources get a per-page copy first (inherited-
+ * resources retirement), so trimming never mutates sibling pages.
+ */
+function redactRetireImages(doc: PDFDocument, scope: Map<number, RedactRect[]>): number {
+  let retired = 0;
+  doc.getPages().forEach((page, pi) => {
+    const rectsVisual = scope.get(pi);
+    if (!rectsVisual || rectsVisual.length === 0) return;
+    // ensure an OWN resources dict (copy-on-write from inherited)
+    if (!page.node.get(PDFName.of('Resources'))) {
+      const inherited = page.node.getInheritableAttribute(PDFName.of('Resources'));
+      if (inherited) {
+        page.node.set(PDFName.of('Resources'), doc.context.register(redactCloneObject(doc, inherited)));
+      }
+    }
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    if (!(res instanceof PDFDict)) return;
+    const xobjs = doc.context.lookup(res.get(PDFName.of('XObject')));
+    if (!(xobjs instanceof PDFDict)) return;
+    const kill = new Set<string>();
+    for (const { stream } of redactPageStreams(doc, page)) {
+      const text = redactStreamText(stream);
+      if (text === null) continue;
+      const toks = redactTokenize(text);
+      let pendingName: string | null = null;
+      let pendingNums: number[] = [];
+      const stack: number[][] = [];
+      let ctm = [1, 0, 0, 1, 0, 0];
+      for (const tok of toks) {
+        if (tok.t === 'name') {
+          pendingName = tok.v;
+          continue;
+        }
+        if (tok.t === 'num') {
+          pendingNums.push(Number(tok.v));
+          if (pendingNums.length > 6) pendingNums = pendingNums.slice(-6);
+          continue;
+        }
+        if (tok.t !== 'op') continue;
+        if (tok.v === 'q') stack.push(ctm.slice());
+        else if (tok.v === 'Q') ctm = stack.pop() ?? ctm;
+        else if (tok.v === 'cm' && pendingNums.length >= 6) ctm = redactMul(pendingNums.slice(-6), ctm);
+        else if (tok.v === 'Do' && pendingName) {
+          const xo = doc.context.lookup(xobjs.get(PDFName.of(pendingName)));
+          if (xo instanceof PDFRawStream && String(xo.dict.get(PDFName.of('Subtype')) ?? '') === '/Image') {
+            const pts = [
+              redactApply(ctm, 0, 0),
+              redactApply(ctm, 1, 0),
+              redactApply(ctm, 0, 1),
+              redactApply(ctm, 1, 1),
+            ];
+            const xs = pts.map((p) => p.x);
+            const ys = pts.map((p) => p.y);
+            const box = {
+              x: Math.min(...xs),
+              y: Math.min(...ys),
+              w: Math.max(...xs) - Math.min(...xs),
+              h: Math.max(...ys) - Math.min(...ys),
+            };
+            const eg = visibleGeometry(page);
+            for (const r of rectsVisual) {
+              const c1 = visualToPageSpace(r.x, r.y, eg);
+              const c2 = visualToPageSpace(r.x + r.w, r.y + r.h, eg);
+              const ux0 = Math.min(c1.x, c2.x);
+              const ux1 = Math.max(c1.x, c2.x);
+              const uy0 = Math.min(c1.y, c2.y);
+              const uy1 = Math.max(c1.y, c2.y);
+              if (box.x < ux1 && box.x + box.w > ux0 && box.y < uy1 && box.y + box.h > uy0) {
+                kill.add(pendingName);
+                break;
+              }
+            }
+          }
+        }
+        pendingName = null;
+        pendingNums = [];
+      }
+    }
+    for (const name of kill) {
+      xobjs.delete(PDFName.of(name));
+      retired += 1;
+    }
+  });
+  return retired;
+}
+
+/**
+ * Drops annotations overlapping any redact rect on their page (their text is
+ * not page content — the walker cannot clean it). Widgets escalate to FIELD
+ * level: the field leaves /AcroForm /Fields together with ALL sibling widgets
+ * (finding 7). Returns the surfaced disposition list.
+ */
+function redactDisposeAnnots(
+  doc: PDFDocument,
+  scope: Map<number, RedactRect[]>,
+): { page: number; dropped: number; fields: string[] }[] {
+  const deadFields = new Set<unknown>(); // field dict objects (identity)
+  const out: { page: number; dropped: number; fields: string[] }[] = [];
+
+  const fieldRoot = (annot: import('pdf-lib').PDFDict): import('pdf-lib').PDFDict => {
+    let cur = annot;
+    for (let d = 0; d < 8; d += 1) {
+      const parent = doc.context.lookup(cur.get(PDFName.of('Parent')));
+      if (parent instanceof PDFDict) cur = parent;
+      else break;
+    }
+    return cur;
+  };
+
+  doc.getPages().forEach((page, pi) => {
+    const rectsVisual = scope.get(pi);
+    if (!rectsVisual || rectsVisual.length === 0) return;
+    const annots = doc.context.lookup(page.node.get(PDFName.of('Annots')));
+    if (!(annots instanceof PDFArray)) return;
+    const eg = visibleGeometry(page);
+    const keep: unknown[] = [];
+    const fields: string[] = [];
+    let dropped = 0;
+    for (let i = 0; i < annots.size(); i += 1) {
+      const a = doc.context.lookup(annots.get(i));
+      let drop = false;
+      if (a instanceof PDFDict) {
+        const rect = a.get(PDFName.of('Rect'));
+        if (rect instanceof PDFArray && rect.size() >= 4) {
+          const x0 = Number(rect.get(0));
+          const y0 = Number(rect.get(1));
+          const x1 = Number(rect.get(2));
+          const y1 = Number(rect.get(3));
+          for (const r of rectsVisual) {
+            const c1 = visualToPageSpace(r.x, r.y, eg);
+            const c2 = visualToPageSpace(r.x + r.w, r.y + r.h, eg);
+            const ux0 = Math.min(c1.x, c2.x);
+            const ux1 = Math.max(c1.x, c2.x);
+            const uy0 = Math.min(c1.y, c2.y);
+            const uy1 = Math.max(c1.y, c2.y);
+            if (x0 < ux1 && x1 > ux0 && y0 < uy1 && y1 > uy0) {
+              drop = true;
+              break;
+            }
+          }
+        }
+        if (drop && String(a.get(PDFName.of('Subtype')) ?? '') === '/Widget') {
+          const root = fieldRoot(a);
+          deadFields.add(root);
+          const t = redactDecodeString(root.get(PDFName.of('T')));
+          if (t && !fields.includes(t)) fields.push(t);
+        }
+      }
+      if (drop) dropped += 1;
+      else keep.push(annots.get(i));
+    }
+    const keptArr = PDFArray.withContext(doc.context);
+    for (const ref of keep) keptArr.push(ref as import('pdf-lib').PDFObject);
+    page.node.set(PDFName.of('Annots'), keptArr);
+    if (dropped > 0) out.push({ page: pi + 1, dropped, fields });
+  });
+
+  // field-level removal: drop dead fields (and whole dead subtrees) from /AcroForm
+  if (deadFields.size > 0) {
+    const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+    if (acro instanceof PDFDict) {
+      const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
+      if (fields instanceof PDFArray) {
+        const keep: PO[] = [];
+        const walk = (ref: PO): boolean => {
+          const d = doc.context.lookup(ref);
+          if (!(d instanceof PDFDict)) return true;
+          if (deadFields.has(d)) return false;
+          const kids = doc.context.lookup(d.get(PDFName.of('Kids')) as PO);
+          if (kids instanceof PDFArray) {
+            const liveKids = PDFArray.withContext(doc.context);
+            for (let i = 0; i < kids.size(); i += 1) {
+              const kid = kids.get(i) as PO;
+              if (walk(kid)) liveKids.push(kid);
+            }
+            if (liveKids.size() !== kids.size()) d.set(PDFName.of('Kids'), liveKids);
+          }
+          return true;
+        };
+        for (let i = 0; i < fields.size(); i += 1) {
+          if (walk(fields.get(i))) keep.push(fields.get(i));
+        }
+        const keptFields = PDFArray.withContext(doc.context);
+        for (const ref of keep) keptFields.push(ref as import('pdf-lib').PDFObject);
+        acro.set(PDFName.of('Fields'), keptFields);
+      }
+    }
+  }
+  return out;
+}
+
+export interface RedactScrubAction {
+  channel: string;
+  /** Matched value prefix (surfaced to the user — never silent, finding 2). */
+  sample: string;
+}
+
+/**
+ * Doc-level scrub, scrub-ON-MATCH against `secrets` (finding 4: a duplicate
+ * on an unredacted page is untouched; doc channels are the leak surface).
+ * `skip` removes channels from scrubbing (surfaced list — the UI decides).
+ */
+function redactScrubDocChannels(
+  doc: PDFDocument,
+  secrets: string[],
+  skip: ReadonlySet<string>,
+): RedactScrubAction[] {
+  const { PDFName, PDFDict, PDFArray, PDFRawStream, PDFNumber } = pdfLibCache!;
+  const actions: RedactScrubAction[] = [];
+  const hit = (s: string): string | null => secrets.find((x) => s.includes(x)) ?? null;
+  if (skip.size <= 0 || !skip.has('all')) {
+    // /Info
+    const info = doc.context.lookup(doc.context.trailerInfo.Info);
+    if (info instanceof PDFDict) {
+      for (const [k, v] of [...info.entries()]) {
+        const s = redactDecodeString(v);
+        const m = s ? hit(s) : null;
+        if (m && !skip.has(`info:${k.toString().replace(/^\//, '')}`)) {
+          info.delete(k);
+          actions.push({ channel: `info:${k.toString().replace(/^\//, '')}`, sample: m.slice(0, 24) });
+        }
+      }
+    }
+    // XMP
+    const meta = doc.context.lookup(doc.catalog.get(PDFName.of('Metadata')));
+    if (meta instanceof PDFRawStream) {
+      const text = Buffer.from(meta.contents).toString('utf8');
+      if (text) {
+        const m = hit(text);
+        if (m && !skip.has('xmp')) {
+          let replaced = text;
+          for (const s of secrets) replaced = replaced.split(s).join('[REDACTED]');
+          const out = Buffer.from(replaced, 'utf8');
+          (meta as { contents: Uint8Array }).contents = new Uint8Array(out);
+          meta.dict.set(PDFName.of('Length'), PDFNumber.of(out.length));
+          meta.dict.delete(PDFName.of('Filter'));
+          actions.push({ channel: 'xmp', sample: m.slice(0, 24) });
+        }
+      }
+    }
+    // Outlines chain surgery
+    const outlines = doc.context.lookup(doc.catalog.get(PDFName.of('Outlines')));
+    if (outlines instanceof PDFDict && !skip.has('outlines')) {
+      let prevRef: PO | null = null;
+      let firstRef: PO | null = (outlines.get(PDFName.of('First')) ?? null) as PO | null;
+      let curRef: PO | null = firstRef;
+      const seen = new Set<unknown>();
+      let count = 0;
+      while (curRef) {
+        const node = doc.context.lookup(curRef);
+        if (!(node instanceof PDFDict) || seen.has(node)) break;
+        seen.add(node);
+        const t = redactDecodeString(node.get(PDFName.of('Title')));
+        const nextRef = (node.get(PDFName.of('Next')) ?? null) as PO | null;
+        const m = t ? hit(t) : null;
+        if (m) {
+          actions.push({ channel: 'outlines', sample: m.slice(0, 24) });
+          if (prevRef) {
+            const prev = doc.context.lookup(prevRef);
+            if (prev instanceof PDFDict) prev.set(PDFName.of('Next'), nextRef ?? PDFNull);
+          } else firstRef = nextRef;
+        } else {
+          count += 1;
+          prevRef = curRef;
+        }
+        curRef = nextRef;
+      }
+      outlines.set(PDFName.of('First'), firstRef ?? PDFNull);
+      outlines.set(PDFName.of('Last'), prevRef ?? PDFNull);
+      outlines.set(PDFName.of('Count'), PDFNumber.of(count));
+    }
+    // /Names trees
+    const names = doc.context.lookup(doc.catalog.get(PDFName.of('Names')));
+    if (names instanceof PDFDict) {
+      for (const tree of ['JavaScript', 'EmbeddedFiles'] as const) {
+        if (skip.has(`names:${tree}`)) continue;
+        const t = doc.context.lookup(names.get(PDFName.of(tree)));
+        const arr = t instanceof PDFDict ? doc.context.lookup(t.get(PDFName.of('Names'))) : null;
+        if (!(arr instanceof PDFArray)) continue;
+        const keep: unknown[] = [];
+        let removed = 0;
+        for (let i = 0; i < arr.size(); i += 2) {
+          const name = redactDecodeString(arr.get(i)) ?? '';
+          const val = doc.context.lookup(arr.get(i + 1));
+          let valText = '';
+          if (val instanceof PDFDict) {
+            valText += redactDecodeString(val.get(PDFName.of('JS'))) ?? '';
+            valText += redactDecodeString(val.get(PDFName.of('F'))) ?? '';
+            valText += redactDecodeString(val.get(PDFName.of('UF'))) ?? '';
+            const ef = doc.context.lookup(val.get(PDFName.of('EF')));
+            if (ef instanceof PDFDict) {
+              for (const key of ['F', 'UF'] as const) {
+                const st = doc.context.lookup(ef.get(PDFName.of(key)));
+                if (st instanceof PDFRawStream) {
+                  const inner = redactStreamText(st);
+                  if (inner !== null) valText += inner;
+                  else valText += Buffer.from(st.contents).toString('latin1');
+                }
+              }
+            }
+          }
+          const m = hit(name) ?? (valText ? hit(valText) : null);
+          if (m) {
+            removed += 1;
+            actions.push({ channel: `names:${tree}`, sample: m.slice(0, 24) });
+          } else {
+            keep.push(arr.get(i), arr.get(i + 1));
+          }
+        }
+        if (removed > 0 && t instanceof PDFDict) {
+          const namesArr = PDFArray.withContext(doc.context);
+          for (const ref of keep) namesArr.push(ref as import('pdf-lib').PDFObject);
+          t.set(PDFName.of('Names'), namesArr);
+          const limits = PDFArray.withContext(doc.context);
+          if (keep.length >= 2) {
+            limits.push(keep[0] as import('pdf-lib').PDFObject);
+            limits.push(keep[keep.length - 2] as import('pdf-lib').PDFObject);
+          }
+          t.set(PDFName.of('Limits'), limits);
+        }
+      }
+    }
+    // AcroForm /V /DV
+    const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+    if (acro instanceof PDFDict && !skip.has('acroform:V')) {
+      const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
+      const walkField = (d: unknown, depth: number): void => {
+        if (!(d instanceof PDFDict) || depth > 8) return;
+        for (const key of ['V', 'DV'] as const) {
+          const s = redactDecodeString(d.get(PDFName.of(key)));
+          const m = s ? hit(s) : null;
+          if (m) {
+            d.delete(PDFName.of(key));
+            actions.push({ channel: 'acroform:V', sample: m.slice(0, 24) });
+          }
+        }
+        const kids = doc.context.lookup(d.get(PDFName.of('Kids')));
+        if (kids instanceof PDFArray) {
+          for (let i = 0; i < kids.size(); i += 1) walkField(doc.context.lookup(kids.get(i)), depth + 1);
+        }
+      };
+      if (fields instanceof PDFArray) {
+        for (let i = 0; i < fields.size(); i += 1) walkField(doc.context.lookup(fields.get(i)), 0);
+      }
+    }
+    // StructTree /Alt /ActualText
+    const st = doc.context.lookup(doc.catalog.get(PDFName.of('StructTreeRoot')));
+    if (st instanceof PDFDict && !skip.has('structtree')) {
+      const walkStruct = (d: unknown, depth: number): void => {
+        if (!(d instanceof PDFDict) || depth > 10) return;
+        for (const key of ['Alt', 'ActualText'] as const) {
+          const s = redactDecodeString(d.get(PDFName.of(key)));
+          const m = s ? hit(s) : null;
+          if (m) {
+            d.delete(PDFName.of(key));
+            actions.push({ channel: 'structtree', sample: m.slice(0, 24) });
+          }
+        }
+        const kids = doc.context.lookup(d.get(PDFName.of('K')));
+        if (kids instanceof PDFArray) {
+          for (let i = 0; i < kids.size(); i += 1) walkStruct(doc.context.lookup(kids.get(i)), depth + 1);
+        } else walkStruct(kids, depth + 1);
+      };
+      walkStruct(st, 0);
+    }
+  }
+  return actions;
+}
+
+/**
+ * Raster page replacement, SAME page object (page refs and the outline
+ * stay valid): /Contents ← `q W 0 0 H 0 0 cm /Im0 Do Q`, /Resources
+ * {XObject:{Im0}} ONLY (everything else dies in the GC pass), MediaBox =
+ * [0 0 W H] with W/H the DISPLAYED dims, CropBox equal, /Rotate 0, /Annots
+ * dropped. The JPEG must already carry the painted rects (finding 1 — the
+ * wrapper paints pre-encode).
+ */
+async function redactReplacePageWithRaster(
+  doc: PDFDocument,
+  page: import('pdf-lib').PDFPage,
+  jpeg: Uint8Array,
+): Promise<void> {
+  const { PDFName, PDFRawStream, PDFNumber } = pdfLibCache!;
+  const eg = visibleGeometry(page);
+  const W = eg.visualWidth;
+  const H = eg.visualHeight;
+  const embedded = await doc.embedJpg(jpeg);
+  const ops = `q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`;
+  const content = PDFRawStream.of(doc.context.obj({ Length: ops.length }), latin1ToBytes(ops));
+  const contentRef = doc.context.register(content);
+  page.node.set(PDFName.of('Contents'), contentRef);
+  const imgName = PDFName.of('Im0');
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ XObject: { [imgName.toString().slice(1)]: embedded.ref } }),
+  );
+  page.node.set(
+    PDFName.of('MediaBox'),
+    doc.context.obj([0, 0, W, H].map((n) => PDFNumber.of(n))),
+  );
+  page.node.set(
+    PDFName.of('CropBox'),
+    doc.context.obj([0, 0, W, H].map((n) => PDFNumber.of(n))),
+  );
+  page.node.set(PDFName.of('Rotate'), PDFNumber.of(0));
+  page.node.delete(PDFName.of('Annots'));
+}
+
+// ─────────────────────────── byte-scan (scoped, decompressed) ───────────────────────────
+
+/** Needle encodings for a secret (finding 3): raw utf8, UTF-16BE ±BOM, and
+ * the hex TEXT of both byte forms. */
+function redactNeedles(secrets: string[]): { enc: string; bytes: Uint8Array }[] {
+  const needles: { enc: string; bytes: Uint8Array }[] = [];
+  for (const s of secrets) {
+    if (!s) continue;
+    const utf8 = Buffer.from(s, 'utf8');
+    const u16 = Buffer.alloc(s.length * 2);
+    for (let i = 0; i < s.length; i += 1) u16.writeUInt16BE(s.charCodeAt(i), i * 2);
+    needles.push({ enc: 'utf8', bytes: new Uint8Array(utf8) });
+    needles.push({ enc: 'utf16be', bytes: new Uint8Array(u16) });
+    needles.push({ enc: 'utf16be-bom', bytes: new Uint8Array(Buffer.concat([Buffer.from([0xfe, 0xff]), u16])) });
+    needles.push({ enc: 'hex-utf8', bytes: latin1ToBytes(utf8.toString('hex').toUpperCase()) });
+    needles.push({ enc: 'hex-utf16be', bytes: latin1ToBytes(u16.toString('hex').toUpperCase()) });
+  }
+  return needles;
+}
+
+interface RedactHygieneBlob {
+  where: string;
+  bytes: Uint8Array;
+}
+
+async function redactCollectScopedBlobs(
+  doc: PDFDocument,
+  affectedPages: number[], // 1-based
+): Promise<RedactHygieneBlob[]> {
+  const { PDFName, PDFDict, PDFArray, PDFRawStream } = pdfLibCache!;
+  const blobs: RedactHygieneBlob[] = [];
+  const addText = (where: string, text: string | null): void => {
+    if (text !== null) blobs.push({ where, bytes: latin1ToBytes(text) });
+  };
+  const addStream = (where: string, s: unknown): void => {
+    if (!(s instanceof PDFRawStream)) return;
+    const text = redactStreamText(s);
+    if (text !== null) addText(where, text);
+    else blobs.push({ where, bytes: s.contents });
+  };
+  const walkResources = (resRef: unknown, where: string, depth: number): void => {
+    const res = doc.context.lookup(resRef as import('pdf-lib').PDFObject);
+    if (!(res instanceof PDFDict) || depth > 5) return;
+    const fonts = doc.context.lookup(res.get(PDFName.of('Font')));
+    if (fonts instanceof PDFDict) {
+      for (const [k, v] of fonts.entries()) {
+        const fd = doc.context.lookup(v);
+        if (!(fd instanceof PDFDict)) continue;
+        addStream(`${where}/Font${k}/ToUnicode`, doc.context.lookup(fd.get(PDFName.of('ToUnicode'))));
+      }
+    }
+    const xobjs = doc.context.lookup(res.get(PDFName.of('XObject')));
+    if (xobjs instanceof PDFDict) {
+      for (const [k, v] of xobjs.entries()) {
+        const s = doc.context.lookup(v);
+        if (s instanceof PDFRawStream) {
+          addStream(`${where}/XObject${k}`, s);
+          walkResources(s.dict.get(PDFName.of('Resources')), `${where}/XObject${k}`, depth + 1);
+        }
+      }
+    }
+    const pats = doc.context.lookup(res.get(PDFName.of('Pattern')));
+    if (pats instanceof PDFDict) {
+      for (const [k, v] of pats.entries()) addStream(`${where}/Pattern${k}`, doc.context.lookup(v));
+    }
+  };
+  for (const p1 of affectedPages) {
+    const page = doc.getPage(p1 - 1);
+    const contents = doc.context.lookup(page.node.get(PDFName.of('Contents')) as import('pdf-lib').PDFObject);
+    if (contents instanceof PDFRawStream) addStream(`p${p1}/Contents`, contents);
+    else if (contents instanceof PDFArray) {
+      for (let i = 0; i < contents.size(); i += 1) {
+        addStream(`p${p1}/Contents[${i}]`, doc.context.lookup(contents.get(i)));
+      }
+    }
+    const annots = doc.context.lookup(page.node.get(PDFName.of('Annots')));
+    if (annots instanceof PDFArray) {
+      for (let i = 0; i < annots.size(); i += 1) {
+        const a = doc.context.lookup(annots.get(i));
+        if (!(a instanceof PDFDict)) continue;
+        addText(`p${p1}/Annots[${i}]/Contents`, redactDecodeString(a.get(PDFName.of('Contents'))));
+        const ap = doc.context.lookup(a.get(PDFName.of('AP')));
+        if (ap instanceof PDFDict) {
+          for (const key of ['N', 'D', 'R'] as const) {
+            addStream(`p${p1}/Annots[${i}]/AP/${key}`, doc.context.lookup(ap.get(PDFName.of(key))));
+          }
+        }
+      }
+    }
+    walkResources(page.node.get(PDFName.of('Resources')), `p${p1}`, 0);
+  }
+  // doc-level scrub targets (the other half of the scope, finding 4)
+  const info = doc.context.lookup(doc.context.trailerInfo.Info);
+  if (info instanceof PDFDict) {
+    for (const [k, v] of info.entries()) {
+      addText(`Info/${k}`, redactDecodeString(v));
+    }
+  }
+  addStream('Metadata', doc.context.lookup(doc.catalog.get(PDFName.of('Metadata'))));
+  const outlines = doc.context.lookup(doc.catalog.get(PDFName.of('Outlines')));
+  if (outlines instanceof PDFDict) {
+    let node = doc.context.lookup(outlines.get(PDFName.of('First')) as import('pdf-lib').PDFObject);
+    const seen = new Set<unknown>();
+    while (node instanceof PDFDict && !seen.has(node)) {
+      seen.add(node);
+      addText('Outlines/Title', redactDecodeString(node.get(PDFName.of('Title'))));
+      node = doc.context.lookup(node.get(PDFName.of('Next')) as import('pdf-lib').PDFObject);
+    }
+  }
+  const names = doc.context.lookup(doc.catalog.get(PDFName.of('Names')));
+  if (names instanceof PDFDict) {
+    for (const tree of ['JavaScript', 'EmbeddedFiles'] as const) {
+      const t = doc.context.lookup(names.get(PDFName.of(tree)));
+      const arr = t instanceof PDFDict ? doc.context.lookup(t.get(PDFName.of('Names'))) : null;
+      if (!(arr instanceof PDFArray)) continue;
+      for (let i = 0; i < arr.size(); i += 2) {
+        addText(`Names/${tree}[${i}]`, redactDecodeString(arr.get(i)));
+        const val = doc.context.lookup(arr.get(i + 1));
+        if (val instanceof PDFDict) {
+          addText(`Names/${tree}[${i}]/JS`, redactDecodeString(val.get(PDFName.of('JS'))));
+          addText(`Names/${tree}[${i}]/F`, redactDecodeString(val.get(PDFName.of('F'))));
+          addText(`Names/${tree}[${i}]/UF`, redactDecodeString(val.get(PDFName.of('UF'))));
+          const ef = doc.context.lookup(val.get(PDFName.of('EF')));
+          if (ef instanceof PDFDict) {
+            for (const key of ['F', 'UF'] as const) {
+              addStream(`Names/${tree}[${i}]/EF/${key}`, doc.context.lookup(ef.get(PDFName.of(key))));
+            }
+          }
+        }
+      }
+    }
+  }
+  const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+  if (acro instanceof PDFDict) {
+    const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
+    const walkField = (d: unknown, where: string, depth: number): void => {
+      if (!(d instanceof PDFDict) || depth > 8) return;
+      for (const key of ['V', 'DV'] as const) {
+        addText(`${where}/${key}`, redactDecodeString(d.get(PDFName.of(key))));
+      }
+      const kids = doc.context.lookup(d.get(PDFName.of('Kids')));
+      if (kids instanceof PDFArray) {
+        for (let i = 0; i < kids.size(); i += 1) {
+          walkField(doc.context.lookup(kids.get(i)), `${where}/Kids[${i}]`, depth + 1);
+        }
+      }
+    };
+    if (fields instanceof PDFArray) {
+      for (let i = 0; i < fields.size(); i += 1) walkField(doc.context.lookup(fields.get(i)), `AcroForm[${i}]`, 0);
+    }
+  }
+  const st = doc.context.lookup(doc.catalog.get(PDFName.of('StructTreeRoot')));
+  if (st instanceof PDFDict) {
+    const walkStruct = (d: unknown, where: string, depth: number): void => {
+      if (!(d instanceof PDFDict) || depth > 10) return;
+      for (const key of ['Alt', 'ActualText'] as const) {
+        addText(`${where}/${key}`, redactDecodeString(d.get(PDFName.of(key))));
+      }
+      const kids = doc.context.lookup(d.get(PDFName.of('K')));
+      if (kids instanceof PDFArray) {
+        for (let i = 0; i < kids.size(); i += 1) walkStruct(doc.context.lookup(kids.get(i)), `${where}/K[${i}]`, depth + 1);
+      } else walkStruct(kids, `${where}/K`, depth + 1);
+    };
+    walkStruct(st, 'StructTreeRoot', 0);
+  }
+  return blobs;
+}
+
+// ─────────────────────────── composed finalize ───────────────────────────
+
+export interface RedactFinalizeSpec {
+  /** Text being redacted (drives the byte-scan + scrub-on-match). */
+  secrets: string[];
+  /** Surgical rect marks (visual space). Pages must be census-clean. */
+  surgical?: RedactSurgicalPage[];
+  /** Pre-rendered raster JPEGs with the rects ALREADY PAINTED (finding 1). */
+  raster?: { page: number; jpeg: Uint8Array }[];
+  /** Doc channels to LEAVE untouched (surfaced in the UI, finding 2). */
+  scrubSkip?: string[];
+}
+
+export interface RedactFinalizeResult {
+  bytes: Uint8Array;
+  removedBlocks: number;
+  retiredImages: number;
+  annots: { page: number; dropped: number; fields: string[] }[];
+  scrubActions: RedactScrubAction[];
+  rasterPages: number[];
+  surgicalPages: number[];
+}
+
+/**
+ * THE deliver-capable redact op (finding 5). Order (researcher §Q2):
+ * refuse-checks → surgical removal → image retirement → annot disposition →
+ * doc scrub → raster replacement → pdf-lib full rewrite → INTERNAL qpdf
+ * rewrite (orphan GC — the orphan rule) → scoped decompressed byte-scan.
+ * Any verify failure discards the output (typed error); nothing partial is
+ * ever returned.
+ */
+export async function redactFinalize(
+  bytes: Uint8Array,
+  spec: RedactFinalizeSpec,
+): Promise<RedactFinalizeResult> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument, PDFName, PDFArray, PDFDict } = pdfLib;
+  const secrets = spec.secrets.map((s) => s.trim()).filter((s) => s.length > 0);
+  if (secrets.length === 0) throw new RedactRefusedError('No redaction marks were provided.');
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  const pageCount = doc.getPageCount();
+  const clamp = (p: number): number | null => (Number.isInteger(p) && p >= 1 && p <= pageCount ? p : null);
+
+  const surgical = (spec.surgical ?? []).filter((s) => clamp(s.page) !== null);
+  const raster = (spec.raster ?? []).filter((r) => clamp(r.page) !== null);
+  const rasterPages = new Set(raster.map((r) => r.page));
+  const surgicalScope = new Map<number, RedactRect[]>(); // 0-based
+  for (const s of surgical) {
+    const p1 = s.page;
+    if (rasterPages.has(p1)) continue; // raster wins for the page
+    if (!s.rects.length) continue;
+    const existing = surgicalScope.get(p1 - 1) ?? [];
+    existing.push(...s.rects);
+    surgicalScope.set(p1 - 1, existing);
+  }
+
+  // refuse-checks BEFORE any mutation
+  for (const page of doc.getPages()) {
+    const res = doc.context.lookup(page.node.get(PDFName.of('Resources')));
+    if (!(res instanceof PDFDict)) continue;
+    const fonts = doc.context.lookup(res.get(PDFName.of('Font')));
+    if (!(fonts instanceof PDFDict)) continue;
+    for (const [, v] of fonts.entries()) {
+      const fd = doc.context.lookup(v);
+      if (fd instanceof PDFDict && String(fd.get(PDFName.of('Wmode')) ?? '') === '/1') {
+        throw new RedactRefusedError('Vertical text runs are not supported by redaction.');
+      }
+    }
+  }
+  const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+  if (acro instanceof PDFDict) {
+    const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
+    const walkSig = (d: unknown, depth: number): boolean => {
+      if (!(d instanceof PDFDict) || depth > 8) return false;
+      if (String(d.get(PDFName.of('FT')) ?? '') === '/Sig') {
+        const v = doc.context.lookup(d.get(PDFName.of('V')));
+        if (v instanceof PDFDict && v.get(PDFName.of('ByteRange'))) return true;
+      }
+      const kids = doc.context.lookup(d.get(PDFName.of('Kids')));
+      if (kids instanceof PDFArray) {
+        for (let i = 0; i < kids.size(); i += 1) {
+          if (walkSig(doc.context.lookup(kids.get(i)), depth + 1)) return true;
+        }
+      }
+      return false;
+    };
+    if (fields instanceof PDFArray) {
+      for (let i = 0; i < fields.size(); i += 1) {
+        if (walkSig(doc.context.lookup(fields.get(i)), 0)) {
+          throw new RedactRefusedError('The document carries a digital signature; redaction would invalidate it.');
+        }
+      }
+    }
+  }
+
+  // census gate: a surgical page carrying escalate-tier constructs must ride
+  // the raster path instead (finding 7)
+  const census = await redactCensus(bytes);
+  const flaggedPages = new Set(census.pages.map((p) => p.page));
+  for (const p1 of surgicalScope.keys()) {
+    if (flaggedPages.has(p1 + 1) && !rasterPages.has(p1 + 1)) {
+      throw new RedactRefusedError(
+        `Page ${p1 + 1} carries constructs that force rasterization (census: ${census.pages
+          .find((p) => p.page === p1 + 1)!
+          .kinds.join(', ')}); supply a raster page for it.`,
+      );
+    }
+  }
+
+  // 1. surgical
+  const outcome = redactSurgicalRemove(doc, surgicalScope);
+  if (outcome.refusedPages.length > 0) {
+    const list = outcome.refusedPages.map((i) => i + 1).join(', ');
+    throw new RedactRefusedError(
+      `Pages ${list} only partially cover their text with marks — expand the marks or rasterize those pages.`,
+    );
+  }
+
+  // 2. image retirement + 3. annots (surgical pages; raster pages drop all below)
+  const retiredImages = redactRetireImages(doc, surgicalScope);
+  const annots = redactDisposeAnnots(doc, surgicalScope);
+
+  // 4. doc scrub
+  const skip = new Set(spec.scrubSkip ?? []);
+  const scrubActions = redactScrubDocChannels(doc, secrets, skip);
+
+  // 5. raster replacement
+  for (const r of raster) {
+    await redactReplacePageWithRaster(doc, doc.getPage(r.page - 1), r.jpeg);
+  }
+
+  // 6. full rewrite (never incremental) → 7. internal qpdf orphan-GC rewrite
+  const rewritten = await doc.save({ useObjectStreams: false });
+  let gc: Uint8Array;
+  try {
+    gc = await qpdfRewrite(rewritten);
+  } catch (e) {
+    if (e instanceof QpdfRewriteRefusedError) {
+      throw new RedactRefusedError('The file cannot be safely rewritten (qpdf refused).');
+    }
+    throw e;
+  }
+
+  // 8. scoped decompressed byte-scan — fail closed, discard everything
+  const canon = await qpdfCanonicalUncompress(gc);
+  const canonDoc = await PDFDocument.load(canon, { ignoreEncryption: true });
+  const affectedPages = [...new Set([...surgicalScope.keys()].map((i) => i + 1).concat([...rasterPages]))].sort((a, b) => a - b);
+  const blobs = await redactCollectScopedBlobs(canonDoc, affectedPages);
+  const needles = redactNeedles(secrets);
+  for (const blob of blobs) {
+    for (const nd of needles) {
+      if (nd.bytes.length > 0 && indexOfBytes(blob.bytes, nd.bytes) >= 0) {
+        throw new RedactVerifyError(
+          `Residue found (${nd.enc}) in ${blob.where} — output discarded.`,
+        );
+      }
+    }
+  }
+
+  return {
+    bytes: gc,
+    removedBlocks: outcome.removedBlocks,
+    retiredImages,
+    annots,
+    scrubActions,
+    rasterPages: [...rasterPages].sort((a, b) => a - b),
+    surgicalPages: [...surgicalScope.keys()].map((i) => i + 1).sort((a, b) => a - b),
+  };
+}
+
+/** Uint8Array index-of (Buffer-free so the code runs in browser workers too). */
+function indexOfBytes(haystack: Uint8Array, needle: Uint8Array): number {
+  outer: for (let i = 0; i + needle.length <= haystack.length; i += 1) {
+    for (let j = 0; j < needle.length; j += 1) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+// ─────────────────────────── raster clamp (finding 10) ───────────────────────────
+
+/** Max rasterized long edge px (researcher's conservative ceiling 4096). */
+export const REDACT_RASTER_MAX_LONG_EDGE = 4096;
+/** iOS-safe total pixel budget for one rendered page. */
+export const REDACT_RASTER_MAX_PIXELS = 4096 * 4096;
+
+/**
+ * EXPLICIT render clamp (finding 10: there is NO pdf.js maxCanvasPixels
+ * default on the renderPageToCanvas path — the cap lives in the viewer
+ * layer, so the wrapper must clamp here): `min(dpi/72, longEdgeCap / max(w,h),
+ * sqrt(pixelBudget / (w*h)))`.
+ */
+export function redactRasterScale(visualWidth: number, visualHeight: number, dpi = 150): number {
+  const byDpi = dpi / 72;
+  const byLongEdge = REDACT_RASTER_MAX_LONG_EDGE / Math.max(visualWidth, visualHeight);
+  const byPixels = Math.sqrt(REDACT_RASTER_MAX_PIXELS / (visualWidth * visualHeight));
+  return Math.max(0.1, Math.min(byDpi, byLongEdge, byPixels));
 }

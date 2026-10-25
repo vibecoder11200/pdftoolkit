@@ -182,4 +182,21 @@ export const engine = {
     bytes: Uint8Array,
     opts?: import('../engine/pdf-lib').ReverseOwnWatermarkOptions,
   ) => call((r) => r.reverseOwnWatermark(owned(bytes) as Uint8Array, opts)),
+  // Redact (v0.9.0 phase 2): census is read-only; finalize is THE deliver-
+  // capable op. qpdfRewrite / qpdfCanonicalUncompress stay INTERNAL to the
+  // finalize tail — never exposed on this surface (invariant 2).
+  redactCensus: (bytes: Uint8Array) => call((r) => r.redactCensus(owned(bytes) as Uint8Array)),
+  redactFinalize: (
+    bytes: Uint8Array,
+    spec: import('../engine/pdf-lib').RedactFinalizeSpec,
+  ) =>
+    call((r) =>
+      r.redactFinalize(
+        owned(bytes) as Uint8Array,
+        {
+          ...spec,
+          raster: spec.raster?.map((rr) => ({ page: rr.page, jpeg: owned(rr.jpeg) as Uint8Array })),
+        },
+      ),
+    ),
 };

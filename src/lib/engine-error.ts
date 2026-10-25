@@ -13,6 +13,23 @@ export function isEngineCrashedError(err: unknown): boolean {
 }
 
 /**
+ * Redact typed errors (v0.9.0 phase 2) — name-based across comlink:
+ * RedactRefusedError (pre-mutation refusal: signed/encrypted/vertical text/
+ * partial coverage/no raster for a flagged page) vs RedactVerifyError
+ * (post-output residue — output discarded, fail closed) vs RedactParseError
+ * (parse anomaly, output untouched).
+ */
+export function isRedactRefusedError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'RedactRefusedError';
+}
+export function isRedactVerifyError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'RedactVerifyError';
+}
+export function isRedactParseError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'RedactParseError';
+}
+
+/**
  * Maps an engine failure to the shell's error prop: crashed → ErrorDetail
  * with the Retry affordance; anything else keeps the caller's legacy string
  * (so existing per-tool error copy is untouched).

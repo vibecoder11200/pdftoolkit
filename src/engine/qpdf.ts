@@ -140,3 +140,41 @@ export async function decryptPdf(input: Uint8Array, password: string): Promise<U
   await PDFDocument.load(out, { ignoreEncryption: false });
   return out;
 }
+
+/*
+ * Redact finalize tail (v0.9.0 phase 2). Both are INTERNAL helpers of
+ * redactFinalize (pdf-lib.ts) — deliberately NOT wired through client.ts, so
+ * no caller can order a rewrite without the verify tail (invariant 2).
+ *
+ * qpdfRewrite: plain traversal-based rewrite — the "orphan GC" pass. qpdf
+ * drops every UNREFERENCED object (superseded incremental-revision leftovers
+ * the pdf-lib whole-file parser would re-emit); residue inside still-
+ * REFERENCED objects survives it and is caught by the decompressed byte-scan.
+ * Exit policy mirrors linearize (0|3 acceptable — damaged old scans that most
+ * need redaction often exit 3 with repair warnings); exit 2 → the file cannot
+ * be safely rewritten → typed refusal upstream.
+ */
+export class QpdfRewriteRefusedError extends Error {
+  constructor(code: number | undefined) {
+    super(`qpdf rewrite refused the file (exit ${code}).`);
+    this.name = 'QpdfRewriteRefusedError';
+  }
+}
+
+export async function qpdfRewrite(input: Uint8Array): Promise<Uint8Array> {
+  const out = await runQpdfFile(input, (i, o) => ['--', i, o], {
+    acceptableExit: (c) => c === 0 || c === 3 || c === undefined,
+    onExit: (code) => {
+      if (code === 3) console.warn('[redact] qpdf rewrite exited 3 (warnings) — output kept');
+    },
+  });
+  if (out.byteLength === 0) throw new QpdfRewriteRefusedError(-1);
+  return out;
+}
+
+/** The verification form: streams decompressed, object streams disabled —
+ * what the scoped byte-scan runs over (qpdf flate-compresses by DEFAULT, so
+ * a scan on the shipped form sees nothing — red-team finding 3). */
+export async function qpdfCanonicalUncompress(input: Uint8Array): Promise<Uint8Array> {
+  return runQpdfFile(input, (i, o) => ['--stream-data=uncompress', '--object-streams=disable', '--', i, o]);
+}

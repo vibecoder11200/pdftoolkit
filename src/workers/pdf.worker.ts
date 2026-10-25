@@ -57,6 +57,16 @@ export interface WorkerApi {
     bytes: Uint8Array,
     opts?: import('../engine/pdf-lib').ReverseOwnWatermarkOptions,
   ): Promise<Uint8Array>;
+  /** Redact census (v0.9.0 phase 2): read-only whole-document construct
+   * report — per-page escalate-tier hits + doc-level channel inventory. */
+  redactCensus(bytes: Uint8Array): Promise<import('../engine/pdf-lib').RedactCensusReport>;
+  /** Redact finalize (v0.9.0 phase 2): THE deliver-capable composed op —
+   * surgical → scrub → raster-replace → full rewrite → internal qpdf orphan
+   * GC → scoped decompressed byte-scan. Typed errors by name. */
+  redactFinalize(
+    bytes: Uint8Array,
+    spec: import('../engine/pdf-lib').RedactFinalizeSpec,
+  ): Promise<import('../engine/pdf-lib').RedactFinalizeResult>;
   /** Page numbers (v0.8.0): token template rendered per in-scope page. */
   applyPageNumbers(
     bytes: Uint8Array,
@@ -106,6 +116,12 @@ const api: WorkerApi = {
   stampWatermark: (bytes, opts, fontTtf) => lib.stampWatermark(bytes, opts, fontTtf),
   removeWatermark: (bytes, opts) => lib.removeWatermark(bytes, opts),
   reverseOwnWatermark: (bytes, opts) => lib.reverseOwnWatermark(bytes, opts),
+  redactCensus: (bytes) => lib.redactCensus(bytes),
+  redactFinalize: async (bytes, spec) => {
+    const result = await lib.redactFinalize(bytes, spec);
+    // Same transfer contract as the neighbors (multi-page document).
+    return transfer(result, [result.bytes.buffer]);
+  },
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');
