@@ -20,7 +20,10 @@
     "loading": "Đang xử lý...",
     "keyboard_move_hint": "Alt + ←/→ để di chuyển trang đang focus",
     "page_n": "Trang {{n}}",
-    "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
+        "page_drag_handle": "Kéo để đổi thứ tự trang {{n}}",
+    "page_move_left": "Chuyển trang {{n}} sang trái",
+    "page_move_right": "Chuyển trang {{n}} sang phải",
+"page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
   },
   "dropzone": {
     "single_taken": "Chỉ nhận 1 file — đã lấy file đầu tiên."

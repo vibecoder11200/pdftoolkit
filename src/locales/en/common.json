@@ -20,7 +20,10 @@
     "loading": "Working...",
     "keyboard_move_hint": "Alt + ←/→ to move the focused page",
     "page_n": "Page {{n}}",
-    "page_moved": "Moved page {{page}} to position {{position}}"
+        "page_drag_handle": "Drag to reorder page {{n}}",
+    "page_move_left": "Move page {{n}} left",
+    "page_move_right": "Move page {{n}} right",
+"page_moved": "Moved page {{page}} to position {{position}}"
   },
   "dropzone": {
     "single_taken": "Only one file is accepted — taking the first one."

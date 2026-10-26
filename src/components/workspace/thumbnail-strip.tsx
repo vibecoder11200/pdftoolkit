@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '../ui/dialog';
 import { CheckIcon, ExpandIcon } from '../ui/icons';
@@ -33,6 +33,28 @@ export function ThumbnailStrip({
 }: ThumbnailStripProps) {
   const [fs, setFs] = useState<number | null>(null);
   const { t } = useTranslation();
+  // Pointer-based reorder (v0.9.0 phase 8): HTML5 DnD never fires on touch,
+  // so dragging works ONLY from the dedicated grip handle — the strip keeps
+  // scrolling normally everywhere else (the safer default against scroll
+  // hijacking). Live-move: crossing another cell reorders immediately, the
+  // same contract the HTML5 drop path uses.
+  const dragRef = useRef<{ fromPage: number; pointerId: number } | null>(null);
+  const onHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>, page: number) => {
+    if (!onMove) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { fromPage: page, pointerId: e.pointerId };
+  };
+  const onHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el?.closest?.('[data-page-cell]') as HTMLElement | null;
+    const target = Number(cell?.dataset.pageCell);
+    if (Number.isFinite(target) && target !== drag.fromPage) onMove?.(drag.fromPage, target);
+  };
+  const onHandlePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
+  };
   // Screen-reader announcement for keyboard moves — cells are role=checkbox,
   // which conveys nothing about reordering on its own.
   const [movedAnnouncement, setMovedAnnouncement] = useState<string | null>(null);
@@ -53,6 +75,7 @@ export function ThumbnailStrip({
             role="checkbox"
             aria-checked={p.selected}
             aria-label={t('a11y.page_n', { n: p.pageNumber })}
+            data-page-cell={p.pageNumber}
             tabIndex={0}
             draggable={Boolean(onMove)}
             onClick={() => onToggle(p.pageNumber, idx)}
@@ -88,6 +111,63 @@ export function ThumbnailStrip({
             <span className="absolute top-2.5 left-2.5 rounded-md bg-surface-inverse/85 px-1.75 py-0.5 text-[11px] font-bold text-text-inverse tabular-nums">
               {p.pageNumber}
             </span>
+            {onMove ? (
+              <>
+                <button
+                  type="button"
+                  aria-label={t('a11y.page_drag_handle', { n: p.pageNumber })}
+                  className="absolute top-1.5 left-1/2 grid h-7 w-9 -translate-x-1/2 cursor-grab touch-none place-items-center rounded-md bg-surface-card/80 text-text-muted active:cursor-grabbing"
+                  onPointerDown={(e) => onHandlePointerDown(e, p.pageNumber)}
+                  onPointerMove={onHandlePointerMove}
+                  onPointerUp={onHandlePointerEnd}
+                  onPointerCancel={onHandlePointerEnd}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                    {[
+                      [4, 3],
+                      [7, 3],
+                      [10, 3],
+                      [4, 7],
+                      [7, 7],
+                      [10, 7],
+                      [4, 11],
+                      [7, 11],
+                      [10, 11],
+                    ].map(([cx, cy]) => (
+                      <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.2" fill="currentColor" />
+                    ))}
+                  </svg>
+                </button>
+                <span className="absolute bottom-2.5 left-2.5 flex gap-1">
+                  <button
+                    type="button"
+                    aria-label={t('a11y.page_move_left', { n: p.pageNumber })}
+                    className="grid h-7 w-7 place-items-center rounded-md border border-border-strong bg-surface-card text-[13px] text-text-muted disabled:opacity-30"
+                    disabled={idx === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (idx > 0) onMove(p.pageNumber, pages[idx - 1]!.pageNumber);
+                    }}
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('a11y.page_move_right', { n: p.pageNumber })}
+                    className="grid h-7 w-7 place-items-center rounded-md border border-border-strong bg-surface-card text-[13px] text-text-muted disabled:opacity-30"
+                    disabled={idx === pages.length - 1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (idx < pages.length - 1) onMove(p.pageNumber, pages[idx + 1]!.pageNumber);
+                    }}
+                  >
+                    →
+                  </button>
+                </span>
+              </>
+            ) : null}
             <span
               className={`absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
                 p.selected ? 'border-accent bg-accent text-text-on-accent' : 'border-border-strong bg-surface-card text-transparent'
