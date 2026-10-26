@@ -5,7 +5,11 @@
 import * as pdfjs from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+// vitest aliases pdfjs-dist to a helper that pre-sets an absolute workerSrc
+// (the Node-safe legacy worker); never overwrite a preset value.
+if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+}
 
 // Standard-font programs (Helvetica & friends) for PDFs that reference them
 // without embedding. Emitted next to the JS bundle by vite.config.ts and

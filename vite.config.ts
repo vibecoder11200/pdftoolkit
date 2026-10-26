@@ -309,11 +309,11 @@ export default defineConfig({
     alias: [
       {
         // src/engine/pdfjs.ts is the main-thread (browser/modern-build)
-        // adapter; under Node only the legacy pdf.js build works. This
-        // makes the "legacy build is test-only (Node)" seam real for specs
-        // importing the module (getPageTextItems et al).
+        // adapter; under Node only the legacy pdf.js build works. The
+        // helper pre-sets an absolute workerSrc (vitest 4's URL mangling
+        // otherwise breaks pdf.js's fake-worker fallback).
         find: /^pdfjs-dist$/,
-        replacement: 'pdfjs-dist/legacy/build/pdf.mjs',
+        replacement: fileURLToPath(new URL('./tests/helpers/pdfjs-node.ts', import.meta.url)),
       },
     ],
   },
