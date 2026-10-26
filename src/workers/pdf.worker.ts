@@ -169,7 +169,9 @@ const api: WorkerApi = {
     // first JPEG encode, never at worker boot.
     const { encode } = await import('@jsquash/jpeg');
     // Construct a real ImageData (jsquash only reads data/width/height).
-    const input = new ImageData(imageData.data, imageData.width, imageData.height);
+    // jsquash's wasm data is ArrayBufferLike-backed; TS 7 wants the strict
+    // view type (the constructor only reads data/width/height).
+    const input = new ImageData(imageData.data as unknown as Uint8ClampedArray<ArrayBuffer>, imageData.width, imageData.height);
     const out = await encode(input, {
       quality: opts.quality,
       progressive: opts.progressive ?? true,

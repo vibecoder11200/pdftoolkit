@@ -12,6 +12,7 @@
  */
 // Namespace imports: asn1js/pkijs ESM builds ship named exports only.
 import * as asn1js from 'asn1js';
+import { toArrayBuffer } from '../lib/buffers';
 import * as pkijs from 'pkijs';
 
 /** Wrong password (PKCS#12 MAC failure) — keep the file, wipe password, retry. */
@@ -60,6 +61,9 @@ function cnOf(name: pkijs.RelativeDistinguishedNames): string {
 }
 
 async function parseBags(p12Bytes: Uint8Array, password: Uint8Array) {
+  // pkijs types demand ArrayBuffer-backed passwords (TS 7 BufferSource
+  // strictness) — one exact-bounds copy at the boundary.
+  const pwdBuf = toArrayBuffer(password);
   let pfx: pkijs.PFX;
   try {
     // Garbage fails HERE (fromBER or the PFX schema check) — that is the
@@ -71,7 +75,7 @@ async function parseBags(p12Bytes: Uint8Array, password: Uint8Array) {
   try {
     // checkIntegrity verifies the MAC with the password — the canonical
     // wrong-password signal (a corrupt file fails earlier, in fromBER).
-    await pfx.parseInternalValues({ password, checkIntegrity: true });
+    await pfx.parseInternalValues({ password: pwdBuf, checkIntegrity: true });
   } catch (e) {
     if (e instanceof Error && /integrity/i.test(e.message)) throw new CertBadPasswordError();
     throw new CertInvalidError(e instanceof Error ? `(${e.message})` : '');
@@ -84,7 +88,7 @@ async function parseBags(p12Bytes: Uint8Array, password: Uint8Array) {
     let safeContents: pkijs.SafeContents;
     if (content.contentType === OID_ENCRYPTED_DATA) {
       const encrypted = new pkijs.EncryptedData({ schema: content.content });
-      safeContents = pkijs.SafeContents.fromBER(await encrypted.decrypt({ password }));
+      safeContents = pkijs.SafeContents.fromBER(await encrypted.decrypt({ password: pwdBuf }));
     } else {
       safeContents = pkijs.SafeContents.fromBER(content.content.getValue());
     }
@@ -102,10 +106,10 @@ async function parseBags(p12Bytes: Uint8Array, password: Uint8Array) {
         // parseInternalValues is protected in pkijs types but is the documented
         // way to decrypt the shrouded bag with the user's password.
         const keyBag = bag.bagValue as unknown as {
-          parseInternalValues: (p: { password: Uint8Array }) => Promise<void>;
+          parseInternalValues: (p: { password: ArrayBuffer }) => Promise<void>;
           parsedValue: pkijs.PrivateKeyInfo;
         };
-        await keyBag.parseInternalValues({ password });
+        await keyBag.parseInternalValues({ password: pwdBuf });
         pkcs8 = new Uint8Array(keyBag.parsedValue.toSchema().toBER(false));
       }
     }
@@ -352,7 +356,7 @@ export async function signWithCertificate(
     throw err;
   }
   const { certs, pkcs8 } = await parseBags(p12Bytes, utf8.encode(password));
-  const key = await crypto.subtle.importKey('pkcs8', pkcs8, importAlgFor(certs[0].subjectPublicKeyInfo.algorithm), true, ['sign']);
+  const key = await crypto.subtle.importKey('pkcs8', toArrayBuffer(pkcs8!), importAlgFor(certs[0].subjectPublicKeyInfo.algorithm), true, ['sign']);
   const meta = keyMeta(certs[0]);
 
   const hexLen = placeholderHexLen(certs, meta);

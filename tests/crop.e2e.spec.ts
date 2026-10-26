@@ -33,10 +33,12 @@ async function visualSizeOf(pdfPath: string, pageNumber: number): Promise<{ widt
 
 async function drawCropBox(page: Page, x0: number, y0: number, x1: number, y1: number) {
   await page.evaluate(() => window.scrollTo(0, 0));
+  // Width alone is not enough — the async pdf.js render can resize the
+  // canvas MID-DRAG (pinned race): wait for the fixture's actual aspect.
   await page.waitForFunction(
     () => {
       const c = document.querySelector('canvas');
-      return !!c && c.width > 100 && c.height > 100;
+      return !!c && c.width > 100 && Math.abs(c.height / c.width - 842 / 595) < 0.02;
     },
     undefined,
     { timeout: 30_000 },

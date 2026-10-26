@@ -15,7 +15,7 @@ async function dropOnWindow(
   await page.evaluate((payload) => {
     const dt = new DataTransfer();
     for (const f of payload) {
-      dt.items.add(new File([f.bytes], f.name, { type: f.mime }));
+      dt.items.add(new File([f.bytes as BlobPart], f.name, { type: f.mime }));
     }
     window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
     window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));

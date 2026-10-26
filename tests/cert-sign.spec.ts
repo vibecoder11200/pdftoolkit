@@ -157,7 +157,7 @@ async function verifySigned(signedBytes: Uint8Array, expectedCerts: number, keyT
   const ok = await crypto.subtle.verify(
     verifyAlg,
     pub,
-    isEc ? derToEcdsaRaw(sigBytes, 32) : sigBytes,
+    (isEc ? derToEcdsaRaw(sigBytes, 32) : sigBytes) as unknown as BufferSource,
     attrsDer,
   );
   expect(ok).toBe(true);

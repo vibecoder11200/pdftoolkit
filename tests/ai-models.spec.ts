@@ -353,7 +353,7 @@ describe('isCacheUsable (D3 verify-then-trust gate)', () => {
 
 describe('sha256Hex', () => {
   it('matches node crypto reference', async () => {
-    expect(await sha256Hex(new TextEncoder().encode('AAAA'))).toBe(sha('AAAA'));
+    expect(await sha256Hex(new TextEncoder().encode('AAAA').buffer as ArrayBuffer)).toBe(sha('AAAA'));
   });
 });
 

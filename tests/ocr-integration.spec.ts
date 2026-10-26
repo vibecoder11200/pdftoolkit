@@ -118,7 +118,7 @@ function installNodeAssetHarness(): void {
       const bytes = serve(url);
       fetchCalls.push(url);
       if (!bytes) return new Response(`harness miss: ${url}`, { status: 404 });
-      return new Response(bytes, { status: 200 });
+      return new Response(bytes as BodyInit, { status: 200 });
     },
   );
 }

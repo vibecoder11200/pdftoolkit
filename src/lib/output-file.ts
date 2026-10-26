@@ -6,5 +6,6 @@
  * can cover the shape + handoff roundtrip without React.
  */
 export function outputFile(bytes: Uint8Array, filename: string): File {
-  return new File([bytes], filename, { type: 'application/pdf' });
+  // TS 7 BlobPart strictness: engine bytes are ArrayBufferLike-typed.
+  return new File([bytes as BlobPart], filename, { type: 'application/pdf' });
 }

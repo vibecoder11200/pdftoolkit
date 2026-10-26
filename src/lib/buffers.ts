@@ -30,7 +30,7 @@ export function ownForWorker(
       throw new Error('buffers: source detached after copy');
     return { bytes, mode: 'copy', transfer: [] };
   }
-  const bytes = new Uint8Array(source.buffer.slice(0));
+  const bytes = new Uint8Array(source.buffer.slice(0) as ArrayBuffer);
   return { bytes, mode: 'transfer', transfer: [bytes.buffer] };
 }
 
@@ -41,4 +41,13 @@ export function shouldTransfer(byteLength: number): boolean {
 export function assertNotDetached(bytes: Uint8Array, what: string): void {
   if ((bytes.buffer as { detached?: boolean }).detached)
     throw new Error(`buffers: ${what} is detached`);
+}
+
+/**
+ * TS 7's BufferSource accepts only ArrayBuffer-backed views (never
+ * SharedArrayBuffer-backed). Engine bytes are plain, but their static type
+ * is ArrayBufferLike — this slices an exact-bounds ArrayBuffer copy for the
+ * one-shot crypto/network boundaries that demand the strict type. */
+export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
