@@ -32,7 +32,7 @@ const MIN_MARK = 0.012; // ignore accidental taps below ~1.2% of the page
 /** Fits the render to the container width; returns the measured width and a
  * norm() that maps client coords to overlay fractions. Shared by both
  * canvases — not exported (the canvases are the only consumers). */
-function usePageCanvas(bytes: Uint8Array, page: number, version: number | string) {
+export function usePageCanvas(bytes: Uint8Array, page: number, version: number | string) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +84,7 @@ function usePageCanvas(bytes: Uint8Array, page: number, version: number | string
   return { wrapRef, canvasRef, overlayRef, width, norm };
 }
 
-function CanvasFrame({
+export function CanvasFrame({
   wrapRef,
   canvasRef,
   width,

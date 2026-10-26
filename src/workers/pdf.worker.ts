@@ -77,6 +77,12 @@ export interface WorkerApi {
   /** Annotate M2 (v0.9.0 phase 5): THE composed op — stamps + real
    * annotations (/Highlight /FreeText with hand-built /AP) in ONE loaded
    * document and ONE save (no-auto-retry crash rule: never double-stamp). */
+  editTextRuns(
+    bytes: Uint8Array,
+    spec: import('../engine/pdf-lib').EditTextRunsSpec,
+    fontTtf: Uint8Array,
+  ): Promise<import('../engine/pdf-lib').EditTextRunsResult>;
+
   applyAnnotate(
     bytes: Uint8Array,
     opts: import('../engine/pdf-lib').ApplyAnnotateOptions,
@@ -138,6 +144,7 @@ const api: WorkerApi = {
     return transfer(result, [result.bytes.buffer]);
   },
   stampAnnotations: (bytes, opts, fontTtf) => lib.stampAnnotations(bytes, opts, fontTtf),
+  editTextRuns: (bytes, spec, fontTtf) => lib.editTextRuns(bytes, spec, fontTtf),
   applyAnnotate: (bytes, opts, fontTtf) => lib.applyAnnotate(bytes, opts, fontTtf),
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {

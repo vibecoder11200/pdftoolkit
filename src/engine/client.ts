@@ -187,6 +187,16 @@ export const engine = {
       r.applyAnnotate(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
     );
   },
+  editTextRuns: async (
+    bytes: Uint8Array,
+    spec: import('../engine/pdf-lib').EditTextRunsSpec,
+    fontTtf?: Uint8Array,
+  ) => {
+    const font = (fontTtf ?? (await robotoBytes())).slice();
+    return call((r) =>
+      r.editTextRuns(owned(bytes) as Uint8Array, spec, owned(font) as Uint8Array),
+    );
+  },
   applyPageNumbers: async (
     bytes: Uint8Array,
     opts: import('../engine/pdf-lib').PageNumbersOptions,

@@ -27,6 +27,7 @@ import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { EditorCanvas, newMarkId } from './editor-canvas';
 import { AnnotateCanvasArea, AnnotateControls, useAnnotateState } from './annotate-tab';
+import { EditTextArea, EditTextControls, useEditTextState } from './edit-text-tab';
 import { FileIcon } from '../ui/icons';
 
 /*
@@ -176,6 +177,11 @@ export function EditorTool() {
   const { urlFor, observe } = useThumbnails(thumbJobs);
 
   const annotate = useAnnotateState(
+    source?.bytes ?? EMPTY_BYTES,
+    source?.file.name ?? '',
+    currentPage,
+  );
+  const editText = useEditTextState(
     source?.bytes ?? EMPTY_BYTES,
     source?.file.name ?? '',
     currentPage,
@@ -553,6 +559,8 @@ export function EditorTool() {
                 redactControls
               ) : tab === 'annotate' ? (
                 <AnnotateControls state={annotate} />
+              ) : tab === 'edit' ? (
+                <EditTextControls state={editText} />
               ) : (
                 <p className="text-[13px] text-text-muted">{t('editor.tab_placeholder')}</p>
               )}
@@ -590,7 +598,7 @@ export function EditorTool() {
           <p className="mt-4 text-[13px] text-text-muted md:hidden">{t('editor.phone_notice')}</p>
           <div className="mt-4 hidden md:block">
             {tabHost}
-            {tab === 'redact' || tab === 'annotate' ? (
+            {tab === 'redact' || tab === 'annotate' || tab === 'edit' ? (
               <>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
                   <button
@@ -625,8 +633,10 @@ export function EditorTool() {
                         </button>
                       ) : null}
                     </>
-                  ) : (
+                  ) : tab === 'annotate' ? (
                     <span>· {t('editor.annotate_hint_short')}</span>
+                  ) : (
+                    <span>· {t('editor.edit_hint_short')}</span>
                   )}
                 </div>
                 <div className="mt-2">
@@ -640,7 +650,7 @@ export function EditorTool() {
                       onRemove={removeMark}
                       disabled={busy}
                     />
-                  ) : (
+                  ) : tab === 'annotate' ? (
                     <AnnotateCanvasArea
                       state={annotate}
                       bytes={source.bytes}
@@ -648,6 +658,13 @@ export function EditorTool() {
                       version={genRef.current}
                       visualWidth={pageVisual?.width ?? 0}
                       disabled={busy}
+                    />
+                  ) : (
+                    <EditTextArea
+                      state={editText}
+                      bytes={source.bytes}
+                      page={currentPage}
+                      version={genRef.current}
                     />
                   )}
                 </div>

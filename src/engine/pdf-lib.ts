@@ -3523,3 +3523,263 @@ function addAnnotToPage(
     node.set(PDFName.of('Annots'), arr);
   }
 }
+
+// ---- Text edit M3a: white-out + re-typeset (v0.9.0 phase 6) — append-only
+// R1's shippable subset (plan phase-06): remove a selected run via the
+// phase-2 surgical machinery, cover with white, draw the replacement at the
+// run's baseline with the in-tree Roboto (REAL text — stays searchable).
+// The original font is NOT preserved (M3b same-font re-encoding is an
+// explicit stretch; subset GID remapping is font-compiler territory).
+//
+// Soundness rests on the CENSUS GATE: an edited page carries none of the
+// escalate-tier constructs (Type3, no-ToUnicode, ActualText, Tr3, patterns,
+// text XObjects, OC layers, widget/hidden annots), so the run's text lives
+// ONLY in the page content streams. Residue scan is therefore scoped to the
+// edited pages' NON-content reachable objects (ToUnicode cmaps, XObjects,
+// Patterns): a same-page twin of the run text legitimately survives in the
+// content stream (finding 13 — editing one of two identical totals is
+// VALID), and the replacement may CONTAIN the old text ("100" → "1000").
+// Both would false-positive a content-stream scan; the surviving-twin
+// guarantee comes from the run-scoped semantic leg (edit-text-pipeline),
+// never from a page-wide byte scan. NO rasterize recovery exists in this
+// op: any verify failure is a typed refusal, input untouched.
+
+export class EditTextRefusedError extends Error {
+  constructor(message = 'The text edit was refused; the input is untouched.') {
+    super(message);
+    this.name = 'EditTextRefusedError';
+  }
+}
+
+export class EditTextVerifyError extends Error {
+  constructor(message = 'The edited output failed verification; nothing was delivered.') {
+    super(message);
+    this.name = 'EditTextVerifyError';
+  }
+}
+
+export interface EditTextRun {
+  /** 1-based page. */
+  page: number;
+  /** Run box in VISUAL space (bottom-left origin, y up). */
+  rect: RedactRect;
+  /** Baseline y in VISUAL space (pdf.js item transform). */
+  baselineY: number;
+  /** The run's text as extracted client-side (needle source). */
+  text: string;
+  /** Replacement text ('' = pure white-out). Single line only. */
+  replacement: string;
+  /** Allowed overflow over the run width, fraction (default 0.25). */
+  tolerance?: number;
+  /** Replacement size hint (pt); default derived from the rect height. */
+  fontSize?: number;
+}
+
+export interface EditTextRunsSpec {
+  runs: EditTextRun[];
+}
+
+export interface EditTextRunsResult {
+  bytes: Uint8Array;
+  removedBlocks: number;
+  edits: { page: number; text: string; replacement: string; fittedSize: number }[];
+}
+
+/** Non-content reachable objects of the affected pages: ToUnicode cmaps,
+ * XObjects (recursive), Patterns — the residue scan scope for edits. */
+function editCollectScopedBlobs(
+  doc: PDFDocument,
+  affectedPages: number[], // 1-based
+): { where: string; bytes: Uint8Array }[] {
+  const { PDFName, PDFDict, PDFRawStream } = pdfLibCache!;
+  const blobs: { where: string; bytes: Uint8Array }[] = [];
+  const addStream = (where: string, s: unknown): void => {
+    if (!(s instanceof PDFRawStream)) return;
+    const text = redactStreamText(s);
+    blobs.push({ where, bytes: text === null ? s.contents : latin1ToBytes(text) });
+  };
+  const walkResources = (resRef: unknown, where: string, depth: number): void => {
+    const res = doc.context.lookup(resRef as import('pdf-lib').PDFObject);
+    if (!(res instanceof PDFDict) || depth > 5) return;
+    const fonts = doc.context.lookup(res.get(PDFName.of('Font')));
+    if (fonts instanceof PDFDict) {
+      for (const [k, v] of fonts.entries()) {
+        const fd = doc.context.lookup(v);
+        if (!(fd instanceof PDFDict)) continue;
+        addStream(`${where}/Font${k}/ToUnicode`, doc.context.lookup(fd.get(PDFName.of('ToUnicode'))));
+      }
+    }
+    const xobjs = doc.context.lookup(res.get(PDFName.of('XObject')));
+    if (xobjs instanceof PDFDict) {
+      for (const [k, v] of xobjs.entries()) {
+        const xo = doc.context.lookup(v);
+        if (xo instanceof PDFRawStream) {
+          addStream(`${where}/XObject${k}`, xo);
+          walkResources(xo.dict.get(PDFName.of('Resources')), `${where}/XObject${k}`, depth + 1);
+        }
+      }
+    }
+    const pats = doc.context.lookup(res.get(PDFName.of('Pattern')));
+    if (pats instanceof PDFDict) {
+      for (const [k, v] of pats.entries()) addStream(`${where}/Pattern${k}`, doc.context.lookup(v));
+    }
+  };
+  for (const p1 of affectedPages) {
+    walkResources(doc.getPage(p1 - 1).node.get(PDFName.of('Resources')), `p${p1}`, 0);
+  }
+  return blobs;
+}
+
+/**
+ * M3a: for each run — remove its BT..ET block(s) via the phase-2 surgical
+ * machinery (every show op in a removed block must fall inside the run's
+ * rect; anything partial refuses the WHOLE apply), draw a white cover and
+ * the replacement at the run's baseline (Roboto, fontkit-measured,
+ * shrink-to-fit within tolerance), full rewrite → internal qpdf rewrite →
+ * scoped decompressed residue scan (non-content objects; see the section
+ * note). Refusals and verify failures happen with the INPUT untouched.
+ */
+export async function editTextRuns(
+  bytes: Uint8Array,
+  spec: EditTextRunsSpec,
+  fontTtf: Uint8Array,
+): Promise<EditTextRunsResult> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument, degrees, rgb } = pdfLib;
+  const runs = spec.runs;
+  if (runs.length === 0) throw new EditTextRefusedError('No text edits were provided.');
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  } catch (e) {
+    throw new EditTextRefusedError(
+      `The file cannot be edited (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const pageCount = doc.getPageCount();
+
+  // Pre-checks BEFORE any mutation.
+  for (const run of runs) {
+    if (!(Number.isInteger(run.page) && run.page >= 1 && run.page <= pageCount)) {
+      throw new EditTextRefusedError(`Edit page ${run.page} is out of range.`);
+    }
+    if (!run.text.trim()) throw new EditTextRefusedError('An edit has no original text.');
+    if (run.replacement.includes('\n') || run.replacement.includes('\r')) {
+      throw new EditTextRefusedError('Replacement text must be a single line.');
+    }
+  }
+  // Census gate: flagged pages force refusal (no raster tier for edits —
+  // the honest subset; a flagged page's text may hide in constructs the
+  // walker cannot see).
+  const census = await redactCensus(bytes);
+  const flagged = new Map(census.pages.map((p) => [p.page, p.kinds]));
+  for (const run of runs) {
+    const kinds = flagged.get(run.page);
+    if (kinds) {
+      throw new EditTextRefusedError(
+        `Page ${run.page} carries constructs text editing cannot see (${kinds.join(', ')}).`,
+      );
+    }
+  }
+
+  const font = await embedRobotoSubset(doc, fontTtf);
+  // Fit the replacement into the run box BEFORE mutating anything.
+  const fitted: number[] = [];
+  for (const run of runs) {
+    const tol = Math.max(0, run.tolerance ?? 0.25);
+    let size = Math.max(6, run.fontSize ?? run.rect.h * 0.78);
+    if (run.replacement.length > 0) {
+      for (let i = 0; i < 24 && font.widthOfTextAtSize(run.replacement, size) > run.rect.w * (1 + tol); i += 1) {
+        size = Math.max(6, size * 0.9);
+        if (size <= 6) break;
+      }
+      if (font.widthOfTextAtSize(run.replacement, size) > run.rect.w * (1 + tol)) {
+        throw new EditTextRefusedError(
+          `Replacement does not fit the original run width (page ${run.page}, "${run.replacement}").`,
+        );
+      }
+    }
+    fitted.push(size);
+  }
+
+  // 1. Removal — the phase-2 machinery, keyed by the runs' rects.
+  const scope = new Map<number, RedactRect[]>(); // 0-based page index
+  for (const run of runs) {
+    const list = scope.get(run.page - 1) ?? [];
+    list.push(run.rect);
+    scope.set(run.page - 1, list);
+  }
+  const outcome = redactSurgicalRemove(doc, scope);
+  if (outcome.refusedPages.length > 0) {
+    throw new EditTextRefusedError(
+      `Page(s) ${outcome.refusedPages.map((i) => i + 1).join(', ')} contain text blocks that mix the selection with other content — nothing was applied.`,
+    );
+  }
+  if (outcome.removedBlocks === 0) {
+    throw new EditTextRefusedError('None of the selected text could be located in the content stream.');
+  }
+
+  // 2. White cover + replacement (geometry primitives only).
+  const pages = doc.getPages();
+  runs.forEach((run, i) => {
+    const page = pages[run.page - 1];
+    const geom = visibleGeometry(page);
+    const bl = visualToPageSpace(run.rect.x, run.rect.y, geom);
+    page.drawRectangle({
+      x: bl.x,
+      y: bl.y,
+      width: run.rect.w,
+      height: run.rect.h,
+      rotate: degrees(drawAngleFor(0, geom.rotate)),
+      color: rgb(1, 1, 1),
+      opacity: 1,
+    });
+    if (run.replacement.length > 0) {
+      const base = visualToPageSpace(run.rect.x, run.baselineY, geom);
+      page.drawText(run.replacement, {
+        x: base.x,
+        y: base.y,
+        font,
+        size: fitted[i]!,
+        color: rgb(0.1, 0.1, 0.1),
+        rotate: degrees(drawAngleFor(0, geom.rotate)),
+      });
+    }
+  });
+
+  // 3. Full rewrite → internal qpdf rewrite → scoped residue scan.
+  const rewritten = await doc.save({ useObjectStreams: false });
+  let gc: Uint8Array;
+  try {
+    gc = await qpdfRewrite(rewritten);
+  } catch (e) {
+    if (e instanceof QpdfRewriteRefusedError) {
+      throw new EditTextRefusedError('The file cannot be safely rewritten (qpdf refused).');
+    }
+    throw e;
+  }
+  const canon = await qpdfCanonicalUncompress(gc);
+  const canonDoc = await PDFDocument.load(canon, { ignoreEncryption: true });
+  const affected = [...new Set(runs.map((r) => r.page))].sort((a, b) => a - b);
+  const blobs = editCollectScopedBlobs(canonDoc, affected);
+  const needles = redactNeedles(runs.map((r) => r.text));
+  for (const blob of blobs) {
+    for (const nd of needles) {
+      if (nd.bytes.length > 0 && indexOfBytes(blob.bytes, nd.bytes) >= 0) {
+        throw new EditTextVerifyError(`Residue found (${nd.enc}) in ${blob.where} — output discarded.`);
+      }
+    }
+  }
+
+  return {
+    bytes: gc,
+    removedBlocks: outcome.removedBlocks,
+    edits: runs.map((r, i) => ({
+      page: r.page,
+      text: r.text,
+      replacement: r.replacement,
+      fittedSize: fitted[i]!,
+    })),
+  };
+}
