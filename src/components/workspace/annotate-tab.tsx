@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { engine } from '../../engine/client';
 import { deliverBytes } from '../../lib/download';
@@ -108,10 +108,24 @@ export function useAnnotateState(
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | ErrorDetail | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const sizeCache = useRef(new Map<number, { width: number; height: number }>());
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  const busy = progress !== null;
+
+  useEffect(() => {
+    // File identity changed upstream → drop per-file state (mirrors the
+    // edit-text/redact reset contract); fractions measured against the old
+    // file's page sizes must never reach the new one.
+    setItems([]);
+    setHistory([]);
+    setSelectedId(null);
+    setRunError(null);
+    setProgress(null);
+    setBusy(false);
+    sizeCache.current.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bytes]);
 
   const pushHistory = useCallback((prev: AnnotateItem[]) => {
     setHistory((h) => [...h.slice(-49), prev]);
@@ -263,6 +277,7 @@ export function useAnnotateState(
         return;
       }
       try {
+        setBusy(true);
         setProgress(t('editor.progress_working'));
         // Lazily resolve visual sizes for pages carrying elements only.
         const pages = new Set(itemsRef.current.map((i) => i.page));
@@ -325,11 +340,14 @@ export function useAnnotateState(
         const name = annotatedName(fileName);
         if (await deliverBytes(out, name, 'download')) {
           keep(out, name);
+          setBusy(false);
           setProgress(t('editor.progress_done'));
         } else {
+          setBusy(false);
           setProgress(null); // picker cancelled — not an error
         }
       } catch (e) {
+        setBusy(false);
         setProgress(null);
         const errName = e instanceof Error ? e.name : '';
         if (errName === 'AnnotationRefusedError') {

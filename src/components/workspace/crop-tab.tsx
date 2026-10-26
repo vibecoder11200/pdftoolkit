@@ -4,7 +4,7 @@ import { engine } from '../../engine/client';
 import type { CropPageBox } from '../../engine/pdf-lib';
 import { deliverBytes } from '../../lib/download';
 import { suggestCropBox, type FracBox } from '../../lib/content-bbox';
-import type { RedactMark } from '../../lib/redact-pipeline';
+import { REDACT_RASTER_BUDGET, type RedactMark } from '../../lib/redact-pipeline';
 import { CanvasFrame, usePageCanvas } from './editor-canvas';
 import { ContinueChip } from './continue-chip';
 import { useLastOutput } from '../../hooks/use-last-output';
@@ -34,7 +34,8 @@ export interface CropState {
   setScope: (s: 'all' | 'page') => void;
   setDestroy: (d: boolean) => void;
   autoSuggest: () => void;
-  runApply: () => void;
+  runApply: (confirmed?: boolean) => void;
+  rasterConfirm: boolean;
   pixelsRef: RefObject<(() => { width: number; height: number; data: Uint8ClampedArray } | null) | null>;
 }
 
@@ -51,6 +52,7 @@ export function useCropState(
   const [destroy, setDestroy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  const [rasterConfirm, setRasterConfirm] = useState(false);
   const [error, setError] = useState<string | ErrorDetail | null>(null);
   const { lastOutput, keep } = useLastOutput();
   const pixelsRef = useRef<(() => { width: number; height: number; data: Uint8ClampedArray } | null) | null>(null);
@@ -71,7 +73,7 @@ export function useCropState(
     })();
   }, [t]);
 
-  const runApply = useCallback(() => {
+  const runApply = useCallback((confirmed?: boolean) => {
     const s = stateRef.current;
     if (s.busy || !s.draft) return;
     setError(null);
@@ -83,6 +85,16 @@ export function useCropState(
         if (s.destroy) {
           // Crop-as-redaction: the INVERSE region rides the verified redact
           // wrapper (raster tier) — never a bare CropBox.
+          const pages = s.scope === 'all' ? Array.from({ length: s.numPages }, (_, i) => i + 1) : [s.page];
+          // Raster budget (finding 11 parity with the redact tab): forceRaster
+          // rasterizes EVERY in-scope page — above the cap the first click
+          // only arms the confirm.
+          if (pages.length > REDACT_RASTER_BUDGET && !confirmed) {
+            setRasterConfirm(true);
+            setProgress(null);
+            return;
+          }
+          setRasterConfirm(false);
           const { runRedactionPipeline: run } = await import('../../lib/redact-pipeline');
           const census = await engine.redactCensus(s.bytes);
           const d = s.draft!;
@@ -92,7 +104,6 @@ export function useCropState(
             { nx: 0, nyTop: d.nyTop, nw: d.nx, nh: d.nh },
             { nx: d.nx + d.nw, nyTop: d.nyTop, nw: Math.max(0, 1 - d.nx - d.nw), nh: d.nh },
           ];
-          const pages = s.scope === 'all' ? Array.from({ length: s.numPages }, (_, i) => i + 1) : [s.page];
           const marks: RedactMark[] = [];
           for (const p of pages) {
             bands.forEach((b, i) => {
@@ -165,6 +176,7 @@ export function useCropState(
   useEffect(() => {
     setDraft(null);
     setSuggested(null);
+    setRasterConfirm(false);
   }, [bytes, page]);
 
   return {
@@ -181,6 +193,7 @@ export function useCropState(
     setDestroy,
     autoSuggest,
     runApply,
+    rasterConfirm,
     pixelsRef,
   };
 }
@@ -316,8 +329,15 @@ export function CropControls({ state }: { state: CropState }) {
       </label>
 
       <div className="flex items-center gap-2">
-        <Button type="button" disabled={applyDisabled} onClick={state.runApply} className="flex-1">
-          {t('editor.crop_apply')}
+        <Button
+          type="button"
+          disabled={applyDisabled}
+          onClick={() => state.runApply(state.rasterConfirm)}
+          className="flex-1"
+        >
+          {state.rasterConfirm
+            ? t('redact.confirm_budget', { count: REDACT_RASTER_BUDGET })
+            : t('editor.crop_apply')}
         </Button>
         <Button
           type="button"
@@ -329,6 +349,9 @@ export function CropControls({ state }: { state: CropState }) {
           {t('editor.crop_reset')}
         </Button>
       </div>
+      {state.rasterConfirm ? (
+        <p className="text-[13px] leading-relaxed text-text-muted">{t('redact.budget_note')}</p>
+      ) : null}
 
       {state.lastOutput ? (
         <ContinueChip bytes={state.lastOutput.bytes} filename={state.lastOutput.filename} />

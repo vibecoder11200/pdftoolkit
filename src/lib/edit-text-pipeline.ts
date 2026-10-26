@@ -1,9 +1,17 @@
-import {
-  EditTextVerifyError,
-  type EditTextRun,
-} from '../engine/pdf-lib';
 import { engine } from '../engine/client';
 import { getPageTextItems } from '../engine/pdfjs';
+import type { EditTextRun } from '../engine/pdf-lib';
+
+/** Main-thread twin of the engine's EditTextVerifyError — declared locally so
+ * this module never statically imports src/engine/pdf-lib (which would pull
+ * the whole engine into the entry chunk; the engine must stay worker-only).
+ * The tab matches errors by `name` across the comlink seam anyway. */
+export class EditTextVerifyError extends Error {
+  constructor(message = 'The edited output failed verification; nothing was delivered.') {
+    super(message);
+    this.name = 'EditTextVerifyError';
+  }
+}
 
 /*
  * Text-edit pipeline (v0.9.0 phase 6) — the ONLY composer for the edit tab
