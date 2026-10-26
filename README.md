@@ -11,13 +11,32 @@ Merge, split, compress, convert and sign PDFs — 100% in your browser. Files ne
 
 Most "free PDF tools" upload your documents to a server. This one doesn't: every operation runs client-side in a Web Worker (pdf-lib + qpdf-wasm + pdf.js). There is no backend, no account, no telemetry, no runtime CDN.
 
-## Tools (16)
+## Tools (17)
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
-| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) · Watermark (text or image stamp, tiled, page-scoped — **plus removal**) · Page numbers (presets + token templates) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) |
+| Merge · Split ranges · Extract pages · Delete pages · Reorder (drag & drop, touch-friendly) · Rotate · Fill form | Compress (lossless vector pack · opt-in image recompress · web-optimizer/linearize) · PDF → images (multi-page: one ZIP) · Images → PDF (pick a whole folder) · OCR (Tesseract → searchable PDF; AI → Markdown/text/HTML/DOCX) · Watermark (text or image stamp, tiled, page-scoped — **plus removal**) · Page numbers (presets + token templates) | Encrypt / decrypt (AES-256) · Metadata view & edit · Sign (image stamp or self-signed PKCS#7) · **Editor** (redact · annotate · edit text · crop) |
 
 **Watermark & page numbers** (v0.8.0): form-based stamping with a 9-grid anchor, rotation-aware placement (correct on rotated pages with crop boxes), Vietnamese-safe text through the embedded subset font, optional tiled mode, per-page scope, and day-1 whole-folder batch on the watermark tool (per-file report, one native Save-As on desktop). **Watermark removal** (v0.8.1): files this app stamped are removed exactly (ownership tag); foreign text watermarks get a best-effort heuristic removal (type the watermark text as a hint) — content is never touched: only fully-matching stamp blocks are removed, anything ambiguous fails safe with a typed error.
+
+**Editor** (v0.9.0 — 'Sửa PDF', four tabs in one tool; desktop/tablet screens — on a phone the tool says so honestly instead of pretending):
+
+- **Redact** ('Che đi'): two modes, stated up front. *Surgical* removes text objects matching your marks or sensitive keywords and rewrites the whole file, then scrubs the document channels (metadata, XObjects, patterns) — every output passes a byte-level verification scan for the removed secrets in 5 encodings, and any residue fails the export (nothing is delivered). Flagged page types (Type3 fonts, no-ToUnicode text, patterns, OCR-style layers) fall back to a *burned-in raster* mode that cannot leak. Signed files are refused up front.
+- **Edit text** ('Sửa chữ'): click a text run, white it out and re-typeset the replacement in a matching embedded font — for fixing typos and small phrases, not full reflow.
+- **Annotate** ('Ghi chú'): text, highlight, notes, ellipse/rectangle/line stamps — real /AP annotations, still selectable in other readers.
+- **Crop** ('Cắt'): drag a crop box or let auto-suggest find the content bounds; CropBox only (MediaBox untouched, rotation-aware). Crop is honest about not destroying content — an explicit "crop as redaction" toggle routes the trimmed-away area through the verified redact pipeline instead.
+
+![Redact demo](screenshots/editor-demo.gif)
+
+| Redact (Che đi) | Annotate (Ghi chú) |
+|---|---|
+| ![Redact](screenshots/editor-redact-vi.jpg) | ![Annotate](screenshots/editor-annotate-vi.jpg) |
+
+| Crop auto-suggest | On a phone (honest copy) |
+|---|---|
+| ![Crop](screenshots/editor-crop-vi.jpg) | ![Phone](screenshots/editor-phone-en.jpg) |
+
+**On phones**: all 16 classic tools are designed phone-first (large touch targets, sheet-based controls; page reorder works by pointer drag). The editor's canvases need a larger screen for precise marking, so on phone widths it shows guidance instead.
 
 **Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool (OCR included since v0.8.1), the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything. OCR's AI searchable-PDF builds at click time — nothing is retained until you pick a target.
 

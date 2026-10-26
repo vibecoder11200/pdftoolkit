@@ -405,6 +405,44 @@ This project is indexed by GitNexus as **pdftoolkit** (3425 symbols, 8771 relati
   `gh api -X POST repos/<owner>/pdftoolkit/pages -f build_type=workflow`.
   The workflow's `configure-pages` step then acts as an idempotent guard.
 
+### Launch-kit / v0.9.0 invariants
+
+- **Editor overlay testids are per-tab**: redact = `editor-overlay`,
+  annotate = `annotate-overlay`, edit = `edit-overlay`, crop =
+  `crop-overlay` (`crop-suggestion` while a suggestion shows). Before ANY
+  overlay drag: `waitForFunction(canvas.width > 100)` (the e2e pattern) —
+  the redact canvas satisfies it during a tab remount, so also wait for
+  the SPECIFIC tab's overlay testid. Drag fractions are TOP-LEFT-relative
+  on the overlay box; drags landing below the viewport fold are SILENTLY
+  DROPPED (two launch-kit capture incidents — keep y ≤ ~0.20 at 900px
+  viewport height).
+- **The app locale is FORCED to `vi`** (`lng: 'vi'` in `src/i18n.ts`
+  init) — preseeding `i18nextLng` in localStorage is a NO-OP (the
+  detector never runs). Tests/captures switch language ONLY via the nav
+  toggle: desktop has direct VI/EN buttons (`sm:flex`); phone hides them
+  behind the hamburger — open the menu, click EN, then close it via
+  `button[aria-expanded="true"][aria-controls="mobile-nav-panel"]`
+  (clicking `header button` last hits EN again inside the panel and
+  leaves the menu open over screenshots).
+- **Vite 8 (Rolldown) findings pinned by PR-3**: `stampOutOrtCdn`
+  generateBundle mutations (CDN string replace + ort-wasm deletion) WORK
+  under Rolldown and are gated by `tests/ai-build.spec.ts`; the precache
+  is now 63 entries (~8.4 MB) and the pdf-lib mega-chunk re-split
+  (pako/jpeg/es/dist/dist-js/src + `rolldown-runtime` ×2) is EXPECTED
+  churn — refresh `plans/precache-baseline.sw.js` only on that class of
+  intentional delta. plugin-react 6 needed `--legacy-peer-deps`
+  (@babel/core ^8 optional-peer chain); `npm ci` is green on the lock.
+- **Preview-server orphan trap (Windows)**: `spawn('npx', …,
+  {shell:true})` + `kill()` kills only the cmd wrapper — vite keeps the
+  port. ALWAYS `taskkill` the port owner (netstat) before reusing a
+  preview port, or the next server dies with an "unsettled top-level
+  await" and zero diagnostics.
+- Launch assets live in `screenshots/` (committed): synthetic fixture
+  documents only (`temp/launch-doc.mjs` pattern — Sample/Doe/Example
+  Street), never real data. Capture scripts are local-only (`temp/*.mjs`).
+  `plans/release-body-v090.md` carries both channel commands; web is
+  ALWAYS `--latest=false`.
+
 ## 6. Definition of done
 
 All green before reporting complete:

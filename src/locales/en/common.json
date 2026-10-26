@@ -30,7 +30,7 @@
   },
   "hero": {
     "title": "Every PDF tool in one place, files never leave your device",
-    "subtitle": "Merge, split, compress, convert, and sign PDFs right in your browser. Processed 100% on your device. No account, no limits, free.",
+    "subtitle": "Merge, split, compress, convert, sign, and redact sensitive content right in your browser. Processed 100% on your device. No account, no limits, free.",
     "badge_no_account": "No account needed",
     "badge_offline": "Works offline too",
     "badge_opensource": "Open-source MIT"
