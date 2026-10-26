@@ -28,6 +28,7 @@ import { ThumbnailStrip } from './thumbnail-strip';
 import { EditorCanvas, newMarkId } from './editor-canvas';
 import { AnnotateCanvasArea, AnnotateControls, useAnnotateState } from './annotate-tab';
 import { EditTextArea, EditTextControls, useEditTextState } from './edit-text-tab';
+import { CropArea, CropControls, useCropState } from './crop-tab';
 import { FileIcon } from '../ui/icons';
 
 /*
@@ -185,6 +186,12 @@ export function EditorTool() {
     source?.bytes ?? EMPTY_BYTES,
     source?.file.name ?? '',
     currentPage,
+  );
+  const crop = useCropState(
+    source?.bytes ?? EMPTY_BYTES,
+    source?.file.name ?? '',
+    currentPage,
+    numPages,
   );
   // Visual size of the current page — scales the annotate preview to the render.
   const [pageVisual, setPageVisual] = useState<{ width: number; height: number } | null>(null);
@@ -561,6 +568,8 @@ export function EditorTool() {
                 <AnnotateControls state={annotate} />
               ) : tab === 'edit' ? (
                 <EditTextControls state={editText} />
+              ) : tab === 'crop' ? (
+                <CropControls state={crop} />
               ) : (
                 <p className="text-[13px] text-text-muted">{t('editor.tab_placeholder')}</p>
               )}
@@ -598,7 +607,7 @@ export function EditorTool() {
           <p className="mt-4 text-[13px] text-text-muted md:hidden">{t('editor.phone_notice')}</p>
           <div className="mt-4 hidden md:block">
             {tabHost}
-            {tab === 'redact' || tab === 'annotate' || tab === 'edit' ? (
+            {tab === 'redact' || tab === 'annotate' || tab === 'edit' || tab === 'crop' ? (
               <>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
                   <button
@@ -635,8 +644,10 @@ export function EditorTool() {
                     </>
                   ) : tab === 'annotate' ? (
                     <span>· {t('editor.annotate_hint_short')}</span>
-                  ) : (
+                  ) : tab === 'edit' ? (
                     <span>· {t('editor.edit_hint_short')}</span>
+                  ) : (
+                    <span>· {t('editor.crop_hint_short')}</span>
                   )}
                 </div>
                 <div className="mt-2">
@@ -659,9 +670,16 @@ export function EditorTool() {
                       visualWidth={pageVisual?.width ?? 0}
                       disabled={busy}
                     />
-                  ) : (
+                  ) : tab === 'edit' ? (
                     <EditTextArea
                       state={editText}
+                      bytes={source.bytes}
+                      page={currentPage}
+                      version={genRef.current}
+                    />
+                  ) : (
+                    <CropArea
+                      state={crop}
                       bytes={source.bytes}
                       page={currentPage}
                       version={genRef.current}

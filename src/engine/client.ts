@@ -187,6 +187,8 @@ export const engine = {
       r.applyAnnotate(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
     );
   },
+  cropPages: (bytes: Uint8Array, boxes: import('../engine/pdf-lib').CropPageBox[]) =>
+    call((r) => r.cropPages(owned(bytes) as Uint8Array, boxes)),
   editTextRuns: async (
     bytes: Uint8Array,
     spec: import('../engine/pdf-lib').EditTextRunsSpec,

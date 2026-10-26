@@ -83,6 +83,11 @@ export interface WorkerApi {
     fontTtf: Uint8Array,
   ): Promise<import('../engine/pdf-lib').EditTextRunsResult>;
 
+  cropPages(
+    bytes: Uint8Array,
+    boxes: import('../engine/pdf-lib').CropPageBox[],
+  ): Promise<Uint8Array>;
+
   applyAnnotate(
     bytes: Uint8Array,
     opts: import('../engine/pdf-lib').ApplyAnnotateOptions,
@@ -145,6 +150,7 @@ const api: WorkerApi = {
   },
   stampAnnotations: (bytes, opts, fontTtf) => lib.stampAnnotations(bytes, opts, fontTtf),
   editTextRuns: (bytes, spec, fontTtf) => lib.editTextRuns(bytes, spec, fontTtf),
+  cropPages: (bytes, boxes) => lib.cropPages(bytes, boxes),
   applyAnnotate: (bytes, opts, fontTtf) => lib.applyAnnotate(bytes, opts, fontTtf),
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {

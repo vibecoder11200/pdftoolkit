@@ -3783,3 +3783,97 @@ export async function editTextRuns(
     })),
   };
 }
+
+// ---- Crop (v0.9.0 phase 7) — append-only section ---------------------------
+// Visual crop = /CropBox manipulation ONLY (MediaBox untouched): content
+// outside the box REMAINS in the file — crop is NOT redaction (the UI says
+// so and routes destruction intent through src/lib/redact-pipeline.ts).
+// All box math goes through the v0.8 geometry primitives (invariant 3).
+
+export class CropRefusedError extends Error {
+  constructor(message = 'The crop box was refused; the input is untouched.') {
+    super(message);
+    this.name = 'CropRefusedError';
+  }
+}
+
+/** Fractions of the VISIBLE page box (0..1), bottom-left origin y up —
+ * resolution-independent, exactly what the overlay drag produces. */
+export interface CropFracRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface CropPageBox {
+  /** 1-based page. */
+  page: number;
+  rect: CropFracRect;
+}
+
+/**
+ * Sets /CropBox per page from visual-space boxes; MediaBox is untouched.
+ * Boxes are clamped inside the page's current VISIBLE box (which may itself
+ * be a pre-existing CropBox — crop-of-crop narrows it). Degenerate results
+ * (≤1pt on an edge after clamping) refuse with the input untouched.
+ */
+export async function cropPages(
+  bytes: Uint8Array,
+  boxes: CropPageBox[],
+): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  if (boxes.length === 0) throw new CropRefusedError('No crop boxes were provided.');
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  } catch (e) {
+    throw new CropRefusedError(
+      `The file cannot be cropped (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const pageCount = doc.getPageCount();
+
+  // Pre-checks BEFORE mutation: sane fractions, valid pages.
+  for (const b of boxes) {
+    if (!(Number.isInteger(b.page) && b.page >= 1 && b.page <= pageCount)) {
+      throw new CropRefusedError(`Crop page ${b.page} is out of range.`);
+    }
+    const { rect } = b;
+    if (!(rect.w > 0 && rect.h > 0)) {
+      throw new CropRefusedError(`The crop box on page ${b.page} is empty or inverted.`);
+    }
+  }
+
+  for (const b of boxes) {
+    const page = doc.getPage(b.page - 1);
+    const geom = visibleGeometry(page);
+    const v0 = { x: b.rect.x * geom.visualWidth, y: b.rect.y * geom.visualHeight };
+    const v1 = {
+      x: (b.rect.x + b.rect.w) * geom.visualWidth,
+      y: (b.rect.y + b.rect.h) * geom.visualHeight,
+    };
+    // Visual corners → user space; the /Rotate multiple of 90 keeps the
+    // mapped box axis-aligned, so bounding the corners is exact.
+    const c0 = visualToPageSpace(v0.x, v0.y, geom);
+    const c1 = visualToPageSpace(v1.x, v1.y, geom);
+    const x0 = Math.min(c0.x, c1.x);
+    const x1 = Math.max(c0.x, c1.x);
+    const y0 = Math.min(c0.y, c1.y);
+    const y1 = Math.max(c0.y, c1.y);
+    // Clamp inside the current visible box (crop-of-crop narrows).
+    const cx0 = Math.max(geom.x, x0);
+    const cy0 = Math.max(geom.y, y0);
+    const cx1 = Math.min(geom.x + geom.width, x1);
+    const cy1 = Math.min(geom.y + geom.height, y1);
+    if (cx1 - cx0 <= 1 || cy1 - cy0 <= 1) {
+      throw new CropRefusedError(
+        `The crop box on page ${b.page} is degenerate after clamping to the page.`,
+      );
+    }
+    page.setCropBox(cx0, cy0, cx1 - cx0, cy1 - cy0);
+  }
+  return doc.save({ useObjectStreams: false });
+}
