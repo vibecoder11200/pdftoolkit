@@ -236,9 +236,13 @@ export function markdownToSafeHtml(markdown: string): string {
     // at 4 levels like the heading clamp.
     const indent = line.match(/^[ \t]*/)![0].replaceAll('\t', '    ').length;
     const level = Math.min(4, Math.floor(indent / 2));
-    const listItem =
-      (/^[-*]\s+(.*)$/.exec(trimmed) ? { tag: 'ul' as const, m: /^[-*]\s+(.*)$/.exec(trimmed)! } : null) ??
-      (/^\d+[.)]\s+(.*)$/.exec(trimmed) ? { tag: 'ol' as const, m: /^\d+[.)]\s+(.*)$/.exec(trimmed)! } : null);
+    const bullet = /^[-*]\s+(.*)$/.exec(trimmed);
+    const ordered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
+    const listItem = bullet
+      ? { tag: 'ul' as const, m: bullet }
+      : ordered
+        ? { tag: 'ol' as const, m: ordered }
+        : null;
     if (listItem) {
       const wantLen = level + 1;
       while (listStack.length > wantLen) {

@@ -3087,10 +3087,6 @@ export interface AnnotateElement {
   fill?: boolean;
 }
 
-export interface StampAnnotationsOptions {
-  elements: AnnotateElement[];
-}
-
 /** Refusal before any output: encrypted input, empty/invalid elements, or a
  * text stamp that cannot fit the visible page. */
 export class AnnotationRefusedError extends Error {
@@ -3107,41 +3103,8 @@ function annotColor(hex: string | undefined): import('pdf-lib').RGB {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 }
 
-/**
- * Stamps text + shapes onto pages as content-stream draws through THE shared
- * placement primitives (visibleGeometry / visualToPageSpace / drawAngleFor —
- * never per-feature math; the v0.8.0 invariant). Additive only — the orphan
- * rule governs removal, not adds — but the encrypted posture and the
- * full-rewrite save convention match stampWatermark. Elements on pages
- * beyond the document are dropped (the selectPageIndices backstop
- * convention: stale lists from a file swap never crash the run).
- */
-export async function stampAnnotations(
-  bytes: Uint8Array,
-  opts: StampAnnotationsOptions,
-  fontTtf: Uint8Array,
-): Promise<Uint8Array> {
-  const pdfLib = await import('pdf-lib');
-  pdfLibCache = pdfLib;
-  const { PDFDocument } = pdfLib;
-  let doc: import('pdf-lib').PDFDocument;
-  try {
-    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
-  } catch (e) {
-    // Encrypted (ignoreEncryption:false) or unreadable input — typed refusal
-    // (the tool shell's own probe gates encrypted files earlier; this is the
-    // engine-level backstop).
-    throw new AnnotationRefusedError(
-      `The file cannot be annotated (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
-    );
-  }
-  const font = await embedRobotoSubset(doc, fontTtf);
-  stampElementsOnDoc(doc, opts.elements ?? [], font);
-  return doc.save({ useObjectStreams: false });
-}
-
-/** Validation + the per-page draw loop of stampAnnotations, shared with the
- * composed applyAnnotate op (ONE loaded document, ONE save). */
+/** Validation + the per-page draw loop of the composed applyAnnotate op
+ * (ONE loaded document, ONE save). */
 function stampElementsOnDoc(
   doc: PDFDocument,
   elements: AnnotateElement[],
@@ -3687,6 +3650,18 @@ export async function editTextRuns(
   // Fit the replacement into the run box BEFORE mutating anything.
   const fitted: number[] = [];
   for (const run of runs) {
+    // Undrawable replacement glyph refuses up front (the notes-path
+    // assertDrawable posture) — a missing id would otherwise surface only
+    // as a confusing verify error after the rewrite.
+    if (run.replacement.length > 0) {
+      try {
+        assertDrawable(font, run.replacement);
+      } catch {
+        throw new EditTextRefusedError(
+          `Replacement text contains a character the font cannot draw (page ${run.page}, "${run.replacement}").`,
+        );
+      }
+    }
     const tol = Math.max(0, run.tolerance ?? 0.25);
     let size = Math.max(6, run.fontSize ?? run.rect.h * 0.78);
     if (run.replacement.length > 0) {

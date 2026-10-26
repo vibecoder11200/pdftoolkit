@@ -67,13 +67,6 @@ export interface WorkerApi {
     bytes: Uint8Array,
     spec: import('../engine/pdf-lib').RedactFinalizeSpec,
   ): Promise<import('../engine/pdf-lib').RedactFinalizeResult>;
-  /** Annotate stamps & shapes (v0.9.0 phase 4): content-stream draws via
-   * the shared geometry primitives; Roboto subset for VN text. */
-  stampAnnotations(
-    bytes: Uint8Array,
-    opts: import('../engine/pdf-lib').StampAnnotationsOptions,
-    fontTtf: Uint8Array,
-  ): Promise<Uint8Array>;
   /** Annotate M2 (v0.9.0 phase 5): THE composed op — stamps + real
    * annotations (/Highlight /FreeText with hand-built /AP) in ONE loaded
    * document and ONE save (no-auto-retry crash rule: never double-stamp). */
@@ -148,7 +141,6 @@ const api: WorkerApi = {
     // Same transfer contract as the neighbors (multi-page document).
     return transfer(result, [result.bytes.buffer]);
   },
-  stampAnnotations: (bytes, opts, fontTtf) => lib.stampAnnotations(bytes, opts, fontTtf),
   editTextRuns: (bytes, spec, fontTtf) => lib.editTextRuns(bytes, spec, fontTtf),
   cropPages: (bytes, boxes) => lib.cropPages(bytes, boxes),
   applyAnnotate: (bytes, opts, fontTtf) => lib.applyAnnotate(bytes, opts, fontTtf),

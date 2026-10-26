@@ -309,10 +309,18 @@ export function AnnotateCanvas({
     moved: boolean;
   } | null>(null);
   const [movePreview, setMovePreview] = useState<MarkDraft | null>(null);
+  // Truth mirror of the move preview (the draftRef hazard): pointerup must
+  // read the ref or a not-yet-committed state read would drop the move.
+  const movePreviewRef = useRef<MarkDraft | null>(null);
 
   const setDraftBoth = (d: MarkDraft | null) => {
     draftRef.current = d;
     setDraft(d);
+  };
+
+  const setMovePreviewBoth = (d: MarkDraft | null) => {
+    movePreviewRef.current = d;
+    setMovePreview(d);
   };
 
   const beginItemMove = (e: ReactPointerEvent<HTMLDivElement>, item: AnnotateItem) => {
@@ -346,7 +354,7 @@ export function AnnotateCanvas({
       const dx = p.x - m.start.x;
       const dy = p.y - m.start.y;
       if (Math.abs(dx) > 0.002 || Math.abs(dy) > 0.002) m.moved = true;
-      setMovePreview({
+      setMovePreviewBoth({
         nx: Math.min(1, Math.max(0, m.orig.nx + dx)),
         nyTop: Math.min(1, Math.max(0, m.orig.nyTop + dy)),
         nw: m.orig.nw,
@@ -367,9 +375,9 @@ export function AnnotateCanvas({
   const onPointerUp = () => {
     if (moveRef.current) {
       const m = moveRef.current;
-      const preview = movePreview;
+      const preview = movePreviewRef.current;
       moveRef.current = null;
-      setMovePreview(null);
+      setMovePreviewBoth(null);
       if (m.moved && preview) onItemMove(m.id, preview);
       return;
     }

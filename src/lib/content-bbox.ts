@@ -16,9 +16,9 @@ export interface FracBox {
   nh: number;
 }
 
-/** Ink bounding box over raw RGBA pixels (top-left origin). `bg` is the
- * sampled background colour (default white); a pixel counts as ink when it
- * differs from bg on ANY channel by more than `tol` (0-255). */
+/** Ink bounding box over raw RGBA pixels (top-left origin). The background
+ * is assumed white (hardcoded 255); a pixel counts as ink when it differs
+ * from white on ANY channel by more than `tol` (0-255). */
 export function contentBboxFromPixels(
   width: number,
   height: number,

@@ -12,7 +12,7 @@ import type { RedactRect } from '../../engine/pdf-lib';
 
 /*
  * Annotate tab (v0.9.0 phase 4): stamps & shapes as an EDIT LIST — elements
- * live in React state and Apply makes ONE stampAnnotations call (form
+ * live in React state and Apply makes ONE applyAnnotate call (form
  * re-apply semantics, the watermark model; no intermediate PDF states).
  * Elements are fractions of the visible page box; the visual-pt conversion
  * happens at apply time via pdf.js page sizes (lazily, pages with elements
@@ -80,7 +80,6 @@ export interface AnnotateState {
   setFill: (f: boolean) => void;
   textValue: string;
   setTextValue: (v: string) => void;
-  deleteSelected: () => void;
   undo: () => void;
   canUndo: boolean;
   busy: boolean;
@@ -245,13 +244,6 @@ export function useAnnotateState(
     [selectedId],
   );
 
-  const deleteSelected = useCallback(() => {
-    if (!selectedId) return;
-    pushHistory(itemsRef.current);
-    setItems((prev) => prev.filter((i) => i.id !== selectedId));
-    setSelectedId(null);
-  }, [selectedId, pushHistory]);
-
   const undo = useCallback(() => {
     setHistory((h) => {
       if (h.length === 0) return h;
@@ -391,7 +383,6 @@ export function useAnnotateState(
     setFill,
     textValue,
     setTextValue,
-    deleteSelected,
     undo,
     canUndo: history.length > 0,
     busy,
