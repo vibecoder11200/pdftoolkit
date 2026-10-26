@@ -50,7 +50,19 @@ export async function markdownToDocx({ texts, flat = false }: DocxPages): Promis
       continue;
     }
     const fragment = markdownToSafeHtml(engineTablesToMarkdown(text).trim());
-    if (fragment.length > 0) children.push(...(await htmlToContent(fragment)));
+    if (fragment.length > 0) {
+      // Table fidelity (v0.9.0 phase 9): the whitelist HTML carries NO
+      // inline CSS, so docx/html renders borderless tables by default. The
+      // stylesheet mirrors the HTML export's table CSS (convertEngineOutput)
+      // so both exports show the same grid: visible borders, header-row
+      // shading, cell padding.
+      children.push(
+        ...(await htmlToContent(fragment, {
+          stylesheet:
+            'table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 10px}th{background-color:#f2f2f2}',
+        })),
+      );
+    }
   }
 
   const doc = new Document({

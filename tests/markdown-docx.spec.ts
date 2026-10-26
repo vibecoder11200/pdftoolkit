@@ -77,3 +77,34 @@ describe('markdownToDocx (tesseract path)', () => {
     await expect(markdownToDocx({ texts: [] })).rejects.toThrow('no pages');
   });
 });
+
+describe('markdownToDocx table/list fidelity (v0.9.0 phase 9)', () => {
+  it('tables render borders, header shading, and cell padding', async () => {
+    const xml = await documentXml({
+      texts: ['# Bảng\n\n| Tên | Số |\n| --- | --- |\n| A | 1 |\n| B | 2 |'],
+    });
+    expect(xml).toContain('<w:tbl>');
+    expect(xml).toContain('<w:tblBorders>'); // visible grid
+    expect(xml).toMatch(/<w:shd[^>]*w:fill="F2F2F2"/); // header-row shading
+    expect(xml).toMatch(/w:w="\d+"/); // padding via cell margins/width
+  });
+
+  it('nested bullets emit real w:ilvl levels (not a flat list)', async () => {
+    const xml = await documentXml({
+      texts: ['- item 1\n  - nested 1.1\n    - deep 1.1.1\n- item 2'],
+    });
+    expect(xml).toMatch(/w:ilvl w:val="1"/);
+    expect(xml).toMatch(/w:ilvl w:val="2"/);
+    expect(xml).toContain('deep 1.1.1');
+    expect(xml).toContain('item 2');
+  });
+
+  it('mixed ordered/bullet lists keep their numberings', async () => {
+    const xml = await documentXml({
+      texts: ['1. first\n   - sub\n2. second'],
+    });
+    expect(xml).toMatch(/w:numId w:val="\d+"/); // both lists carry numbering
+    expect(xml).toMatch(/w:ilvl w:val="1"/);
+    expect(xml).toContain('second');
+  });
+});

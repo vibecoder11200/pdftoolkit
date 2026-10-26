@@ -82,9 +82,12 @@ describe('markdownToSafeHtml (D10)', () => {
     expect(html).toContain('<em>nghiêng</em>');
     expect(html).toContain('<code>code</code>');
     expect(html).toContain('<ul>');
-    expect(html).toContain('<li>một</li>');
+    // v0.9.0 phase 9: an <li> stays open until the next item/shallower line
+    // so a nested list can land inside it.
+    expect(html).toContain('<li>một');
+    expect(html).toContain('</li>');
     expect(html).toContain('<ol>');
-    expect(html).toContain('<li>hai</li>');
+    expect(html).toContain('<li>hai');
     expect(html).not.toMatch(/<(?!\/?(h[1-4]|p|ul|ol|li|table|tbody|tr|td|th|code|strong|em|a|br)\b)[a-z]/);
   });
 });
@@ -148,5 +151,36 @@ describe('inline math carrier (v0.7.0 phase 4)', () => {
     expect(html).toContain('<table><thead>');
     expect(html).toContain('</thead></table>');
     expect(html).not.toContain('<tbody>');
+  });
+});
+
+describe('markdownToSafeHtml nested lists (v0.9.0 phase 9)', () => {
+  it('nests indented bullet levels INSIDE the parent <li>', () => {
+    const html = markdownToSafeHtml(['- item 1', '  - nested 1.1', '    - deep 1.1.1', '- item 2'].join('\n'));
+    // Real nesting: the deep list closes inside nested, which closes inside
+    // item 1's li — a flat list would emit sibling <li>s only.
+    expect(html).toContain('<li>item 1\n<ul>');
+    expect(html).toContain('<li>nested 1.1\n<ul>');
+    expect(html).toContain('<li>deep 1.1.1\n</li>');
+    expect(html).toMatch(/<\/ul>\n<\/li>\n<\/ul>\n<\/li>\n<li>item 2/);
+  });
+
+  it('ordered and bullet lists can mix across levels; a shallower line closes levels', () => {
+    const html = markdownToSafeHtml(
+      ['1. first', '   - sub bullet', '2. second', '- top bullet again'].join('\n'),
+    );
+    // ol at level 0, ul nested inside it, then back to ol level 0, then a
+    // fresh ul at level 0.
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<li>first\n<ul>');
+    expect(html).toContain('<li>sub bullet\n</li>');
+    expect(html).toContain('</ul>\n</li>\n<li>second');
+    expect(html).toContain('<li>top bullet again');
+  });
+
+  it('list items keep inline formatting and escaping', () => {
+    const html = markdownToSafeHtml(['- **đậm** và <tag>'].join('\n'));
+    expect(html).toContain('<li>');
+    expect(html).toContain('&lt;tag&gt;');
   });
 });

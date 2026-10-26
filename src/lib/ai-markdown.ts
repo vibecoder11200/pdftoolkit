@@ -160,12 +160,25 @@ export function markdownToSafeHtml(markdown: string): string {
    *  spike verdict: headerless td-only tables get NO tblHeader, so the
    *  synthesis happens here at the source. */
   let tableRows = 0;
-  let listOpen: 'ul' | 'ol' | null = null;
+  // Nested lists (v0.9.0 phase 9): a stack of open list levels; an <li>
+  // stays OPEN until the next item/shallower line so a nested <ul>/<ol>
+  // lands INSIDE its parent item (the docx/html reader needs the real
+  // nesting to emit w:ilvl levels — a flat list lost every level).
+  interface ListLevel {
+    tag: 'ul' | 'ol';
+    liOpen: boolean;
+  }
+  const listStack: ListLevel[] = [];
 
   const closeList = () => {
-    if (listOpen) {
-      out.push(`</${listOpen}>`);
-      listOpen = null;
+    while (listStack.length > 0) {
+      const top = listStack[listStack.length - 1]!;
+      if (top.liOpen) {
+        out.push('</li>');
+        top.liOpen = false;
+      }
+      out.push(`</${top.tag}>`);
+      listStack.pop();
     }
   };
   const closeTable = () => {
@@ -219,24 +232,44 @@ export function markdownToSafeHtml(markdown: string): string {
       out.push(`<h${level}>${inlineToSafeHtml(escapeHtml(heading[2]))}</h${level}>`);
       continue;
     }
-    const bullet = /^[-*]\s+(.*)$/.exec(trimmed);
-    if (bullet) {
-      if (listOpen !== 'ul') {
-        closeList();
-        out.push('<ul>');
-        listOpen = 'ul';
+    // Indent → nesting level: 2 spaces per level (tabs count as 4), capped
+    // at 4 levels like the heading clamp.
+    const indent = line.match(/^[ \t]*/)![0].replaceAll('\t', '    ').length;
+    const level = Math.min(4, Math.floor(indent / 2));
+    const listItem =
+      (/^[-*]\s+(.*)$/.exec(trimmed) ? { tag: 'ul' as const, m: /^[-*]\s+(.*)$/.exec(trimmed)! } : null) ??
+      (/^\d+[.)]\s+(.*)$/.exec(trimmed) ? { tag: 'ol' as const, m: /^\d+[.)]\s+(.*)$/.exec(trimmed)! } : null);
+    if (listItem) {
+      const wantLen = level + 1;
+      while (listStack.length > wantLen) {
+        const top = listStack[listStack.length - 1]!;
+        if (top.liOpen) {
+          out.push('</li>');
+          top.liOpen = false;
+        }
+        out.push(`</${top.tag}>`);
+        listStack.pop();
       }
-      out.push(`<li>${inlineToSafeHtml(escapeHtml(bullet[1]))}</li>`);
-      continue;
-    }
-    const ordered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
-    if (ordered) {
-      if (listOpen !== 'ol') {
-        closeList();
-        out.push('<ol>');
-        listOpen = 'ol';
+      // ul↔ol switch at the same level restarts that list.
+      if (listStack.length === wantLen && listStack[listStack.length - 1]!.tag !== listItem.tag) {
+        const top = listStack[listStack.length - 1]!;
+        if (top.liOpen) {
+          out.push('</li>');
+          top.liOpen = false;
+        }
+        out.push(`</${top.tag}>`);
+        listStack.pop();
       }
-      out.push(`<li>${inlineToSafeHtml(escapeHtml(ordered[1]))}</li>`);
+      if (listStack.length < wantLen) {
+        // Deeper level: the nested list opens INSIDE the parent <li>, which
+        // therefore must still be open.
+        out.push(`<${listItem.tag}>`);
+        listStack.push({ tag: listItem.tag, liOpen: false });
+      }
+      const top = listStack[listStack.length - 1]!;
+      if (top.liOpen) out.push('</li>');
+      out.push(`<li>${inlineToSafeHtml(escapeHtml(listItem.m[1]))}`);
+      top.liOpen = true;
       continue;
     }
     closeList();
