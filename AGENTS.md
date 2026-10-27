@@ -389,7 +389,16 @@ This project is indexed by GitNexus as **pdftoolkit** (3810 symbols, 9780 relati
   are FRACTIONS of the visible page box; all rect math round-trips through
   the v0.8.0 geometry primitives. D3: editor editing surfaces are
   desktop/tablet-only (`editor.phone_notice`); pinch-zoom deferred.
-- **Raster pages paint rects BEFORE `encodeJpeg`** (finding 1) — an
+- - **Signed-input posture (v0.9.x review decisions)**: EVERY mutating
+  editor op (applyAnnotate / editTextRuns / cropPages / redactFinalize)
+  refuses digitally-signed inputs BEFORE mutation via the shared
+  `docHasDigitalSignature` predicate (/FT /Sig + /V /ByteRange walk).
+  Detection requires /V + /ByteRange — the gen.mjs form-vn-signed.pdf
+  fixture is the form tool's LOOSER R15 marker (no /V) and does NOT
+  trip it. Watermark predates this and stays silent (documented
+  legacy). Highlight /CA is the STORED opacity (max 0.5) — never
+  re-double it; preview === applied.
+**Raster pages paint rects BEFORE `encodeJpeg`** (finding 1) — an
   unpainted raster ships the secret as pixels; the wrapper's pixel leg
   re-renders and asserts every painted region is uniform. The e2e
   invisible-failure gate (extraction AND pixel variants,
