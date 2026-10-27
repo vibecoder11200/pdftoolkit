@@ -338,3 +338,25 @@ describe('runEditTextPipeline — run-scoped semantic leg', () => {
     expect(base).toEqual(before);
   });
 });
+
+async function signedDocBytes(): Promise<Uint8Array> {
+  const { PDFDocument, PDFName, PDFString, PDFNumber, PDFHexString } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 144]);
+  const ctx = doc.context;
+  const sigValue = ctx.register(ctx.obj({ ByteRange: ctx.obj([0, 1, 2, 3].map((n) => PDFNumber.of(n))), Contents: PDFHexString.fromText('sig') }));
+  const fieldRef = ctx.register(ctx.obj({ FT: PDFName.of('Sig'), T: PDFString.of('Sig1'), V: sigValue }));
+  doc.catalog.set(PDFName.of('AcroForm'), ctx.obj({ Fields: ctx.obj([fieldRef]) }));
+  return doc.save({ useObjectStreams: false });
+}
+
+it('signed document refuses before mutation (review decision 2026-10-27)', async () => {
+  const bytes = await signedDocBytes();
+  await expect(
+    editTextRuns(
+      bytes,
+      { runs: [{ page: 1, rect: { x: 40, y: 700, w: 120, h: 14 }, baselineY: 710, text: 'x', replacement: 'y' }] },
+      robotoBytes(),
+    ),
+  ).rejects.toMatchObject({ name: 'EditTextRefusedError' });
+});

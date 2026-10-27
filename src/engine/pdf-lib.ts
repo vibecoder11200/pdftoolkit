@@ -2889,7 +2889,7 @@ export async function redactFinalize(
 ): Promise<RedactFinalizeResult> {
   const pdfLib = await import('pdf-lib');
   pdfLibCache = pdfLib;
-  const { PDFDocument, PDFName, PDFArray, PDFDict } = pdfLib;
+  const { PDFDocument, PDFName, PDFDict } = pdfLib;
   const secrets = spec.secrets.map((s) => s.trim()).filter((s) => s.length > 0);
   if (secrets.length === 0) throw new RedactRefusedError('No redaction marks were provided.');
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
@@ -2922,30 +2922,8 @@ export async function redactFinalize(
       }
     }
   }
-  const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
-  if (acro instanceof PDFDict) {
-    const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
-    const walkSig = (d: unknown, depth: number): boolean => {
-      if (!(d instanceof PDFDict) || depth > 8) return false;
-      if (String(d.get(PDFName.of('FT')) ?? '') === '/Sig') {
-        const v = doc.context.lookup(d.get(PDFName.of('V')));
-        if (v instanceof PDFDict && v.get(PDFName.of('ByteRange'))) return true;
-      }
-      const kids = doc.context.lookup(d.get(PDFName.of('Kids')));
-      if (kids instanceof PDFArray) {
-        for (let i = 0; i < kids.size(); i += 1) {
-          if (walkSig(doc.context.lookup(kids.get(i)), depth + 1)) return true;
-        }
-      }
-      return false;
-    };
-    if (fields instanceof PDFArray) {
-      for (let i = 0; i < fields.size(); i += 1) {
-        if (walkSig(doc.context.lookup(fields.get(i)), 0)) {
-          throw new RedactRefusedError('The document carries a digital signature; redaction would invalidate it.');
-        }
-      }
-    }
+  if (docHasDigitalSignature(doc)) {
+    throw new RedactRefusedError('The document carries a digital signature; redaction would invalidate it.');
   }
 
   // census gate: a surgical page carrying escalate-tier constructs must ride
@@ -3101,6 +3079,35 @@ function annotColor(hex: string | undefined): import('pdf-lib').RGB {
   if (!m) return rgb(0.07, 0.07, 0.07);
   const n = parseInt(m[1], 16);
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+/** True when the document's AcroForm carries a signature field with a
+ * ByteRange (/FT /Sig + /V /ByteRange, depth <= 8) — a full pdf-lib rewrite
+ * invalidates such signatures, so every mutating op refuses up front
+ * (review decision 2026-10-27: one posture with redactFinalize). */
+function docHasDigitalSignature(doc: import('pdf-lib').PDFDocument): boolean {
+  const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+  if (!(acro instanceof PDFDict)) return false;
+  const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
+  if (!(fields instanceof PDFArray)) return false;
+  const walkSig = (d: unknown, depth: number): boolean => {
+    if (!(d instanceof PDFDict) || depth > 8) return false;
+    if (String(d.get(PDFName.of('FT')) ?? '') === '/Sig') {
+      const v = doc.context.lookup(d.get(PDFName.of('V')));
+      if (v instanceof PDFDict && v.get(PDFName.of('ByteRange'))) return true;
+    }
+    const kids = doc.context.lookup(d.get(PDFName.of('Kids')));
+    if (kids instanceof PDFArray) {
+      for (let i = 0; i < kids.size(); i += 1) {
+        if (walkSig(doc.context.lookup(kids.get(i)), depth + 1)) return true;
+      }
+    }
+    return false;
+  };
+  for (let i = 0; i < fields.size(); i += 1) {
+    if (walkSig(doc.context.lookup(fields.get(i)), 0)) return true;
+  }
+  return false;
 }
 
 /** Validation + the per-page draw loop of the composed applyAnnotate op
@@ -3325,6 +3332,11 @@ export async function applyAnnotate(
   } catch (e) {
     throw new AnnotationRefusedError(
       `The file cannot be annotated (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  if (docHasDigitalSignature(doc)) {
+    throw new AnnotationRefusedError(
+      'The document carries a digital signature; annotating would invalidate it.',
     );
   }
   const stamps = opts.stamps ?? [];
@@ -3620,6 +3632,11 @@ export async function editTextRuns(
       `The file cannot be edited (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+  if (docHasDigitalSignature(doc)) {
+    throw new EditTextRefusedError(
+      'The document carries a digital signature; editing would invalidate it.',
+    );
+  }
   const pageCount = doc.getPageCount();
 
   // Pre-checks BEFORE any mutation.
@@ -3807,6 +3824,11 @@ export async function cropPages(
   } catch (e) {
     throw new CropRefusedError(
       `The file cannot be cropped (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  if (docHasDigitalSignature(doc)) {
+    throw new CropRefusedError(
+      'The document carries a digital signature; cropping would invalidate it.',
     );
   }
   const pageCount = doc.getPageCount();

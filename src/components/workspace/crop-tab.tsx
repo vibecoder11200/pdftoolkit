@@ -161,6 +161,10 @@ export function useCropState(
           return;
         }
         const name = e instanceof Error ? e.name : '';
+        if (name === 'CropRefusedError' && /signed/i.test(e instanceof Error ? e.message : '')) {
+          setError(t('editor.err_signed'));
+          return;
+        }
         if (name === 'CropRefusedError' || name === 'RedactRefusedError' || name === 'RedactVerifyError') {
           setError(t('editor.crop_refused', { message: e instanceof Error ? e.message : String(e) }));
           return;

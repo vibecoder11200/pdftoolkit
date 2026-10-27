@@ -222,3 +222,21 @@ describe('content-bbox — auto-suggest pure functions', () => {
     expect(contentBboxFromPixels(w, h, data, 28)).toBeNull();
   });
 });
+
+async function signedDocBytes(): Promise<Uint8Array> {
+  const { PDFDocument, PDFName, PDFString, PDFNumber, PDFHexString } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 144]);
+  const ctx = doc.context;
+  const sigValue = ctx.register(ctx.obj({ ByteRange: ctx.obj([0, 1, 2, 3].map((n) => PDFNumber.of(n))), Contents: PDFHexString.fromText('sig') }));
+  const fieldRef = ctx.register(ctx.obj({ FT: PDFName.of('Sig'), T: PDFString.of('Sig1'), V: sigValue }));
+  doc.catalog.set(PDFName.of('AcroForm'), ctx.obj({ Fields: ctx.obj([fieldRef]) }));
+  return doc.save({ useObjectStreams: false });
+}
+
+it('signed document refuses before mutation (review decision 2026-10-27)', async () => {
+  const bytes = await signedDocBytes();
+  await expect(
+    cropPages(bytes, [{ page: 1, rect: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }]),
+  ).rejects.toMatchObject({ name: 'CropRefusedError' });
+});

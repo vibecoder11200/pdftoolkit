@@ -979,6 +979,7 @@
     "err_no_elements": "Chưa có phần tử nào để áp dụng.",
     "err_overflow": "Chữ không vừa trong trang — thu nhỏ cỡ chữ hoặc kéo vùng ngắn hơn.",
     "err_annot_refused": "Không thể áp dụng phần ghi chú này (tệp mã hóa hoặc phần tử không hợp lệ).",
+    "err_signed": "Tệp này có chữ ký số — ứng dụng không chỉnh sửa file đã ký để không làm vô hiệu chữ ký. Hãy dùng bản chưa ký.",
     "err_failed": "Xử lý thất bại: {{message}}",
     "err_crashed": "Bộ xử lý PDF gặp sự cố",
     "err_crashed_detail": "Tiến trình xử lý đã dừng giữa chừng. Bấm \"Thử lại\" để chạy lại từ đầu.",

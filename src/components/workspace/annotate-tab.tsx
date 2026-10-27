@@ -317,7 +317,7 @@ export function useAnnotateState(
                     };
                   }),
                   color: i.color,
-                  opacity: i.opacity * 2,
+                  opacity: i.opacity, // cap 0.5 — preview === applied; text under the highlight stays readable (review decision 2026-10-27)
                 }
               : {
                   kind: 'note' as const,
@@ -343,10 +343,13 @@ export function useAnnotateState(
         setProgress(null);
         const errName = e instanceof Error ? e.name : '';
         if (errName === 'AnnotationRefusedError') {
+          const msg = e instanceof Error ? e.message : '';
           setRunError(
-            /fit/i.test(e instanceof Error ? e.message : '')
-              ? t('editor.err_overflow')
-              : t('editor.err_annot_refused'),
+            /signed/i.test(msg)
+              ? t('editor.err_signed')
+              : /fit/i.test(msg)
+                ? t('editor.err_overflow')
+                : t('editor.err_annot_refused'),
           );
           return;
         }

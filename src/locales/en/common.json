@@ -979,6 +979,7 @@
     "err_no_elements": "No elements to apply yet.",
     "err_overflow": "The text does not fit the page — reduce the size or draw a shorter box.",
     "err_annot_refused": "This annotation cannot be applied (encrypted file or invalid element).",
+    "err_signed": "This file carries a digital signature — the app does not modify signed files, so the signature stays valid. Use an unsigned copy.",
     "err_failed": "Run failed: {{message}}",
     "err_crashed": "The PDF engine crashed",
     "err_crashed_detail": "The worker stopped mid-run. Press Retry to start over.",

@@ -169,6 +169,10 @@ export function useEditTextState(bytes: Uint8Array, fileName: string, page: numb
           return;
         }
         const name = e instanceof Error ? e.name : '';
+        if (name === 'EditTextRefusedError' && /signed/i.test(e instanceof Error ? e.message : '')) {
+          setError(t('editor.err_signed'));
+          return;
+        }
         if (name === 'EditTextRefusedError' || name === 'EditTextVerifyError' || name === 'AnnotationRefusedError') {
           setError(t('editor.edit_refused', { message: e instanceof Error ? e.message : String(e) }));
           return;

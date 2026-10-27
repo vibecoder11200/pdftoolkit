@@ -476,3 +476,28 @@ describe('applyAnnotate — crash-injected reject-and-restart (worker seam)', ()
     expect(qp).toHaveLength(8); // exactly one quad — not doubled
   });
 });
+
+async function signedDocBytes(): Promise<Uint8Array> {
+  const { PDFName, PDFString, PDFNumber, PDFHexString } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 144]);
+  const ctx = doc.context;
+  const sigValue = ctx.register(ctx.obj({ ByteRange: ctx.obj([0, 1, 2, 3].map((n) => PDFNumber.of(n))), Contents: PDFHexString.fromText('sig') }));
+  const fieldRef = ctx.register(ctx.obj({ FT: PDFName.of('Sig'), T: PDFString.of('Sig1'), V: sigValue }));
+  doc.catalog.set(PDFName.of('AcroForm'), ctx.obj({ Fields: ctx.obj([fieldRef]) }));
+  return doc.save({ useObjectStreams: false });
+}
+
+it('signed document refuses before mutation (review decision 2026-10-27)', async () => {
+  const bytes = await signedDocBytes();
+  await expect(
+    applyAnnotate(
+      bytes,
+      { stamps: [{ kind: 'text', page: 1, x: 40, y: 40, w: 120, h: 16, text: 'x' }] },
+      robotoBytes(),
+    ),
+  ).rejects.toMatchObject({ name: 'AnnotationRefusedError' });
+  await expect(
+    applyAnnotate(bytes, {}, robotoBytes()),
+  ).rejects.toMatchObject({ name: 'AnnotationRefusedError' });
+});
