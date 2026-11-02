@@ -167,3 +167,48 @@ export async function getTextItemRects(
   }
   return out;
 }
+
+/** Positional text items of a page in VISUAL space, y-down top-left origin
+ * (td[5] IS device-space y after the viewport mapping — do NOT flip again;
+ * the double flip reverses reading order, spike-pdf2word lesson #1).
+ * pdf2word's layout engine consumes exactly this shape; NFKC-normalized so
+ * ligature glyphs (ﬁ U+FB01) compare equal to their decomposed spelling.
+ * Zero-width (EOL) and degenerate items are dropped; `rotated` flags runs
+ * whose advance axis is not horizontal in device space. */
+export interface VisualTextItem {
+  str: string;
+  x0: number;
+  x1: number;
+  baseline: number;
+  size: number;
+  fontName: string;
+  rotated: boolean;
+}
+
+export async function getVisualTextItems(
+  data: Uint8Array,
+  pageNumber: number,
+): Promise<VisualTextItem[]> {
+  const doc = await getDoc(data);
+  const page = await doc.getPage(pageNumber);
+  const vp = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  const out: VisualTextItem[] = [];
+  for (const item of content.items) {
+    if (!('str' in item) || !item.str.trim() || item.width === 0) continue;
+    const td = pdfjs.Util.transform(vp.transform, item.transform);
+    const size = Math.hypot(td[2], td[3]);
+    if (size === 0) continue;
+    out.push({
+      str: item.str.normalize('NFKC'),
+      x0: td[4],
+      x1: td[4] + item.width,
+      baseline: td[5],
+      size,
+      fontName: item.fontName,
+      rotated: Math.abs(td[1]) > 0.1 * Math.hypot(td[0], td[1]),
+    });
+  }
+  out.sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
+  return out;
+}

@@ -523,6 +523,121 @@ async function makeP2wViet() {
 const p2wViet = await makeP2wViet();
 writeFileSync(join(here, 'fixture-p2w-viet.pdf'), p2wViet);
 
+// Census-class fixtures (RED-TEAM F10): the digital set alone never proved
+// the mode routing — the app's OWN OCR output (image + text layer) is the
+// likeliest real-world input.
+//  - fixture-p2w-scan.pdf     image-only page, zero text items → 'scan'
+//  - fixture-p2w-sandwich.pdf image + Roboto text layer → 'digital' (the
+//    sandwich IS searchable; the text layer is the content)
+//  - fixture-p2w-mixed.pdf    digital page 1 + image-only page 2 → 'mixed',
+//    per-page routing puts page 2 through the AI seam
+//  - fixture-p2w-list.pdf     bullet + numbered agenda (list detection)
+//  - fixture-p2w-adversarial.pdf  ruled table whose cells carry pipes,
+//    dollars, and math-lookalikes (F9 emitter contract)
+async function makeP2wScanLike(withText) {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`pdftoolkit-fixture-p2w-${withText ? 'sandwich' : 'scan'}`);
+  doc.setCreator('pdftoolkit-gen');
+  let roboto = null;
+  if (withText) {
+    doc.registerFontkit(fontkit);
+    roboto = await doc.embedFont(readFileSync(ROBOTO_TTF), { subset: true });
+  }
+  const page = doc.addPage([595, 842]);
+  const pngBytes = makePng(64, 48);
+  const img = await doc.embedPng(pngBytes);
+  page.drawImage(img, { x: 48, y: 200, width: 480, height: 500 });
+  if (roboto) {
+    para(page, roboto, [
+    'Kết quả nhận dạng văn bản (lớp chữ vô hình của app)',
+    'Trang này mô phỏng đầu ra OCR sandwich: ảnh nền + lớp chữ',
+    'để tìm kiếm được — census phải tính đây là trang digital.',
+    ], 48, 160, 11, 16);
+  }
+  return doc.save({ useObjectStreams: false });
+}
+const p2wScan = await makeP2wScanLike(false);
+writeFileSync(join(here, 'fixture-p2w-scan.pdf'), p2wScan);
+const p2wSandwich = await makeP2wScanLike(true);
+writeFileSync(join(here, 'fixture-p2w-sandwich.pdf'), p2wSandwich);
+
+async function makeP2wMixed() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-mixed');
+  doc.setCreator('pdftoolkit-gen');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page1 = doc.addPage([595, 842]);
+  para(page1, font, [
+    'Memo: the mixed-mode routing fixture.',
+    'This page carries a real text layer and converts on the digital path;',
+    'page two is an image-only scan and must route through the AI seam.',
+  ], 48, 760, 11, 16);
+  const page2 = doc.addPage([595, 842]);
+  const img = await doc.embedPng(makePng(64, 48));
+  page2.drawImage(img, { x: 48, y: 300, width: 480, height: 400 });
+  return doc.save({ useObjectStreams: false });
+}
+const p2wMixed = await makeP2wMixed();
+writeFileSync(join(here, 'fixture-p2w-mixed.pdf'), p2wMixed);
+
+async function makeP2wList() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-list');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('Meeting agenda', { x: 48, y: 780, size: 15, font: bold });
+  // Nested bullets carry a REAL x-offset (12pt per level) — that is what a
+  // word processor emits and what the engine's indent heuristic reads.
+  page.drawText('• Welcome and minutes of the previous meeting', { x: 48, y: 750, size: 11, font });
+  page.drawText('• Quarterly numbers presentation', { x: 48, y: 730, size: 11, font });
+  page.drawText('• Revenue breakdown by region', { x: 60, y: 710, size: 11, font });
+  page.drawText('• Cost drivers and one-time items', { x: 60, y: 690, size: 11, font });
+  page.drawText('• Open questions from the floor', { x: 48, y: 670, size: 11, font });
+  para(page, font, [
+    '1. Approve the revised budget',
+    '2. Schedule the audit kickoff',
+    '3. Adjourn',
+  ], 48, 630, 11, 20);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wList = await makeP2wList();
+writeFileSync(join(here, 'fixture-p2w-list.pdf'), p2wList);
+
+async function makeP2wAdversarial() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-adversarial');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('Export ledger', { x: 48, y: 780, size: 15, font: bold });
+  const cols = [48, 238, 338, 478, 548];
+  const rows = [740, 716, 692, 668];
+  const cellText = [
+    ['Item', 'Code', 'Price', 'Note'],
+    ['A|B pipe mix', 'X-1', '$5$?', 'a|b|c'],
+    ['Plain steel', 'Y-2', '12.50', 'net 30'],
+    ['$x$ math lookalike', 'Z-3', '9.99', '# hash tag'],
+  ];
+  for (const y of rows) {
+    page.drawLine({ start: { x: cols[0], y }, end: { x: cols[4], y }, thickness: 0.75 });
+  }
+  for (const x of cols) {
+    page.drawLine({ start: { x, y: rows[0] }, end: { x, y: rows[rows.length - 1] }, thickness: 0.75 });
+  }
+  for (const [r, row] of cellText.entries()) {
+    for (const [c, text] of row.entries()) {
+      page.drawText(text, { x: cols[c] + 5, y: rows[r] - 16, size: 10, font: r === 0 ? bold : font });
+    }
+  }
+  para(page, font, ['Cells carry pipes, dollars, hashes — the table must survive.'], 48, 620, 11, 16);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wAdversarial = await makeP2wAdversarial();
+writeFileSync(join(here, 'fixture-p2w-adversarial.pdf'), p2wAdversarial);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -541,6 +656,11 @@ console.log(
     'fixture-p2w-invoice.pdf': p2wInvoice.length,
     'fixture-p2w-twocol.pdf': p2wTwocol.length,
     'fixture-p2w-viet.pdf': p2wViet.length,
+    'fixture-p2w-scan.pdf': p2wScan.length,
+    'fixture-p2w-sandwich.pdf': p2wSandwich.length,
+    'fixture-p2w-mixed.pdf': p2wMixed.length,
+    'fixture-p2w-list.pdf': p2wList.length,
+    'fixture-p2w-adversarial.pdf': p2wAdversarial.length,
   }),
 );
 

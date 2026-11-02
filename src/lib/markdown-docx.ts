@@ -27,10 +27,13 @@ export interface DocxPages {
   texts: string[];
   /** Tesseract mode: flat paragraphs, no markdown conversion. */
   flat?: boolean;
+  /** DOCX metadata title. Default keeps the OCR-path byte identity
+   *  (v0.10.0 F9: pdf2word passes the source filename instead). */
+  title?: string;
 }
 
 /** Build the .docx bytes for the given pages (worker-side entry point). */
-export async function markdownToDocx({ texts, flat = false }: DocxPages): Promise<Uint8Array> {
+export async function markdownToDocx({ texts, flat = false, title }: DocxPages): Promise<Uint8Array> {
   if (texts.length === 0) throw new Error('docx export: no pages');
   const [{ Document, Packer, Paragraph }, { htmlToContent }] = await Promise.all([
     import('docx'),
@@ -66,7 +69,7 @@ export async function markdownToDocx({ texts, flat = false }: DocxPages): Promis
   }
 
   const doc = new Document({
-    title: 'pdftoolkit-ocr',
+    title: title ?? 'pdftoolkit-ocr',
     creator: 'pdftoolkit',
     sections: [{ children }],
   });

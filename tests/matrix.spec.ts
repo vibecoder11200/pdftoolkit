@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { defineMatrix } from './helpers/matrix-def';
 
 /*
@@ -43,3 +43,23 @@ for (const c of PR_CASES) {
     defineMatrix(c.label, () => bytes, c.pages, 120_000);
   });
 }
+
+// v0.10.0 F14 (plan 261102-1005): pdf2word gets a REAL PR-tier leg here —
+// the whole pipeline (extraction → layout → markdown → DOCX emitter stub)
+// on a normal-size fixture with the AI seam mocked. The 100MB nightly leg
+// is a journaled v0.10.x deferral, NOT covered here.
+describe('matrix pdf2word pipeline', () => {
+  it('letter fixture converts end-to-end under the PR-tier budget', async () => {
+    const { runPdf2Word } = await import('../src/lib/pdf2word');
+    const { getVisualTextItems } = await import('../src/engine/pdfjs');
+    const bytes = new Uint8Array(readFileSync(join(fixturesDir, 'fixture-p2w-letter.pdf')));
+    const res = await runPdf2Word({
+      pageCount: 1,
+      extractPage: (p) => getVisualTextItems(bytes, p),
+      toDocx: async (pages) => new TextEncoder().encode(pages.texts.join('\n\n')),
+    });
+    expect(res.mode).toBe('digital');
+    expect(res.markdown[0]).toContain('# Quarterly Operations Report');
+    expect(res.docx.length).toBeGreaterThan(0);
+  }, 120_000);
+});
