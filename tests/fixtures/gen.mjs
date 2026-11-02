@@ -371,6 +371,158 @@ try {
   console.warn(`[gen.mjs] P12 fixtures SKIPPED (${e.message.split('\n')[0]}) — cert specs will self-skip`);
 }
 
+// v0.10.0 pdf2word fixtures (plan 261102-1005 P3, committed ONCE here and
+// reused by the engine specs — never authored twice). All digital text-layer
+// PDFs with deterministic content the specs can assert on:
+//  - fixture-p2w-letter.pdf  single column: bold heading + 3 paragraphs + signature
+//  - fixture-p2w-invoice.pdf ruled (lattice) table 4x5 + totals — ruling lines
+//    are vector ops (invisible to getTextContent by design; the spike records
+//    tables as UNSCORED and P4 defaults to cell clustering, F3/F7)
+//  - fixture-p2w-twocol.pdf  two columns with a real gutter; NORTH lines must
+//    all precede SOUTH lines in reading order
+//  - fixture-p2w-viet.pdf    Vietnamese diacritics via subset Roboto (the
+//    WinAnsi standard fonts cannot encode them — v0.8.1 lesson)
+function para(page, font, lines, x, y, size, lineHeight) {
+  for (const [i, line] of lines.entries()) {
+    page.drawText(line, { x, y: y - i * lineHeight, size, font });
+  }
+}
+
+async function makeP2wLetter() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-letter');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('Quarterly Operations Report', { x: 48, y: 780, size: 16, font: bold });
+  page.drawText('Prepared by the Operations Team — November 2026', { x: 48, y: 758, size: 10, font });
+  para(page, font, [
+    'During the fourth quarter the fulfillment centers processed a record',
+    'volume of orders while keeping the on-time dispatch rate above the',
+    'target threshold for twelve consecutive weeks.',
+  ], 48, 724, 11, 16);
+  para(page, font, [
+    'Warehouse throughput improved after the second conveyor line entered',
+    'service in September. picking errors fell by a third and the average',
+    'order cycle time dropped below the contractual ceiling.',
+  ], 48, 656, 11, 16);
+  para(page, font, [
+    'The outlook for the first quarter remains cautious: demand is',
+    'seasonally weaker, two clients renegotiated volumes, and energy',
+    'prices stay volatile. hiring stays frozen except for replacements.',
+  ], 48, 588, 11, 16);
+  para(page, font, ['Jane Doe', 'Operations Lead'], 48, 120, 11, 16);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wLetter = await makeP2wLetter();
+writeFileSync(join(here, 'fixture-p2w-letter.pdf'), p2wLetter);
+
+async function makeP2wInvoice() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-invoice');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('INVOICE #INV-2026-0417', { x: 48, y: 780, size: 18, font: bold });
+  para(page, font, [
+    'Date: 2026-11-02',
+    'Bill to: Example Trading Co., 12 Sample Street, Springfield',
+  ], 48, 748, 10, 14);
+  // Ruled table: 4 columns x 5 rows (header + 4 items). Column x-edges and
+  // row y-edges are round numbers the cell-clustering default can recover.
+  const cols = [48, 268, 328, 448, 548];
+  const rows = [700, 676, 652, 628, 604, 580];
+  const cellText = [
+    ['Item', 'Qty', 'Unit price', 'Amount'],
+    ['Widget assembly', '4', '450.00', '1,800.00'],
+    ['Steel bracket', '12', '12.50', '150.00'],
+    ['Paint kit', '3', '85.00', '255.00'],
+    ['Labor hours', '16', '40.00', '640.00'],
+  ];
+  for (const y of rows) {
+    page.drawLine({ start: { x: cols[0], y }, end: { x: cols[4], y }, thickness: 0.75 });
+  }
+  for (const x of cols) {
+    page.drawLine({ start: { x, y: rows[0] }, end: { x, y: rows[rows.length - 1] }, thickness: 0.75 });
+  }
+  for (const [r, row] of cellText.entries()) {
+    for (const [c, text] of row.entries()) {
+      page.drawText(text, { x: cols[c] + 5, y: rows[r] - 16, size: 10, font: r === 0 ? bold : font });
+    }
+  }
+  para(page, font, ['Total due: $2,845.00', 'Payment terms: net 30 days.'], 48, 540, 11, 16);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wInvoice = await makeP2wInvoice();
+writeFileSync(join(here, 'fixture-p2w-invoice.pdf'), p2wInvoice);
+
+async function makeP2wTwocol() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-twocol');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('Annual Field Report 2026', { x: 48, y: 790, size: 15, font: bold });
+  const north = [
+    'Northern region closed the year ahead of plan.',
+    'Depot utilization held above ninety percent.',
+    'Two new routes opened in the northern valley.',
+    'Fuel spend fell after the fleet telemetry rollout.',
+    'Staff retention in the north reached a record high.',
+    'Winter contingency stock is fully positioned.',
+    'The northern audit closed with zero findings.',
+    'Customer satisfaction scored 4.6 of 5 in the north.',
+  ];
+  const south = [
+    'Southern region met the revised annual target.',
+    'Coastal depots absorbed the storm season intact.',
+    'One route closed after the ferry contract ended.',
+    'Driver training hours doubled in the south.',
+    'The southern warehouse added cold storage.',
+    'Grid capacity limits capped summer throughput.',
+    'A regional review is planned for early 2027.',
+    'Customer satisfaction scored 4.2 of 5 in the south.',
+  ];
+  // Column gutter: left column ends at x=268, right starts at x=330 — the
+  // 62pt whitespace band is the x-projection signal.
+  para(page, bold, ['Northern region'], 48, 756, 12, 16);
+  para(page, font, north, 48, 732, 10, 18);
+  para(page, bold, ['Southern region'], 330, 756, 12, 16);
+  para(page, font, south, 330, 732, 10, 18);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wTwocol = await makeP2wTwocol();
+writeFileSync(join(here, 'fixture-p2w-twocol.pdf'), p2wTwocol);
+
+async function makeP2wViet() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-viet');
+  doc.setCreator('pdftoolkit-gen');
+  doc.registerFontkit(fontkit);
+  const roboto = await doc.embedFont(readFileSync(ROBOTO_TTF), { subset: true });
+  const page = doc.addPage([595, 842]);
+  page.drawText('Báo cáo tài chính quý IV', { x: 48, y: 780, size: 15, font: roboto });
+  para(page, roboto, [
+    'Công ty cổ phần Chứng khoán Việt Nam công bố kết quả kinh doanh',
+    'quý IV với doanh thu thuần tăng trưởng 18,4% so với cùng kỳ.',
+  ], 48, 748, 11, 16);
+  para(page, roboto, [
+    'Lợi nhuận trước thuế đạt 428 tỷ đồng, vượt 12% kế hoạch năm.',
+    'Thu nhập từ đầu tư tài chính đóng góp 96 tỷ đồng trong quý.',
+  ], 48, 696, 11, 16);
+  para(page, roboto, [
+    'Dự kiến năm 2027 sẽ mở thêm hai phòng giao dịch tại Huế và',
+    'Cần Thơ, đồng thời nâng cấp nền tảng giao dịch trực tuyến.',
+  ], 48, 644, 11, 16);
+  para(page, roboto, ['Người lập biểu: Phòng kế toán', 'Hà Nội, ngày 02 tháng 11 năm 2026'], 48, 120, 11, 16);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wViet = await makeP2wViet();
+writeFileSync(join(here, 'fixture-p2w-viet.pdf'), p2wViet);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -385,6 +537,10 @@ console.log(
     'form-vn-signed.pdf': readFileSync(join(here, 'form-vn-signed.pdf')).length,
     'form-xfa.pdf': readFileSync(join(here, 'form-xfa.pdf')).length,
     'form-vn-locked.pdf': formVnLocked.length,
+    'fixture-p2w-letter.pdf': p2wLetter.length,
+    'fixture-p2w-invoice.pdf': p2wInvoice.length,
+    'fixture-p2w-twocol.pdf': p2wTwocol.length,
+    'fixture-p2w-viet.pdf': p2wViet.length,
   }),
 );
 
