@@ -12,8 +12,9 @@
  *
  * Algorithms re-expressed from published descriptions only (Nagy et al.
  * XY-cut; pdfminer LAParams as the tuning-surface reference; pdfplumber's
- * text strategy for alignment clustering) — no code from pdf2md/pdfminer/
- * camelot/PyMuPDF; MIT/AGPL boundary per the repo rule. The v0.9.0
+ * text strategy for alignment clustering) — no code from pdf2md (0.1.x is
+ * copyleft — never a dependency), pdfminer, camelot or PyMuPDF;
+ * permissive-only boundary per the repo rule. The v0.9.0
  * markdown-table split contract applies downstream: cells escape literal
  * pipes as `\|` (ai-markdown unescapes on re-split).
  *
