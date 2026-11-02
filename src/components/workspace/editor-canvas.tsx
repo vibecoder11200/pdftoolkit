@@ -146,16 +146,22 @@ export function EditorCanvas({
   page,
   version,
   marks,
+  pendingMarks = [],
   onAdd,
   onRemove,
+  onRemovePending,
   disabled = false,
 }: {
   bytes: Uint8Array;
   page: number;
   version: number | string;
   marks: RedactMark[];
+  /** Keyword-search PROPOSALS (v0.10.0 rider): pending style, click drops
+   *  the proposal — never applied silently (F12 canvas-first parity). */
+  pendingMarks?: RedactMark[];
   onAdd: (mark: Omit<RedactMark, 'id' | 'page'>) => void;
   onRemove: (id: string) => void;
+  onRemovePending?: (id: string) => void;
   disabled?: boolean;
 }) {
   const { wrapRef, canvasRef, overlayRef, width, norm } = usePageCanvas(bytes, page, version);
@@ -235,6 +241,35 @@ export function EditorCanvas({
             if (e.key === 'Delete' || e.key === 'Enter') {
               e.preventDefault();
               onRemove(m.id);
+            }
+          }}
+        />
+      ))}
+      {pendingMarks.map((m) => (
+        <div
+          key={m.id}
+          role="button"
+          tabIndex={0}
+          aria-label={`pending-${m.id}`}
+          title="×"
+          data-testid="redact-pending-mark"
+          className="absolute cursor-pointer border-2 border-dashed border-amber-500/90 bg-amber-400/30"
+          style={{
+            left: `${m.nx * 100}%`,
+            top: `${m.nyTop * 100}%`,
+            width: `${m.nw * 100}%`,
+            height: `${m.nh * 100}%`,
+          }}
+          onPointerDown={(e) => {
+            if (disabled) return;
+            e.stopPropagation();
+            onRemovePending?.(m.id);
+          }}
+          onKeyDown={(e) => {
+            if (disabled) return;
+            if (e.key === 'Delete' || e.key === 'Enter') {
+              e.preventDefault();
+              onRemovePending?.(m.id);
             }
           }}
         />

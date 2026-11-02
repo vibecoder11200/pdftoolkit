@@ -206,3 +206,51 @@ test('redact: run is refused before any mark/burn exists, and refusal paths deli
     },
   );
 });
+
+test('redact keyword search: review → drop one → apply removes accepted bands only', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const outPath = join(testInfo.outputDir, 'out-search.pdf');
+  await buildRedactFixture(FIX_OUT);
+
+  await page.goto('./tools/editor');
+  await page.setInputFiles('input[type="file"]', FIX_OUT);
+  await expect(page.getByTestId('editor-overlay')).toBeVisible({ timeout: 30_000 });
+
+  // Keyword search proposes RUN-band marks (F5: grouped runs, never
+  // per-item zips). 'public' hits 3 lines: two on page 1, one on page 2.
+  await page.getByTestId('redact-search-input').fill('public');
+  await page.getByRole('button', { name: 'Tìm & đánh dấu' }).click();
+  await expect(page.getByTestId('redact-pending-mark')).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.getByText(/Tìm thấy 3 vị trí/)).toBeVisible(); // 1 lives on the raster page
+
+  // Drop the FIRST proposal (body line one) — click-to-drop is the review.
+  const pending = page.getByTestId('redact-pending-mark');
+  await pending.first().click();
+  await expect(pending).toHaveCount(1);
+  await page.getByRole('button', { name: /Chấp nhận tất cả/ }).click();
+  await expect(page.getByTestId('redact-pending-mark')).toHaveCount(0);
+
+  // The SECRET needs its own covering mark (marks and secrets compose):
+  // a second search proposes the header line band that contains it.
+  await page.getByTestId('redact-search-input').fill(REDACT_SECRET);
+  await page.getByRole('button', { name: 'Tìm & đánh dấu' }).click();
+  await expect(page.getByTestId('redact-pending-mark')).toHaveCount(1, { timeout: 30_000 });
+  await page.getByRole('button', { name: /Chấp nhận tất cả/ }).click();
+
+  // Apply through the EXISTING pipeline (budget confirm, census, verify).
+  await page.locator('textarea').fill(REDACT_KEYWORDS);
+  await page.getByRole('button', { name: 'Xác nhận che đi' }).click();
+
+  const download = await page.waitForEvent('download', { timeout: 120_000 });
+  await download.saveAs(outPath);
+
+  // Extraction leg: the dropped line SURVIVES; the accepted band's line is
+  // gone; the secret header is gone; page 2 burns clean exactly as before.
+  const pages = await extractionOf(outPath);
+  expect(pages[0]).toContain('Body line one is plain public text.');
+  expect(pages[0]).not.toContain('Body line two');
+  expect(pages[0]).not.toContain(REDACT_SECRET);
+  expect(pages[1]!.replace(/\s+/g, '')).toBe('');
+});

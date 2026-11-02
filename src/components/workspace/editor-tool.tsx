@@ -18,6 +18,8 @@ import {
   type RedactMark,
   type RedactPhase,
 } from '../../lib/redact-pipeline';
+import { dedupeProposals, proposeMarksForPage } from '../../lib/redact-search';
+import type { VisualTextItem } from '../../engine/pdfjs';
 import { Dropzone } from '../ui/dropzone';
 import { type ErrorDetail } from '../ui/error-banner';
 import { Button } from '../ui/button';
@@ -117,6 +119,15 @@ export function EditorTool() {
   // In-flight load+census probe: an early Apply awaits it (split-tool
   // pattern) instead of misreporting a healthy file.
   const probeRef = useRef<Promise<void> | null>(null);
+  // Keyword-search state (v0.10.0 rider): per-page text cache + proposals.
+  // F11: the cache is a REF keyed by page and dies with the file (cleared
+  // in the [source] reset below); every async search captures the
+  // generation and drops stale results (the editor-tool genRef pattern).
+  const itemsCacheRef = useRef<Map<number, VisualTextItem[]>>(new Map());
+  const [searchText, setSearchText] = useState('');
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [pendingMarks, setPendingMarks] = useState<RedactMark[]>([]);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
   const locale = lng === 'vi' ? 'vi-VN' : 'en-US';
 
@@ -137,6 +148,11 @@ export function EditorTool() {
     setReport(null);
     setProbePending(Boolean(source));
     probeRef.current = null;
+    // F11: the search cache and proposals die with the file.
+    itemsCacheRef.current = new Map();
+    setPendingMarks([]);
+    setSearchText('');
+    setSearchMsg(null);
     if (!source) return;
     const probe = (async () => {
       try {
@@ -223,6 +239,58 @@ export function EditorTool() {
   };
   const removeMark = (id: string) => setMarks((prev) => prev.filter((m) => m.id !== id));
   const clearPageMarks = () => setMarks((prev) => prev.filter((m) => m.page !== currentPage));
+
+  // Keyword → proposed marks across ALL pages (F12 canvas-first review:
+  // proposals render pending-styled on the canvas, click drops, one
+  // accept-all button — never a second list paradigm, never auto-apply).
+  const runSearch = async () => {
+    const keyword = searchText.trim();
+    if (!source || keyword.length === 0 || searchBusy) return;
+    const genAtStart = genRef.current;
+    setSearchBusy(true);
+    setSearchMsg(null);
+    try {
+      let flaggedHit = false;
+      const proposals: RedactMark[] = [];
+      for (let p = 1; p <= numPages; p += 1) {
+        let items = itemsCacheRef.current.get(p);
+        if (!items) {
+          const { getVisualTextItems } = await import('../../engine/pdfjs');
+          items = await getVisualTextItems(source.bytes, p);
+          if (genRef.current !== genAtStart) return; // file swapped mid-search
+          itemsCacheRef.current.set(p, items);
+        }
+        const { getPageVisualSize } = await import('../../engine/pdfjs');
+        const { width, height } = await getPageVisualSize(source.bytes, p);
+        if (genRef.current !== genAtStart) return;
+        proposals.push(...proposeMarksForPage(items, keyword, p, width, height, newMarkId));
+        if (flagged.some((f) => f.page === p)) flaggedHit = true;
+      }
+      if (genRef.current !== genAtStart) return;
+      // Proposals REPLACE the previous review set; promotion dedupes.
+      setPendingMarks(proposals);
+      setSearchMsg(
+        proposals.length > 0
+          ? flaggedHit
+            ? t('redact.search_proposed_flagged', { count: proposals.length })
+            : t('redact.search_proposed', { count: proposals.length })
+          : t('redact.search_none', { keyword }),
+      );
+    } finally {
+      if (genRef.current === genAtStart) setSearchBusy(false);
+    }
+  };
+
+  const acceptAllProposals = () => {
+    setMarks((prev) => [...prev, ...dedupeProposals(pendingMarks, prev)]);
+    setPendingMarks([]);
+    setSearchMsg(null);
+  };
+
+  const discardProposals = () => {
+    setPendingMarks([]);
+    setSearchMsg(null);
+  };
 
   const chooseKeep = (page: number) => {
     setBurnPages((prev) => {
@@ -419,6 +487,33 @@ export function EditorTool() {
           placeholder={t('redact.secrets_placeholder')}
         />
         <p className="mt-2 text-[13px] leading-relaxed text-text-muted">{t('redact.secrets_hint')}</p>
+      </fieldset>
+
+      <fieldset data-testid="redact-search">
+        <legend className="text-sm font-bold">{t('redact.search_label')}</legend>
+        <div className="mt-2 flex gap-2">
+          <input
+            type="text"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            className="w-full rounded-lg border border-border-strong bg-surface-card px-3 py-2 text-sm"
+            placeholder={t('redact.search_placeholder')}
+            aria-label={t('redact.search_placeholder')}
+            data-testid="redact-search-input"
+          />
+          <Button onClick={() => void runSearch()} disabled={!source || searchBusy || searchText.trim().length === 0}>
+            {searchBusy ? t('redact.search_busy') : t('redact.search_cta')}
+          </Button>
+        </div>
+        {searchMsg ? <p className="mt-2 text-[13px] leading-relaxed text-text-muted">{searchMsg}</p> : null}
+        {pendingMarks.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button onClick={acceptAllProposals}>{t('redact.search_accept_all', { count: pendingMarks.length })}</Button>
+            <Button variant="secondary" onClick={discardProposals}>
+              {t('redact.search_discard')}
+            </Button>
+          </div>
+        ) : null}
       </fieldset>
 
       {flagged.length > 0 ? (
@@ -632,6 +727,11 @@ export function EditorTool() {
                   {tab === 'redact' ? (
                     <>
                       <span>· {t('redact.marks_hint')}</span>
+                      {pendingMarks.filter((m) => m.page === currentPage).length > 0 ? (
+                        <span className="text-tone-orange">
+                          · {t('redact.search_pending_hint', { count: pendingMarks.filter((m) => m.page === currentPage).length })}
+                        </span>
+                      ) : null}
                       {pageMarks.length > 0 ? (
                         <button
                           type="button"
@@ -657,8 +757,10 @@ export function EditorTool() {
                       page={currentPage}
                       version={genRef.current}
                       marks={pageMarks}
+                      pendingMarks={pendingMarks.filter((m) => m.page === currentPage)}
                       onAdd={addMark}
                       onRemove={removeMark}
+                      onRemovePending={(id) => setPendingMarks((prev) => prev.filter((m) => m.id !== id))}
                       disabled={busy}
                     />
                   ) : tab === 'annotate' ? (

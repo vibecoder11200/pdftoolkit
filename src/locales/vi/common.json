@@ -1043,7 +1043,17 @@
     "err_parse": "Tệp có cấu trúc bất thường — không có gì bị thay đổi. Thử \"Đốt trang an toàn\".",
     "err_failed": "Xử lý thất bại: {{message}}",
     "err_crashed": "Bộ xử lý PDF gặp sự cố",
-    "err_crashed_detail": "Tiến trình xử lý đã dừng giữa chừng. Bấm \"Thử lại\" để chạy lại từ đầu."
+    "err_crashed_detail": "Tiến trình xử lý đã dừng giữa chừng. Bấm \"Thử lại\" để chạy lại từ đầu.",
+    "search_label": "Tìm & đánh dấu theo từ khóa",
+    "search_placeholder": "Nhập từ khóa, ví dụ: số CMND",
+    "search_cta": "Tìm & đánh dấu",
+    "search_busy": "Đang tìm...",
+    "search_proposed": "Tìm thấy {{count}} vị trí — xem gạch chỉ trên trang, bấm để bỏ vị trí không cần.",
+    "search_proposed_flagged": "Tìm thấy {{count}} vị trí (có trang thuộc nhóm đặc biệt — sẽ chạy qua lớp raster an toàn).",
+    "search_none": "Không thấy \"{{keyword}}\" nào trong lớp chữ.",
+    "search_accept_all": "Chấp nhận tất cả ({{count}})",
+    "search_discard": "Bỏ đề xuất",
+    "search_pending_hint": "{{count}} đề xuất đang chờ"
   },
   "pdf-to-word": {
     "title": "PDF sang Word",
