@@ -1053,7 +1053,9 @@
     "search_none": "Không thấy \"{{keyword}}\" nào trong lớp chữ.",
     "search_accept_all": "Chấp nhận tất cả ({{count}})",
     "search_discard": "Bỏ đề xuất",
-    "search_pending_hint": "{{count}} đề xuất đang chờ"
+    "search_pending_hint": "{{count}} đề xuất đang chờ",
+    "search_err": "Lỗi khi tìm kiếm: {{message}}",
+    "search_promoted_kept": "Đã thêm {{kept}} vùng. Bỏ qua {{dropped}} vùng nằm trên trang bị giữ nguyên (trang giữ nguyên không bị che)."
   },
   "pdf-to-word": {
     "title": "PDF sang Word",
@@ -1087,6 +1089,7 @@
     "error_cap": "File quá nhiều trang — PDF sang Word giới hạn 100 trang mỗi lần.",
     "error_items": "Một trang dày đặc bất thường (quá nhiều phần tử chữ) — dừng để bảo vệ máy.",
     "error_scan": "Trang này là ảnh quét — chọn chế độ \"Trang quét / ảnh (AI)\" để chuyển.",
-    "error_generic": "Chuyển thất bại. File gốc không bị thay đổi."
+    "error_generic": "Chuyển thất bại. File gốc không bị thay đổi.",
+    "mode_mixed": "Trộn (digital + quét)"
   }
 }

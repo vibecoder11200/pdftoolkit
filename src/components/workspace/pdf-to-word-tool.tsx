@@ -117,10 +117,13 @@ export function PdfToWordTool() {
     })();
     probeRef.current = probe;
     void (async () => {
+      let probeOk = false;
+      let count = 0;
       try {
-        const count = await probe;
+        count = await probe;
         if (genRef.current !== gen) return;
         setNumPages(count);
+        probeOk = true;
         const sample = censusSample(count);
         const chars: number[] = [];
         for (const p of sample) {
@@ -131,13 +134,19 @@ export function PdfToWordTool() {
         setDetected(censusMode(chars));
       } catch (err) {
         if (genRef.current !== gen) return;
-        probeRef.current = null;
-        setNumPages(0);
-        if (err instanceof Pdf2WordPageCapError) {
-          setErrorKey('p2w.error_cap');
-          setErrorDetail(err.message);
-        } else {
-          setErrorKey('p2w.error_load');
+        // A PROBE failure kills the panel (unreadable/cap). A census failure
+        // after a healthy probe must not: the digital path needs no census —
+        // drop only the auto-detect badge (detected stays null → digital
+        // default) and let the user convert.
+        if (!probeOk) {
+          probeRef.current = null;
+          setNumPages(0);
+          if (err instanceof Pdf2WordPageCapError) {
+            setErrorKey('p2w.error_cap');
+            setErrorDetail(err.message);
+          } else {
+            setErrorKey('p2w.error_load');
+          }
         }
       }
     })();
@@ -185,7 +194,7 @@ export function PdfToWordTool() {
       };
       await downloadIfNeeded(client, AI_MODEL_ID, (p) => {
         setProgress({
-          value: 8,
+          value: 48,
           label: p.percent != null ? t('p2w.ai_downloading', { percent: Math.round(p.percent) }) : t('p2w.ai_downloading_started'),
         });
       });
@@ -195,11 +204,19 @@ export function PdfToWordTool() {
         renderPage,
         {
           onPage: (c, total) => {
-            setProgress({ value: 50, label: t('p2w.ai_running', { current: c, total }) });
+            // Scale the AI phase into the 48..95 band (extraction already
+            // ends near 48 — the bar must never regress).
+            setProgress({
+              value: 48 + Math.round((c / Math.max(1, total)) * 47),
+              label: t('p2w.ai_running', { current: c, total }),
+            });
           },
         },
         { pages: [...pages].sort((a, b) => a - b), shouldContinue: () => !abortRef.current },
       );
+      // An aborted run (reset mid-run) must not deliver silently-empty
+      // pages for the pages that never ran.
+      if (!out.completedAll) throw new Error('aborted');
       return out.results
         .slice()
         .sort((a, b) => a.page - b.page)
@@ -250,7 +267,18 @@ export function PdfToWordTool() {
       });
       setProgress({ value: 97, label: t('p2w.progress_docx') });
       const base = baseName(src.file.name);
-      await deliverBytes(res.docx, `${base}.docx`, 'download');
+      // A cancelled Save-As is not a success: the done view must not render
+      // for a file that was never written.
+      const ok = await deliverBytes(
+        res.docx,
+        `${base}.docx`,
+        'download',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      if (!ok) {
+        setProgress(null);
+        return;
+      }
       setProgress({ value: 100, label: t('p2w.progress_done', { count: res.markdown.length, mode: t(`p2w.mode_${res.mode}`) }) });
       setDone(true);
     } catch (err) {
@@ -274,6 +302,7 @@ export function PdfToWordTool() {
   }, [aiConvertPages, detected, mode, selectedPages, src, t]);
 
   const resetAll = () => {
+    abortRef.current = true;
     clear();
     setNumPages(0);
     setDetected(null);
@@ -313,7 +342,7 @@ export function PdfToWordTool() {
     <WorkspaceShell
       title={t('pdf-to-word.title')}
       meta={
-        src
+        src && numPages > 0
           ? t('meta.file_pages', {
               name: src.file.name,
               count: numPages,
@@ -387,14 +416,19 @@ export function PdfToWordTool() {
                 <p className="mt-1 text-xs text-text-muted">{t('p2w.ai_confirm_body')}</p>
                 {slowTier ? <p className="mt-1 text-xs font-semibold text-tone-orange">{t('p2w.ai_slow_warn')}</p> : null}
                 <div className="mt-2.5 flex gap-2">
-                  <Button onClick={() => void run()}>{t('p2w.ai_confirm_cta')}</Button>
-                  <Button variant="secondary" onClick={() => setScanConfirm(false)}>
+                  <Button onClick={() => void run()} disabled={busy}>
+                    {t('p2w.ai_confirm_cta')}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setScanConfirm(false)} disabled={busy}>
                     {t('p2w.ai_cancel')}
                   </Button>
                 </div>
               </div>
             ) : (
-              <Button onClick={onCta} disabled={busy}>
+              <Button
+                onClick={onCta}
+                disabled={busy || (selectedPages !== null && selectedPages.size === 0)}
+              >
                 {t('p2w.cta')}
               </Button>
             )}
@@ -412,7 +446,12 @@ export function PdfToWordTool() {
         hint={t('pdf-to-word.dropzone_hint')}
         accept="application/pdf,.pdf"
         multiple={false}
-        onFiles={(fs) => void add(fs)}
+        // Single-file tool: a second drop REPLACES (clear + re-add); without
+        // this the new file appends behind files[0] and silently does nothing.
+        onFiles={(f) => {
+          clear();
+          void add(f.slice(0, 1));
+        }}
       />
     </WorkspaceShell>
   );

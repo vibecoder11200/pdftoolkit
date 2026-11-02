@@ -20,6 +20,14 @@ import {
 } from '../../lib/redact-pipeline';
 import { dedupeProposals, proposeMarksForPage } from '../../lib/redact-search';
 import type { VisualTextItem } from '../../engine/pdfjs';
+
+/** Per-page search cache entry (F11): items plus the visual box the
+ * proposal math needs, so a cached page costs zero engine calls. */
+interface CachedPageText {
+  items: VisualTextItem[];
+  width: number;
+  height: number;
+}
 import { Dropzone } from '../ui/dropzone';
 import { type ErrorDetail } from '../ui/error-banner';
 import { Button } from '../ui/button';
@@ -123,7 +131,7 @@ export function EditorTool() {
   // F11: the cache is a REF keyed by page and dies with the file (cleared
   // in the [source] reset below); every async search captures the
   // generation and drops stale results (the editor-tool genRef pattern).
-  const itemsCacheRef = useRef<Map<number, VisualTextItem[]>>(new Map());
+  const itemsCacheRef = useRef<Map<number, CachedPageText>>(new Map());
   const [searchText, setSearchText] = useState('');
   const [searchBusy, setSearchBusy] = useState(false);
   const [pendingMarks, setPendingMarks] = useState<RedactMark[]>([]);
@@ -153,6 +161,9 @@ export function EditorTool() {
     setPendingMarks([]);
     setSearchText('');
     setSearchMsg(null);
+    // A mid-search file swap must not leave the flag set (the stale
+    // generation's finally skips it) — search would stay disabled forever.
+    setSearchBusy(false);
     if (!source) return;
     const probe = (async () => {
       try {
@@ -250,20 +261,31 @@ export function EditorTool() {
     setSearchBusy(true);
     setSearchMsg(null);
     try {
+      // The probe gate (split-tool class): numPages is 0 while the
+      // load+census probe is pending — searching then would report a false
+      // "no matches" for a document that has the keyword.
+      if (probeRef.current) {
+        await probeRef.current;
+        if (genRef.current !== genAtStart) return;
+      }
       let flaggedHit = false;
       const proposals: RedactMark[] = [];
       for (let p = 1; p <= numPages; p += 1) {
-        let items = itemsCacheRef.current.get(p);
-        if (!items) {
-          const { getVisualTextItems } = await import('../../engine/pdfjs');
-          items = await getVisualTextItems(source.bytes, p);
+        const cached = itemsCacheRef.current.get(p);
+        if (!cached) {
+          const { getVisualTextItems, getPageVisualSize } = await import('../../engine/pdfjs');
+          const [items, size] = await Promise.all([
+            getVisualTextItems(source.bytes, p),
+            getPageVisualSize(source.bytes, p),
+          ]);
           if (genRef.current !== genAtStart) return; // file swapped mid-search
-          itemsCacheRef.current.set(p, items);
+          itemsCacheRef.current.set(p, { items, width: size.width, height: size.height });
+          proposals.push(...proposeMarksForPage(items, keyword, p, size.width, size.height, newMarkId));
+        } else {
+          proposals.push(
+            ...proposeMarksForPage(cached.items, keyword, p, cached.width, cached.height, newMarkId),
+          );
         }
-        const { getPageVisualSize } = await import('../../engine/pdfjs');
-        const { width, height } = await getPageVisualSize(source.bytes, p);
-        if (genRef.current !== genAtStart) return;
-        proposals.push(...proposeMarksForPage(items, keyword, p, width, height, newMarkId));
         if (flagged.some((f) => f.page === p)) flaggedHit = true;
       }
       if (genRef.current !== genAtStart) return;
@@ -276,15 +298,31 @@ export function EditorTool() {
             : t('redact.search_proposed', { count: proposals.length })
           : t('redact.search_none', { keyword }),
       );
+    } catch (e) {
+      // A crash mid-search must surface (an unhandled rejection would leave
+      // the user with silence — the engineErrorDetail precedent).
+      setRunError(
+        engineErrorDetail(
+          e,
+          t('redact.search_err', { message: e instanceof Error ? e.message : String(e) }),
+          { title: t('redact.err_crashed'), detail: t('redact.err_crashed_detail') },
+          () => void runSearch(),
+        ),
+      );
     } finally {
       if (genRef.current === genAtStart) setSearchBusy(false);
     }
   };
 
   const acceptAllProposals = () => {
-    setMarks((prev) => [...prev, ...dedupeProposals(pendingMarks, prev)]);
+    // Kept flagged pages are EXCLUDED from the redaction plan by design
+    // (planRedaction skips marks on them) — promoting those proposals would
+    // show solid boxes that silently do nothing. Drop them here, loudly.
+    const promotable = pendingMarks.filter((m) => !keptFlagged.has(m.page));
+    const dropped = pendingMarks.length - promotable.length;
+    setMarks((prev) => [...prev, ...dedupeProposals(promotable, prev)]);
     setPendingMarks([]);
-    setSearchMsg(null);
+    setSearchMsg(dropped > 0 ? t('redact.search_promoted_kept', { kept: promotable.length, dropped }) : null);
   };
 
   const discardProposals = () => {

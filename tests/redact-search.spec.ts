@@ -31,7 +31,8 @@ const item = (str: string, x0: number, baseline = 12, size = 12, widthFactor = 0
 
 describe('runsFromItems (F5: grouping on string-carrying items)', () => {
   it('joins same-baseline fragments into one run with an alignment map', () => {
-    const runs = runsFromItems([item('Joh', 48), item('n Doe', 74, 12)]);
+    // 'Joh' ends at 48+18=66; 1pt kerning-scale gap → no space inserted.
+    const runs = runsFromItems([item('Joh', 48), item('n Doe', 67, 12)]);
     expect(runs).toHaveLength(1);
     expect(runs[0]!.text).toBe('John Doe');
     expect(runs[0]!.offsets).toEqual([0, 3]);
@@ -72,21 +73,63 @@ describe('findMatches (case-insensitive, diacritics-exact)', () => {
   });
 });
 
-describe('markForRun (run-band rect derivation)', () => {
+describe('markForRun (run-band rect derivation, walker-box parity)', () => {
   const run = runsFromItems([item('ABCD EFGH', 100, 200, 10, 6)])[0]!;
 
-  it('the proposal covers the FULL run band (surgical partial-cover safety)', () => {
+  it('the proposal covers the FULL run band, padded to the walker box', () => {
     const mark = markForRun(run, 1, 600, 800, 'm1')!;
-    // x: 100 → 100 + 9*6*10 = 640; y-band: baseline 200, size 10.
+    // x: 100-2 → 640+2 (0.2×size pad both edges); y: baseline-0.9×size
+    // down 1.15×size — mirrors the surgical walker's box model.
     expect(mark.page).toBe(1);
-    expect(mark.nx).toBeCloseTo(100 / 600, 5);
-    expect(mark.nw).toBeCloseTo(540 / 600, 5);
-    expect(mark.nyTop).toBeCloseTo((200 - 10) / 800, 5);
-    expect(mark.nh).toBeCloseTo(10 / 800, 5);
+    expect(mark.nx).toBeCloseTo(98 / 600, 5);
+    expect(mark.nw).toBeCloseTo(542 / 600, 5);
+    expect(mark.nyTop).toBeCloseTo(191 / 800, 5);
+    expect(mark.nh).toBeCloseTo(11.5 / 800, 5);
+  });
+
+  it('WALKER-BOX CONTAINMENT across font sizes: the mark always covers the op box the engine models', () => {
+    // The surgical tier models an op as baseline−0.85×size .. baseline+0.25×size
+    // with a 6pt containment tolerance (REDACT_CONTAIN_TOL). A proposal that
+    // under-covers either bound makes apply REFUSE the page (>24pt text
+    // shipped exactly that bug class) — pin both bounds across sizes.
+    for (const size of [8, 11, 14, 24, 48, 96]) {
+      const r = runsFromItems([item('SECRET', 100, 400, size, 6)])[0]!;
+      const m = markForRun(r, 1, 600, 1200, 'w')!;
+      const top = m.nyTop * 1200;
+      const bottom = (m.nyTop + m.nh) * 1200;
+      expect(top).toBeLessThanOrEqual(400 - 0.85 * size + 6);
+      expect(bottom).toBeGreaterThanOrEqual(400 + 0.25 * size - 6);
+    }
   });
 
   it('degenerate page size refuses', () => {
     expect(markForRun(run, 1, 0, 800, 'm2')).toBeNull();
+  });
+});
+
+describe('runsFromItems word-gap joining (TJ-spaced PDFs)', () => {
+  it('a WORD-scale gap joins items WITH a space (keyword can match across)', () => {
+    // 12pt: word threshold 0.2×12=2.4, split threshold 2.5×12=30.
+    // A 6pt gap is a word gap → one run, 'John Smith'.
+    const runs = runsFromItems([item('John', 48), item('Smith', 78)]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.text).toBe('John Smith');
+    expect(runs[0]!.offsets).toEqual([0, 5]);
+    expect(findMatches(runs[0]!.text, 'John Smith')).toEqual([[0, 10]]);
+  });
+
+  it('a tight kerning gap joins WITHOUT a space', () => {
+    // item 'Joh' ends at 48+18=66; 'n' at 67 → 1pt gap < 2.4 (the word
+    // threshold) → no space: 'Joh'+'n' stays 'John'.
+    const runs = runsFromItems([item('Joh', 48), item('n', 67)]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.text).toBe('John');
+  });
+});
+
+describe('findMatches NFKC needle folding', () => {
+  it('a full-width needle matches its ASCII haystack form', () => {
+    expect(findMatches('abc', 'ＡＢＣ')).toEqual([[0, 3]]);
   });
 });
 

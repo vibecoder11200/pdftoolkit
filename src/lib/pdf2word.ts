@@ -81,16 +81,44 @@ export class Pdf2WordScanError extends Error {
 
 // ---------------------------------------------------------------------------
 // Layout primitives (spike-pdf2word-2026-11-02 lessons encoded).
+//
+// Geometry assumption: every item is treated as horizontal — x1 is
+// x0 + advance (pdf.js item.width). A ROTATED item's visual bbox from
+// getVisualTextItems does not satisfy that (its x1 overshoots in visual
+// space), so rotated fragments can land slightly off in row/edge math.
+// Accepted v0.10.0 limitation (review P2): rotated body text is rare in
+// the tool's target documents, and the redact walker REFUSES rotated
+// text rather than approximating — conversion output is never a security
+// boundary, so approximation is honest here.
 // ---------------------------------------------------------------------------
 
 type Item = VisualTextItem;
 type Row = { baseline: number; items: Item[] };
 type ColumnEdge = { x: number; hits: number };
 
+/** Spread reducers (`Math.min(...arr)`) hit the engine's 20k-item cap —
+ * argument lists that large overflow the call stack. Reduce instead. */
+function minOf(values: number[]): number {
+  let m = Infinity;
+  for (const v of values) if (v < m) m = v;
+  return m;
+}
+
+function maxOf(values: number[]): number {
+  let m = -Infinity;
+  for (const v of values) if (v > m) m = v;
+  return m;
+}
+
+/** Give the main thread a paint opportunity between CPU-bound pages
+ * (pageToMarkdown is synchronous — without this the progress bar and
+ * cancel paths freeze for the whole conversion half). */
+const yieldToUi = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
 function vSpan(items: Item[]): number {
   if (items.length === 0) return 0;
-  const top = Math.min(...items.map((f) => f.baseline - f.size));
-  const bottom = Math.max(...items.map((f) => f.baseline + f.size * 0.25));
+  const top = minOf(items.map((f) => f.baseline - f.size));
+  const bottom = maxOf(items.map((f) => f.baseline + f.size * 0.25));
   return bottom - top;
 }
 
@@ -180,8 +208,9 @@ export function xyCut(
  * into bands by row pitch (break where pitch > 1.8× the median pitch — a
  * table's rows sit at one tight pitch, surrounded by larger gaps to body
  * text), then a band is a table when: ≥3 rows, ≥2 column edges (left-edge
- * clustering, ≥50% row coverage), EVERY column's median cell width ≤65% of
- * the gap to the next edge, and ≥3 rows carry ≥2 cells. Two-column BODY
+ * clustering, ≥50% row coverage), EVERY interior column's median cell
+ * extent ≤65% of the gap to the next edge (extent = widest x1 in the
+ * column band — a cell can be several items), and ≥3 rows carry ≥2 cells. Two-column BODY
  * text fills its columns (right column measured 0.92 on the fixture) while
  * table cells stay short (invoice ≤0.5) — the coverage guard is what keeps
  * body columns from false-tabulating. Rows with <2 cells return to the
@@ -230,16 +259,21 @@ export function detectTable(items: Item[]): { rows: string[][]; items: Item[] } 
       if (i + 1 >= cols.length) break;
       const next = cols[i + 1]!.x;
       const width = next - col.x;
-      const cells = rows
-        .map((r) => r.items.find((f) => Math.abs(f.x0 - col.x) <= 3))
-        .filter((f): f is Item => !!f)
-        .map((f) => f.x1 - f.x0);
-      if (cells.length === 0) {
+      // Full cell EXTENT (review P2): a cell may be several pdf.js items —
+      // measure the widest x1 inside the column band (the same membership
+      // rule the grid assembly below uses), never just the first chunk.
+      const extents: number[] = [];
+      for (const r of rows) {
+        const band = r.items.filter((f) => f.x0 >= col.x - 3 && f.x0 < next - 3);
+        if (band.length === 0) continue;
+        extents.push(maxOf(band.map((f) => f.x1)) - col.x);
+      }
+      if (extents.length === 0) {
         covered = false;
         break;
       }
-      cells.sort((a, b) => a - b);
-      const median = cells[Math.floor(cells.length / 2)]!;
+      extents.sort((a, b) => a - b);
+      const median = extents[Math.floor(extents.length / 2)]!;
       if (median > 0.65 * width) {
         covered = false;
         break;
@@ -280,7 +314,7 @@ export function detectTable(items: Item[]): { rows: string[][]; items: Item[] } 
  * downstream split contract unescapes on re-split) and whitespace collapses
  * so a hostile newline can never tear a row — F9. */
 export function emitTableMarkdown(rows: string[][]): string {
-  const width = Math.max(...rows.map((r) => r.length));
+  const width = maxOf(rows.map((r) => r.length));
   const clean = rows.map((r) =>
     r.map((c) => c.replace(/\s+/g, ' ').trim().replaceAll('|', '\\|')),
   );
@@ -318,9 +352,9 @@ function regionLines(items: Item[]): Line[] {
       }
       return {
         text: text.replace(/\s+/g, ' ').trim(),
-        x0: Math.min(...r.items.map((i) => i.x0)),
+        x0: minOf(r.items.map((i) => i.x0)),
         baseline: r.baseline,
-        size: Math.max(...r.items.map((i) => i.size)),
+        size: maxOf(r.items.map((i) => i.size)),
         bold: r.items.some((i) => BOLD_FONT.test(i.fontName)),
       };
     })
@@ -352,11 +386,11 @@ function regionToMarkdown(items: Item[], bodySize: number): string {
   const flushPara = (): void => {
     if (para.length === 0) return;
     const text = para.map((l) => l.text).join(' ');
-    const size = Math.max(...para.map((l) => l.size));
-    const ratio = size / bodySize;
-    if (ratio >= 1.35) out.push(`# ${text}`);
-    else if (ratio >= 1.15) out.push(`## ${text}`);
-    else if (para.length === 1 && para[0]!.bold && text.length < 80) out.push(`### ${text}`);
+    // No size-based heading branches here: heading-grade lines (ratio
+    // ≥1.15) divert to the isHeading branch above and never enter `para`,
+    // so the paragraph max is always body-adjacent. Bold single short
+    // lines are the only heading this path can produce.
+    if (para.length === 1 && para[0]!.bold && text.length < 80) out.push(`### ${text}`);
     else out.push(text);
     para = [];
   };
@@ -419,8 +453,8 @@ export function pageToMarkdown(items: Item[]): string {
   const table = detectTable(items);
   if (table) {
     const used = new Set(table.items);
-    const bandTop = Math.min(...table.items.map((f) => f.baseline));
-    const bandBottom = Math.max(...table.items.map((f) => f.baseline));
+    const bandTop = minOf(table.items.map((f) => f.baseline));
+    const bandBottom = maxOf(table.items.map((f) => f.baseline));
     emitRegions(items.filter((f) => !used.has(f) && f.baseline < bandTop));
     blocks.push(emitTableMarkdown(table.rows));
     emitRegions(items.filter((f) => f.baseline > bandBottom));
@@ -490,7 +524,9 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
   const { pageCount, extractPage, toDocx } = opts;
   if (pageCount > PDF2WORD_PAGE_CAP) throw new Pdf2WordPageCapError(pageCount);
   const selection = opts.pages
-    ? [...new Set(opts.pages)].sort((a, b) => a - b).filter((p) => p >= 1 && p <= pageCount)
+    ? [...new Set(opts.pages)]
+        .filter((p) => Number.isInteger(p) && p >= 1 && p <= pageCount)
+        .sort((a, b) => a - b)
     : null;
   const queue = selection ?? Array.from({ length: pageCount }, (_, i) => i + 1);
   if (queue.length === 0) throw new Error('pdf2word: empty page selection');
@@ -515,20 +551,30 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
   if (scanPages.length > 0) {
     if (!opts.aiConvertPages) throw new Pdf2WordScanError(scanPages);
     const aiMd = await opts.aiConvertPages(scanPages);
+    // A short/aborted seam result must never silently emit empty scan
+    // pages (the caller's abort throws, but a buggy client could
+    // under-fill) — a length mismatch is a hard error.
+    if (aiMd.length !== scanPages.length) {
+      throw new Error(
+        `pdf2word: AI seam returned ${aiMd.length} pages for ${scanPages.length} scan pages`,
+      );
+    }
     for (const [i, p] of queue.entries()) {
       const si = scanPages.indexOf(p);
       if (si >= 0) {
-        markdown.push(aiMd[si] ?? '');
+        markdown.push(aiMd[si]!);
         converted.push(p);
       } else {
         markdown.push(pageToMarkdown(pagesItems.get(p)!));
       }
       opts.onProgress?.(total + i + 1, total * 2);
+      await yieldToUi();
     }
   } else {
     for (const [i, p] of queue.entries()) {
       markdown.push(pageToMarkdown(pagesItems.get(p)!));
       opts.onProgress?.(total + i + 1, total * 2);
+      await yieldToUi();
     }
   }
 

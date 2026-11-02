@@ -30,7 +30,12 @@ export interface ItemRun {
 }
 
 export function runsFromItems(items: Item[]): ItemRun[] {
-  const sorted = [...items].sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
+  // Rotated runs advance on a non-horizontal axis; banding them as
+  // horizontal boxes produces proposals that do not correspond to their
+  // glyphs (usually census-burned pages, but never propose what we cannot
+  // draw honestly).
+  const horizontal = items.filter((i) => !i.rotated);
+  const sorted = [...horizontal].sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
   const bands: Item[][] = [];
   for (const it of sorted) {
     const tol = Math.max(2, it.size * 0.35);
@@ -41,7 +46,10 @@ export function runsFromItems(items: Item[]): ItemRun[] {
   const runs: ItemRun[] = [];
   for (const band of bands) {
     band.sort((a, b) => a.x0 - b.x0);
-    // Split the band at column-scale gaps (≤2.5× size joins — groupRuns).
+    // Split the band at column-scale gaps (>2.5× size joins nothing —
+    // groupRuns rule); WORD-scale gaps (wordSpaceFactor) join WITH a space
+    // so keywords can match across items on TJ-spaced PDFs ("John"+"Smith"
+    // must never become "JohnSmith"). Two thresholds, two behaviors.
     let cur: Item[] = [];
     const flush = (): void => {
       if (cur.length === 0) return;
@@ -49,7 +57,13 @@ export function runsFromItems(items: Item[]): ItemRun[] {
       const offsets: number[] = [];
       let prev: Item | null = null;
       for (const it of cur) {
-        if (prev && it.x0 - prev.x1 > 2.5 * Math.max(prev.size, it.size) && !/\s$/.test(text) && !/^\s/.test(it.str)) {
+        const gap = prev ? it.x0 - prev.x1 : 0;
+        if (
+          prev &&
+          gap > WORD_SPACE_FACTOR * Math.max(prev.size, it.size) &&
+          !/\s$/.test(text) &&
+          !/^\s/.test(it.str)
+        ) {
           text += ' ';
         }
         offsets.push(text.length);
@@ -69,19 +83,25 @@ export function runsFromItems(items: Item[]): ItemRun[] {
   return runs;
 }
 
+/** Word-space threshold as a fraction of font size (a Helvetica space is
+ * ~0.28em; 0.2em catches word gaps without splitting tight kerning). */
+const WORD_SPACE_FACTOR = 0.2;
+
 function midBaseline(items: Item[]): number {
   return items.reduce((s, i) => s + i.baseline, 0) / items.length;
 }
 
 /** Case-insensitive, diacritics-EXACT substring matching: fold case only
  * (VN text matches byte-honestly through the NFKC the extractor already
- * applied — no accent stripping). Returns [charStart, charEnd) per hit,
+ * applied — no accent stripping). The needle is NFKC-normalized too, so a
+ * decomposed-form keyword (combining marks from some clipboard sources)
+ * matches the composed haystack. Returns [charStart, charEnd) per hit,
  * leftmost-first, non-overlapping (a repeated keyword proposes every
  * occurrence, but one occurrence never matches twice). */
 export function findMatches(runText: string, keyword: string): [number, number][] {
   const out: [number, number][] = [];
   const hay = runText.toLowerCase();
-  const needle = keyword.toLowerCase();
+  const needle = keyword.normalize('NFKC').toLowerCase();
   if (needle.length === 0) return out;
   let from = 0;
   for (;;) {
@@ -95,13 +115,21 @@ export function findMatches(runText: string, keyword: string): [number, number][
 
 /**
  * One keyword hit → a proposed RedactMark covering the WHOLE RUN band
- * (first item's left edge → last item's right edge, run's tallest glyph
- * band). Run-granular is deliberate: the surgical tier removes a BT..ET
- * block only when every show op it touches lies FULLY inside a mark — a
- * word-level mark would refuse the page (the engine's partial-cover rule),
- * and the review step exists precisely so the user can drop a line they
- * want to keep. Fractions of the visible page box (top-left origin — the
- * editor mark model).
+ * (first item's left edge → last item's right edge). Run-granular is
+ * deliberate: the surgical tier removes a BT..ET block only when every
+ * show op it touches lies FULLY inside a mark — a word-level mark would
+ * refuse the page (the engine's partial-cover rule), and the review step
+ * exists precisely so the user can drop a line they want to keep.
+ * Fractions of the visible page box (top-left origin — the editor mark
+ * model).
+ *
+ * The band MIRRORS THE WALKER'S OWN BOX MODEL (engine/pdf-lib.ts
+ * redactSurgicalRemove): an op is modeled as baseline−0.85×size up to
+ * baseline+0.25×size, width ≈0.55em/glyph, with a 6pt containment
+ * tolerance. A box that hugs true advances and ends at the baseline
+ * under-covers large/narrow-glyph text and the apply REFUSES; here the y
+ * band is padded to 0.9×..1.15× and both x edges grow by 0.2×size (run
+ * gaps are ≥2.5em, so the padding cannot reach a neighbor's ops).
  */
 export function markForRun(
   run: ItemRun,
@@ -115,13 +143,14 @@ export function markForRun(
   const x1 = Math.max(...run.items.map((i) => i.x1));
   const size = Math.max(...run.items.map((i) => i.size));
   if (!Number.isFinite(x0) || x1 <= x0 || size <= 0) return null;
+  const pad = 0.2 * size;
   return {
     id,
     page,
-    nx: Math.max(0, x0 / pageW),
-    nyTop: Math.max(0, (run.baseline - size) / pageH),
-    nw: Math.min(1, (x1 - x0) / pageW),
-    nh: Math.min(1, size / pageH),
+    nx: Math.max(0, (x0 - pad) / pageW),
+    nyTop: Math.max(0, (run.baseline - 0.9 * size) / pageH),
+    nw: Math.min(1, (x1 + pad - x0) / pageW),
+    nh: Math.min(1, (1.15 * size) / pageH),
   };
 }
 

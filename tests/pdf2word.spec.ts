@@ -264,6 +264,54 @@ describe('composer routing (AI seam mocked — no model download)', () => {
       [4, 4],
     ]);
   });
+
+  it('page selection: deduped, sorted, bounds+integer filtered, queue-relative routing', async () => {
+    const extracted: number[] = [];
+    const scanned: number[] = [];
+    const res = await runPdf2Word({
+      pageCount: 2,
+      // Duplicates, out-of-order, out-of-bounds, zero — all laundered to
+      // the sorted unique queue [1, 2].
+      pages: [2, 1, 1, 99, 0],
+      extractPage: (p) => {
+        extracted.push(p);
+        return getVisualTextItems(bytesOf('fixture-p2w-mixed.pdf'), p);
+      },
+      toDocx: stubDocx,
+      aiConvertPages: async (pages) => {
+        scanned.push(...pages);
+        return pages.map((p) => `AI-OCR page ${p}`);
+      },
+    });
+    expect(extracted.sort()).toEqual([1, 2]);
+    expect(scanned).toEqual([2]); // census stays queue-relative (selection position 2 = doc page 2)
+    expect(res.markdown).toHaveLength(2);
+    expect(res.markdown[0]).toContain('mixed-mode routing fixture');
+    expect(res.markdown[1]).toBe('AI-OCR page 2');
+    expect(res.scanPagesConverted).toEqual([2]);
+  });
+
+  it('an empty (fully-filtered) selection refuses honestly', async () => {
+    await expect(
+      runPdf2Word({
+        pageCount: 2,
+        pages: [0, 99],
+        extractPage: async () => [],
+        toDocx: stubDocx,
+      }),
+    ).rejects.toThrow('empty page selection');
+  });
+
+  it('a short AI seam result is a hard error, never silent-empty scan pages', async () => {
+    await expect(
+      runPdf2Word({
+        pageCount: 2,
+        extractPage: (p) => getVisualTextItems(bytesOf('fixture-p2w-mixed.pdf'), p),
+        toDocx: stubDocx,
+        aiConvertPages: async () => [], // under-filled client (aborted run bug class)
+      }),
+    ).rejects.toThrow('AI seam returned 0 pages for 1 scan pages');
+  });
 });
 
 describe('input budgets (RED-TEAM F1)', () => {
