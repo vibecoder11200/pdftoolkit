@@ -66,5 +66,9 @@
   "editor": {
     "title": "Sửa PDF",
     "desc": "Che thông tin nhạy cảm, xóa lớp chữ ẩn, đốt trang an toàn — kèm kiểm tra tự động."
+  },
+  "pdf-to-word": {
+    "title": "PDF sang Word",
+    "desc": "Chuyển PDF thành file Word (.docx) ngay trên máy — chữ, đề mục, bảng kẻ đường và thứ tự đọc được giữ; trang quét dùng AI trên máy."
   }
 }

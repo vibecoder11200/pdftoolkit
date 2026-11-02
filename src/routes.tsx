@@ -23,6 +23,7 @@ import { OcrToolPage } from './pages/ocr';
 import { WatermarkToolPage } from './pages/watermark';
 import { PageNumbersToolPage } from './pages/page-numbers';
 import { EditorToolPage } from './pages/editor';
+import { PdfToWordToolPage } from './pages/pdf-to-word';
 import { SettingsPage } from './pages/settings';
 
 const toolRoutes = [
@@ -43,6 +44,7 @@ const toolRoutes = [
   'watermark',
   'page-numbers',
   'editor',
+  'pdf-to-word',
 ].map((path) => ({
   path: `/tools/${path}`,
   element:
@@ -80,6 +82,8 @@ const toolRoutes = [
       <PageNumbersToolPage />
     ) : path === 'editor' ? (
       <EditorToolPage />
+    ) : path === 'pdf-to-word' ? (
+      <PdfToWordToolPage />
     ) : (
       <SignToolPage />
     ),

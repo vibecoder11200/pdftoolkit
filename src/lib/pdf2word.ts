@@ -457,6 +457,9 @@ export function censusMode(charsPerPage: number[]): 'digital' | 'scan' | 'mixed'
 export interface Pdf2WordRunOptions {
   /** 1-based page count (from getPageCount — the caller's engine load). */
   pageCount: number;
+  /** Page-picker selection: sorted 1-based pages replacing the full loop
+   *  (the ThumbnailStrip picker; null/undefined = all pages). */
+  pages?: number[];
   /** Per-page extraction (composer never imports the engine directly). */
   extractPage: (page: number) => Promise<Item[]>;
   /** DOCX emitter (the tool injects engine.markdownToDocx; tests stub it). */
@@ -479,47 +482,53 @@ export interface Pdf2WordResult {
  * Orchestrate one conversion. Digital pages convert from the text layer;
  * scan pages (census char floor) go through the AI seam; the census mode
  * comes from the first/middle/last sample while ROUTING stays per-page.
- * Awaits page-by-page (never one giant main-thread loop).
+ * Awaits page-by-page (never one giant main-thread loop). With `pages`,
+ * everything (extraction, census, markdown, DOCX texts) runs over the
+ * selection only.
  */
 export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordResult> {
   const { pageCount, extractPage, toDocx } = opts;
   if (pageCount > PDF2WORD_PAGE_CAP) throw new Pdf2WordPageCapError(pageCount);
+  const selection = opts.pages
+    ? [...new Set(opts.pages)].sort((a, b) => a - b).filter((p) => p >= 1 && p <= pageCount)
+    : null;
+  const queue = selection ?? Array.from({ length: pageCount }, (_, i) => i + 1);
+  if (queue.length === 0) throw new Error('pdf2word: empty page selection');
+  const total = queue.length;
 
   const chars: number[] = [];
-  const pagesItems: Item[][] = [];
-  for (let p = 1; p <= pageCount; p += 1) {
+  const pagesItems = new Map<number, Item[]>();
+  for (const [i, p] of queue.entries()) {
     const items = await extractPage(p);
     if (items.length > PDF2WORD_MAX_ITEMS_PER_PAGE) throw new Pdf2WordItemCapError(p, items.length);
-    pagesItems.push(items);
-    chars.push(items.reduce((n, i) => n + i.str.length, 0));
-    opts.onProgress?.(p, pageCount * 2); // extraction half + conversion half
+    pagesItems.set(p, items);
+    chars.push(items.reduce((n, item) => n + item.str.length, 0));
+    opts.onProgress?.(i + 1, total * 2); // extraction half + conversion half
   }
-  const mode = censusMode(censusSample(pageCount).map((p) => chars[p - 1]!));
-  const scanPages = chars
-    .map((c, i) => (c < PDF2WORD_CENSUS_MIN_CHARS ? i + 1 : 0))
-    .filter((p) => p > 0);
+  // censusSample returns 1-based positions WITHIN the queue; chars is
+  // 0-indexed over the same queue.
+  const mode = censusMode(censusSample(total).map((p) => chars[p - 1]!));
+  const scanPages = queue.filter((_, i) => chars[i]! < PDF2WORD_CENSUS_MIN_CHARS);
 
   const markdown: string[] = [];
   const converted: number[] = [];
   if (scanPages.length > 0) {
     if (!opts.aiConvertPages) throw new Pdf2WordScanError(scanPages);
     const aiMd = await opts.aiConvertPages(scanPages);
-    let done = 0;
-    for (let p = 1; p <= pageCount; p += 1) {
+    for (const [i, p] of queue.entries()) {
       const si = scanPages.indexOf(p);
       if (si >= 0) {
         markdown.push(aiMd[si] ?? '');
         converted.push(p);
       } else {
-        markdown.push(pageToMarkdown(pagesItems[p - 1]!));
+        markdown.push(pageToMarkdown(pagesItems.get(p)!));
       }
-      done += 1;
-      opts.onProgress?.(pageCount + done, pageCount * 2);
+      opts.onProgress?.(total + i + 1, total * 2);
     }
   } else {
-    for (let p = 1; p <= pageCount; p += 1) {
-      markdown.push(pageToMarkdown(pagesItems[p - 1]!));
-      opts.onProgress?.(pageCount + p, pageCount * 2);
+    for (const [i, p] of queue.entries()) {
+      markdown.push(pageToMarkdown(pagesItems.get(p)!));
+      opts.onProgress?.(total + i + 1, total * 2);
     }
   }
 

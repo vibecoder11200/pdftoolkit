@@ -20,10 +20,10 @@
     "loading": "Đang xử lý...",
     "keyboard_move_hint": "Alt + ←/→ để di chuyển trang đang focus",
     "page_n": "Trang {{n}}",
-        "page_drag_handle": "Kéo để đổi thứ tự trang {{n}}",
+    "page_drag_handle": "Kéo để đổi thứ tự trang {{n}}",
     "page_move_left": "Chuyển trang {{n}} sang trái",
     "page_move_right": "Chuyển trang {{n}} sang phải",
-"page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
+    "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
   },
   "dropzone": {
     "single_taken": "Chỉ nhận 1 file — đã lấy file đầu tiên."
@@ -47,7 +47,7 @@
     "offline_title": "Mất mạng vẫn dùng được",
     "offline_desc": "Mở trang một lần, những lần sau dùng tiếp ngay cả khi không có mạng.",
     "free_title": "Miễn phí, không giới hạn",
-    "free_desc": "Đủ 16 công cụ, không tài khoản, không tính năng bị khóa."
+    "free_desc": "Đủ 18 công cụ, không tài khoản, không tính năng bị khóa."
   },
   "merge": {
     "title": "Gộp PDF",
@@ -550,7 +550,7 @@
     "welcome_dismiss": "Đóng gợi ý",
     "start_title": "🚀 Bắt đầu",
     "start_body": "Kéo PDF hoặc ảnh vào bất cứ đâu trên trang — hệ thống tự gợi ý công cụ phù hợp. Hoặc mở thẳng một công cụ và chọn file từ đó.",
-    "tools_title": "🧰 16 công cụ",
+    "tools_title": "🧰 18 công cụ",
     "tools_body": "Gộp, tách, sắp xếp lại, xoay, trích trang, xóa trang, nén, PDF→ảnh, ảnh→PDF, mã hóa, siêu dữ liệu, ký số, điền form, OCR.",
     "tools_link": "Xem tất cả công cụ",
     "ai_title": "🤖 AI OCR",
@@ -1044,5 +1044,39 @@
     "err_failed": "Xử lý thất bại: {{message}}",
     "err_crashed": "Bộ xử lý PDF gặp sự cố",
     "err_crashed_detail": "Tiến trình xử lý đã dừng giữa chừng. Bấm \"Thử lại\" để chạy lại từ đầu."
+  },
+  "pdf-to-word": {
+    "title": "PDF sang Word",
+    "dropzone_title": "Kéo file PDF vào đây",
+    "dropzone_hint": "hoặc bấm để chọn · 1 file duy nhất, dưới 200 MB"
+  },
+  "p2w": {
+    "mode_q": "Chế độ chuyển",
+    "mode_digital": "Chữ kỹ thuật (digital)",
+    "mode_digital_hint": "Nhanh, offline 100% — giữ thứ tự đọc, cột và bảng kẻ đường.",
+    "mode_scan": "Trang quét / ảnh (AI)",
+    "mode_scan_hint": "Dùng AI OCR chạy trên máy cho trang không có lớp chữ.",
+    "detected_badge": "phát hiện tự động",
+    "detected_mixed_note": "File trộn: trang digital đọc lớp chữ, trang quét đi qua AI sau khi bạn xác nhận.",
+    "honesty": "Bản trung thực: xuất ra chữ, đề mục, danh sách và bảng kẻ đường — bố cục phức tạp (viền bảng mờ, nhiều cột nghệ thuật) có thể cần chỉnh lại. File không bao giờ rời máy.",
+    "cta": "Chuyển sang Word (.docx)",
+    "progress_idle": "Sẵn sàng chuyển {{base}}.",
+    "progress_extract": "Đang đọc lớp chữ...",
+    "progress_convert": "Đang dựng tài liệu...",
+    "progress_docx": "Đang đóng gói DOCX...",
+    "progress_done": "Xong — {{count}} trang (chế độ {{mode}}).",
+    "ai_confirm_title": "Trang này cần AI OCR chạy trên máy",
+    "ai_confirm_body": "Lần đầu dùng sẽ tải model ~652 MB (một lần duy nhất, sau đó chạy offline hoàn toàn). Không có gì gửi ra ngoài.",
+    "ai_slow_warn": "Máy bạn thuộc nhóm CPU — mỗi trang quét có thể mất vài chục giây.",
+    "ai_confirm_cta": "Đồng ý chạy AI",
+    "ai_cancel": "Quay lại",
+    "ai_downloading": "Đang tải model AI... {{percent}}%",
+    "ai_downloading_started": "Đang tải model AI...",
+    "ai_running": "AI đang đọc trang {{current}}/{{total}}...",
+    "error_load": "Không đọc được file PDF này.",
+    "error_cap": "File quá nhiều trang — PDF sang Word giới hạn 100 trang mỗi lần.",
+    "error_items": "Một trang dày đặc bất thường (quá nhiều phần tử chữ) — dừng để bảo vệ máy.",
+    "error_scan": "Trang này là ảnh quét — chọn chế độ \"Trang quét / ảnh (AI)\" để chuyển.",
+    "error_generic": "Chuyển thất bại. File gốc không bị thay đổi."
   }
 }

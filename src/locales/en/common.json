@@ -20,10 +20,10 @@
     "loading": "Working...",
     "keyboard_move_hint": "Alt + ←/→ to move the focused page",
     "page_n": "Page {{n}}",
-        "page_drag_handle": "Drag to reorder page {{n}}",
+    "page_drag_handle": "Drag to reorder page {{n}}",
     "page_move_left": "Move page {{n}} left",
     "page_move_right": "Move page {{n}} right",
-"page_moved": "Moved page {{page}} to position {{position}}"
+    "page_moved": "Moved page {{page}} to position {{position}}"
   },
   "dropzone": {
     "single_taken": "Only one file is accepted — taking the first one."
@@ -47,7 +47,7 @@
     "offline_title": "Works without internet",
     "offline_desc": "Load the page once, then keep using it even when you are offline.",
     "free_title": "Free, no limits",
-    "free_desc": "All 16 tools, no account, no locked features."
+    "free_desc": "All 18 tools, no account, no locked features."
   },
   "merge": {
     "title": "Merge PDF",
@@ -550,7 +550,7 @@
     "welcome_dismiss": "Dismiss",
     "start_title": "🚀 Get started",
     "start_body": "Drag a PDF or images anywhere on the page — the app suggests the right tool. Or open a tool directly and pick a file there.",
-    "tools_title": "🧰 16 tools",
+    "tools_title": "🧰 18 tools",
     "tools_body": "Merge, split, reorder, rotate, extract pages, remove pages, compress, PDF→images, images→PDF, encrypt, metadata, sign, fill forms, OCR.",
     "tools_link": "Browse all tools",
     "ai_title": "🤖 AI OCR",
@@ -1044,5 +1044,39 @@
     "err_failed": "Run failed: {{message}}",
     "err_crashed": "The PDF engine crashed",
     "err_crashed_detail": "The worker stopped mid-run. Press Retry to start over."
+  },
+  "pdf-to-word": {
+    "title": "PDF to Word",
+    "dropzone_title": "Drag a PDF file here",
+    "dropzone_hint": "or click to choose · single file, under 200 MB"
+  },
+  "p2w": {
+    "mode_q": "Conversion mode",
+    "mode_digital": "Digital text",
+    "mode_digital_hint": "Fast, 100% offline — keeps reading order, columns and ruled tables.",
+    "mode_scan": "Scanned / image pages (AI)",
+    "mode_scan_hint": "On-device AI OCR for pages without a text layer.",
+    "detected_badge": "auto-detected",
+    "detected_mixed_note": "Mixed file: digital pages read the text layer; scanned pages go through AI after you confirm.",
+    "honesty": "Honest contract: you get text, headings, lists and ruled tables — complex layouts (faint table borders, magazine columns) may need cleanup. Files never leave your device.",
+    "cta": "Convert to Word (.docx)",
+    "progress_idle": "Ready to convert {{base}}.",
+    "progress_extract": "Reading the text layer...",
+    "progress_convert": "Building the document...",
+    "progress_docx": "Packaging DOCX...",
+    "progress_done": "Done — {{count}} pages ({{mode}} mode).",
+    "ai_confirm_title": "This file needs on-device AI OCR",
+    "ai_confirm_body": "The first use downloads a ~652 MB model (once; fully offline afterwards). Nothing is uploaded.",
+    "ai_slow_warn": "Your machine is on the CPU tier — each scanned page may take tens of seconds.",
+    "ai_confirm_cta": "Run AI OCR",
+    "ai_cancel": "Go back",
+    "ai_downloading": "Downloading the AI model... {{percent}}%",
+    "ai_downloading_started": "Downloading the AI model...",
+    "ai_running": "AI reading page {{current}}/{{total}}...",
+    "error_load": "This PDF could not be read.",
+    "error_cap": "Too many pages — PDF to Word caps at 100 pages per run.",
+    "error_items": "One page is unusually dense (too many text elements) — stopped to protect your machine.",
+    "error_scan": "This page is a scanned image — pick the \"Scanned / image pages (AI)\" mode to convert it.",
+    "error_generic": "Conversion failed. Your original file was not modified."
   }
 }

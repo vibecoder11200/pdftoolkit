@@ -11,7 +11,7 @@ Merge, split, compress, convert and sign PDFs — 100% in your browser. Files ne
 
 Most "free PDF tools" upload your documents to a server. This one doesn't: every operation runs client-side in a Web Worker (pdf-lib + qpdf-wasm + pdf.js). There is no backend, no account, no telemetry, no runtime CDN.
 
-## Tools (17)
+## Tools (18)
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
@@ -36,7 +36,7 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 |---|---|
 | ![Crop](screenshots/editor-crop-vi.jpg) | ![Phone](screenshots/editor-phone-en.jpg) |
 
-**On phones**: all 16 classic tools are designed phone-first (large touch targets, sheet-based controls; page reorder works by pointer drag). The editor's canvases need a larger screen for precise marking, so on phone widths it shows guidance instead.
+**On phones**: all 17 classic tools are designed phone-first (large touch targets, sheet-based controls; page reorder works by pointer drag). The editor's canvases need a larger screen for precise marking, so on phone widths it shows guidance instead.
 
 **Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool (OCR included since v0.8.1), the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything. OCR's AI searchable-PDF builds at click time — nothing is retained until you pick a target.
 

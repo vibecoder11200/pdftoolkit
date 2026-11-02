@@ -66,5 +66,9 @@
   "editor": {
     "title": "Editor",
     "desc": "Redact sensitive content, strip hidden text layers, safe page burn — with automatic verification."
+  },
+  "pdf-to-word": {
+    "title": "PDF to Word",
+    "desc": "Convert PDF to Word (.docx) on your device — text, headings, ruled tables and reading order preserved; scanned pages use on-device AI."
   }
 }

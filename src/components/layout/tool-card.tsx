@@ -42,6 +42,7 @@ export const TOOLS: ToolDef[] = [
   { slug: 'watermark', icon: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 16.5 16.5 7M7 11.5 11.5 7', tone: 'bg-tone-blue-soft text-tone-blue', category: 'opt', acceptsPdf: true },
   { slug: 'page-numbers', icon: 'M7 8h10M7 12h10M7 16h4M17 14l4 4m0 0-4 4m4-4h-7', tone: 'bg-tone-teal-soft text-tone-teal', category: 'opt', acceptsPdf: true },
   { slug: 'editor', icon: 'M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 0-3-3L3 13v3h3ZM14 6l3 3', tone: 'bg-tone-purple-soft text-tone-purple', category: 'sec', acceptsPdf: true },
+  { slug: 'pdf-to-word', icon: 'M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM14 3v6h6M12 12h8m0 0-3-3m3 3-3 3', tone: 'bg-tone-green-soft text-tone-green', category: 'opt', acceptsPdf: true },
 ];
 
 export function ToolCard({ tool }: { tool: ToolDef }) {
