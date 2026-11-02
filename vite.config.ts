@@ -250,7 +250,7 @@ export default defineConfig({
         name: 'PDF Toolkit',
         short_name: 'PDF Toolkit',
         description:
-          'Merge, split, compress, convert and sign PDFs. 100% on-device, offline-capable, MIT open source.',
+          'Merge, split, compress, convert PDFs to Word and sign them. 100% on-device, offline-capable, MIT open source.',
         scope: '/pdftoolkit/',
         start_url: '/pdftoolkit/',
         display: 'standalone',

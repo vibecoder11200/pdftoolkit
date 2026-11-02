@@ -403,6 +403,51 @@ This project is indexed by GitNexus as **pdftoolkit** (3810 symbols, 9780 relati
   re-renders and asserts every painted region is uniform. The e2e
   invisible-failure gate (extraction AND pixel variants,
   `tests/redact.e2e.spec.ts`) is a RELEASE gate.
+- **Redact keyword search (v0.10.0 rider)**: proposals are RUN-BAND
+  granular (`src/lib/redact-search.ts`) — the surgical tier removes a
+  BT..ET block only when every show op lies FULLY inside a mark, so a
+  word-level proposal would refuse the run. Grouping happens on the
+  STRING-carrying `getVisualTextItems` (never zip `getTextItemRects`
+  with items — different skip filters, silent misalignment, F5). The
+  per-page text cache is a REF cleared in the `[source]` reset; every
+  search loop captures the generation ref and drops stale results.
+  Apply path count is unchanged: promotion appends to the same marks
+  array; `runRedactionPipeline` remains the ONLY apply composer.
+
+### PDF→Word invariants (v0.10.0)
+
+- **ONE composer**: tools call `runPdf2Word` (`src/lib/pdf2word.ts`) —
+  never the stage functions directly (redact-pipeline discipline). The
+  AI scan seam is CALLER-wired (`aiConvertPages`); scan routing requires
+  the explicit confirm card (F6 — census PRE-HIGHLIGHTS only, cpu-tier
+  gets the slow warning); forced-digital on a scan page must REFUSE via
+  `Pdf2WordScanError`, never silently AI-fallback.
+- **Pipeline order is load-bearing** (spike lessons, tests pin them):
+  visual items feed XY-cut BEFORE line clustering (clustering first
+  merges two-column rows and destroys the gutter); td[5] is ALREADY
+  y-down (a second flip reverses reading order); table detection is
+  pitch-banded cell-ALIGNMENT clustering with the coverage guard
+  (≤0.65 median cell width on NON-last columns — the last column has
+  no right bound in text geometry) so body columns never false-tabulate.
+- **Emitter contract (F9)**: pipe escaping happens ONCE at
+  `emitTableMarkdown` (`\|`; ai-markdown unescapes on re-split) —
+  detectTable stores raw text (double-escaping corrupts cells).
+  `markdownToDocx` `title` is optional; the default 'pdftoolkit-ocr'
+  keeps the OCR path byte-identical.
+- **No vendor rule applied**: algorithms re-expressed from published
+  descriptions only (Nagy XY-cut; pdfminer LAParams as the tuning
+  surface; pdfplumber's alignment strategy — all MIT/permissive,
+  attribution in README); zero code from pdf2md/pdfminer/camelot/
+  PyMuPDF. pdf2md 0.1.x is AGPL — never a dependency.
+- **Tool #18 chip semantics (F4, decided)**: `acceptsPdf: true` makes
+  pdf-to-word a chip DESTINATION like ocr; its DOCX output is not a PDF
+  so it is NEVER a chip host (no ContinueChip, nothing retained — the
+  v0.8.0 host enumeration stays untouched).
+- **Budgets (F1)**: PDF2WORD_PAGE_CAP=100, PDF2WORD_MAX_ITEMS_PER_PAGE
+  (typed refusals, never silent truncation); census samples
+  first/middle/last (the rule is explicit in `censusSample`); routing
+  stays PER-PAGE chars. The 100MB nightly pdf2word leg is a journaled
+  v0.10.x deferral — the PR-tier matrix leg is the real coverage.
 
 ## 5. GitHub Pages deploy
 
