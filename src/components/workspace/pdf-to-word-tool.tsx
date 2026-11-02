@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
-import { getVisualTextItems } from '../../engine/pdfjs';
+import { getVisualTextItems, renderPageToCanvas } from '../../engine/pdfjs';
 import {
   PDF2WORD_PAGE_CAP,
   Pdf2WordItemCapError,
@@ -180,7 +180,6 @@ export function PdfToWordTool() {
       const canvas = document.createElement('canvas');
       const scale = AI_DPI / 72;
       const renderPage = async (page: number): Promise<RasterImageData> => {
-        const { renderPageToCanvas } = await import('../../engine/pdfjs');
         await renderPageToCanvas(bytes, page, canvas, scale);
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('canvas 2d context unavailable');
@@ -225,6 +224,16 @@ export function PdfToWordTool() {
     [src, numPages, t],
   );
 
+  // F6: auto resolves to the census verdict (scan only). Whatever engages
+  // the scan route — an explicit choice, auto on a scan verdict, or auto on
+  // a MIXED verdict (scan pages inside convert via AI after the confirm
+  // card; digital pages stay on the text layer) — arms the confirm card and
+  // wires the seam: the CTA never silently engages the AI engine or its
+  // 652MB download.
+  const effectiveMode: 'digital' | 'scan' =
+    mode !== 'auto' ? mode : detected === 'scan' ? 'scan' : 'digital';
+  const seamActive = effectiveMode === 'scan' || (mode === 'auto' && detected === 'mixed');
+
   const run = useCallback(async () => {
     if (!src) return;
     // The probe gate: never decide on a pending probe (split-tool flake class).
@@ -247,16 +256,12 @@ export function PdfToWordTool() {
       // F6 honesty: the AI seam rides ONLY the scan route. A scan page
       // reached on the forced-digital route has no seam → the composer's
       // typed Pdf2WordScanError refuses (never a silent fallback).
-      const effMode: 'digital' | 'scan' =
-        mode !== 'auto' ? mode : detected === 'scan' ? 'scan' : 'digital';
-      // Mixed + auto also rides the seam (scan pages inside convert via AI
-      // after the confirm card; digital pages stay on the text layer).
-      const seamActive = effMode === 'scan' || (mode === 'auto' && detected === 'mixed');
+      const base = baseName(src.file.name);
       const res = await runPdf2Word({
         pageCount: count,
         pages: selection,
         extractPage: (p) => getVisualTextItems(src.bytes, p),
-        toDocx: (pages) => pdfEngine.markdownToDocx({ ...pages, title: baseName(src.file.name) }),
+        toDocx: (pages) => pdfEngine.markdownToDocx({ ...pages, title: base }),
         aiConvertPages: seamActive ? aiConvertPages : undefined,
         onProgress: (donePages, total) => {
           setProgress({
@@ -266,7 +271,6 @@ export function PdfToWordTool() {
         },
       });
       setProgress({ value: 97, label: t('p2w.progress_docx') });
-      const base = baseName(src.file.name);
       // A cancelled Save-As is not a success: the done view must not render
       // for a file that was never written.
       const ok = await deliverBytes(
@@ -299,7 +303,7 @@ export function PdfToWordTool() {
       setBusy(false);
       endJob('pdf-to-word');
     }
-  }, [aiConvertPages, detected, mode, selectedPages, src, t]);
+  }, [aiConvertPages, seamActive, selectedPages, src, t]);
 
   const resetAll = () => {
     abortRef.current = true;
@@ -316,16 +320,10 @@ export function PdfToWordTool() {
     setDone(false);
   };
 
-  const effectiveMode: 'digital' | 'scan' = mode !== 'auto' ? mode : detected === 'scan' ? 'scan' : 'digital';
   const base = src ? baseName(src.file.name) : '';
 
-  // F6: choosing the scan route (explicitly, by trusting the census on a
-  // scan-detected file, or mixed-with-scan-pages) arms the confirm card —
-  // the CTA never silently engages the AI engine or its 652MB download.
-  const needsScanConfirm = effectiveMode === 'scan' || (mode === 'auto' && detected === 'mixed');
-
   const onCta = () => {
-    if (!needsScanConfirm || scanConfirm) {
+    if (!seamActive || scanConfirm) {
       void run();
       return;
     }

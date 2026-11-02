@@ -166,16 +166,15 @@ export function xyCut(
       if (f.x0 - cursor >= minGutter) gaps.push({ start: cursor, end: f.x0, width: f.x0 - cursor });
       cursor = Math.max(cursor, f.x1);
     }
-    const gutters = gaps.filter((g) => {
-      const left = items.filter((f) => f.x1 <= g.start + 0.5);
-      const right = items.filter((f) => f.x0 >= g.end - 0.5);
-      return vSpan(left) >= gutterCover * height && vSpan(right) >= gutterCover * height;
-    });
+    // Sides of a candidate gutter (0.5pt slack on the shared edge).
+    const leftOf = (start: number) => items.filter((f) => f.x1 <= start + 0.5);
+    const rightOf = (end: number) => items.filter((f) => f.x0 >= end - 0.5);
+    const gutters = gaps.filter(
+      (g) => vSpan(leftOf(g.start)) >= gutterCover * height && vSpan(rightOf(g.end)) >= gutterCover * height,
+    );
     if (gutters.length > 0) {
       const g = gutters.reduce((a, b) => (b.width > a.width ? b : a));
-      const left = items.filter((f) => f.x1 <= g.start + 0.5);
-      const right = items.filter((f) => f.x0 >= g.end - 0.5);
-      return [...xyCut(left, bodySize, opts, depth + 1), ...xyCut(right, bodySize, opts, depth + 1)];
+      return [...xyCut(leftOf(g.start), bodySize, opts, depth + 1), ...xyCut(rightOf(g.end), bodySize, opts, depth + 1)];
     }
   }
 
@@ -413,13 +412,12 @@ function regionToMarkdown(items: Item[], bodySize: number): string {
       continue;
     }
     const prev = para[para.length - 1];
-    const gap = prev ? l.baseline - prev.baseline - Math.max(l.size, prev.size) : Infinity;
-    if (prev && gap <= 0.55 * l.size) {
-      para.push(l);
-    } else {
-      flushPara();
-      para.push(l);
-    }
+    // Joins the paragraph when the leading gap is tight (<0.55× size —
+    // consecutive body lines); otherwise it opens a new paragraph.
+    const joins =
+      prev !== undefined && l.baseline - prev.baseline - Math.max(l.size, prev.size) <= 0.55 * l.size;
+    if (!joins) flushPara();
+    para.push(l);
   }
   flushPara();
   return out.join('\n');
@@ -546,8 +544,7 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
   const mode = censusMode(censusSample(total).map((p) => chars[p - 1]!));
   const scanPages = queue.filter((_, i) => chars[i]! < PDF2WORD_CENSUS_MIN_CHARS);
 
-  const markdown: string[] = [];
-  const converted: number[] = [];
+  const aiByPage = new Map<number, string>();
   if (scanPages.length > 0) {
     if (!opts.aiConvertPages) throw new Pdf2WordScanError(scanPages);
     const aiMd = await opts.aiConvertPages(scanPages);
@@ -559,23 +556,21 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
         `pdf2word: AI seam returned ${aiMd.length} pages for ${scanPages.length} scan pages`,
       );
     }
-    for (const [i, p] of queue.entries()) {
-      const si = scanPages.indexOf(p);
-      if (si >= 0) {
-        markdown.push(aiMd[si]!);
-        converted.push(p);
-      } else {
-        markdown.push(pageToMarkdown(pagesItems.get(p)!));
-      }
-      opts.onProgress?.(total + i + 1, total * 2);
-      await yieldToUi();
-    }
-  } else {
-    for (const [i, p] of queue.entries()) {
+    scanPages.forEach((p, i) => aiByPage.set(p, aiMd[i]!));
+  }
+
+  const markdown: string[] = [];
+  const converted: number[] = [];
+  for (const [i, p] of queue.entries()) {
+    const ai = aiByPage.get(p);
+    if (ai !== undefined) {
+      markdown.push(ai);
+      converted.push(p);
+    } else {
       markdown.push(pageToMarkdown(pagesItems.get(p)!));
-      opts.onProgress?.(total + i + 1, total * 2);
-      await yieldToUi();
     }
+    opts.onProgress?.(total + i + 1, total * 2);
+    await yieldToUi();
   }
 
   const docx = await toDocx({ texts: markdown });

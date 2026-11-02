@@ -16,6 +16,10 @@ import type { VisualTextItem } from '../engine/pdfjs';
 
 type Item = VisualTextItem;
 
+/** Word-space threshold as a fraction of font size (a Helvetica space is
+ * ~0.28em; 0.2em catches word gaps without splitting tight kerning). */
+const WORD_SPACE_FACTOR = 0.2;
+
 /** A contiguous run of items on one baseline (the groupRuns band rule:
  * ±35% of the tallest item), split when the horizontal gap exceeds 2.5×
  * the band height — coarse enough to hold pdf.js fragments ("Joh"+"n"),
@@ -34,8 +38,7 @@ export function runsFromItems(items: Item[]): ItemRun[] {
   // horizontal boxes produces proposals that do not correspond to their
   // glyphs (usually census-burned pages, but never propose what we cannot
   // draw honestly).
-  const horizontal = items.filter((i) => !i.rotated);
-  const sorted = [...horizontal].sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
+  const sorted = items.filter((i) => !i.rotated).sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
   const bands: Item[][] = [];
   for (const it of sorted) {
     const tol = Math.max(2, it.size * 0.35);
@@ -82,10 +85,6 @@ export function runsFromItems(items: Item[]): ItemRun[] {
   }
   return runs;
 }
-
-/** Word-space threshold as a fraction of font size (a Helvetica space is
- * ~0.28em; 0.2em catches word gaps without splitting tight kerning). */
-const WORD_SPACE_FACTOR = 0.2;
 
 function midBaseline(items: Item[]): number {
   return items.reduce((s, i) => s + i.baseline, 0) / items.length;

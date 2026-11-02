@@ -20,14 +20,6 @@ import {
 } from '../../lib/redact-pipeline';
 import { dedupeProposals, proposeMarksForPage } from '../../lib/redact-search';
 import type { VisualTextItem } from '../../engine/pdfjs';
-
-/** Per-page search cache entry (F11): items plus the visual box the
- * proposal math needs, so a cached page costs zero engine calls. */
-interface CachedPageText {
-  items: VisualTextItem[];
-  width: number;
-  height: number;
-}
 import { Dropzone } from '../ui/dropzone';
 import { type ErrorDetail } from '../ui/error-banner';
 import { Button } from '../ui/button';
@@ -40,6 +32,14 @@ import { AnnotateCanvasArea, AnnotateControls, useAnnotateState } from './annota
 import { EditTextArea, EditTextControls, useEditTextState } from './edit-text-tab';
 import { CropArea, CropControls, useCropState } from './crop-tab';
 import { FileIcon } from '../ui/icons';
+
+/** Per-page search cache entry (F11): items plus the visual box the
+ * proposal math needs, so a cached page costs zero engine calls. */
+interface CachedPageText {
+  items: VisualTextItem[];
+  width: number;
+  height: number;
+}
 
 /*
  * Editor tool (v0.9.0 phase 3) — tool #17 'Sửa PDF', four-tab shell of which
@@ -243,6 +243,7 @@ export function EditorTool() {
   }, [source, currentPage, numPages]);
 
   const pageMarks = marks.filter((m) => m.page === currentPage);
+  const pendingOnPage = pendingMarks.filter((m) => m.page === currentPage);
   const flagged = census?.pages ?? [];
 
   const addMark = (m: Omit<RedactMark, 'id' | 'page'>) => {
@@ -268,24 +269,23 @@ export function EditorTool() {
         await probeRef.current;
         if (genRef.current !== genAtStart) return;
       }
+      const { getVisualTextItems, getPageVisualSize } = await import('../../engine/pdfjs');
       let flaggedHit = false;
       const proposals: RedactMark[] = [];
       for (let p = 1; p <= numPages; p += 1) {
-        const cached = itemsCacheRef.current.get(p);
-        if (!cached) {
-          const { getVisualTextItems, getPageVisualSize } = await import('../../engine/pdfjs');
+        let entry = itemsCacheRef.current.get(p);
+        if (!entry) {
           const [items, size] = await Promise.all([
             getVisualTextItems(source.bytes, p),
             getPageVisualSize(source.bytes, p),
           ]);
           if (genRef.current !== genAtStart) return; // file swapped mid-search
-          itemsCacheRef.current.set(p, { items, width: size.width, height: size.height });
-          proposals.push(...proposeMarksForPage(items, keyword, p, size.width, size.height, newMarkId));
-        } else {
-          proposals.push(
-            ...proposeMarksForPage(cached.items, keyword, p, cached.width, cached.height, newMarkId),
-          );
+          entry = { items, width: size.width, height: size.height };
+          itemsCacheRef.current.set(p, entry);
         }
+        proposals.push(
+          ...proposeMarksForPage(entry.items, keyword, p, entry.width, entry.height, newMarkId),
+        );
         if (flagged.some((f) => f.page === p)) flaggedHit = true;
       }
       if (genRef.current !== genAtStart) return;
@@ -765,9 +765,9 @@ export function EditorTool() {
                   {tab === 'redact' ? (
                     <>
                       <span>· {t('redact.marks_hint')}</span>
-                      {pendingMarks.filter((m) => m.page === currentPage).length > 0 ? (
+                      {pendingOnPage.length > 0 ? (
                         <span className="text-tone-orange">
-                          · {t('redact.search_pending_hint', { count: pendingMarks.filter((m) => m.page === currentPage).length })}
+                          · {t('redact.search_pending_hint', { count: pendingOnPage.length })}
                         </span>
                       ) : null}
                       {pageMarks.length > 0 ? (
@@ -795,7 +795,7 @@ export function EditorTool() {
                       page={currentPage}
                       version={genRef.current}
                       marks={pageMarks}
-                      pendingMarks={pendingMarks.filter((m) => m.page === currentPage)}
+                      pendingMarks={pendingOnPage}
                       onAdd={addMark}
                       onRemove={removeMark}
                       onRemovePending={(id) => setPendingMarks((prev) => prev.filter((m) => m.id !== id))}
