@@ -1076,7 +1076,7 @@
     "mode_scan_hint": "On-device AI OCR for pages without a text layer.",
     "detected_badge": "auto-detected",
     "detected_mixed_note": "Mixed file: digital pages read the text layer; scanned pages go through AI after you confirm.",
-    "honesty": "Honest contract: you get text, headings, lists and ruled tables — complex layouts (faint table borders, magazine columns) may need cleanup. Files never leave your device.",
+    "honesty": "Honest contract: you get text, headings, lists, ruled tables and borderless tables (best-effort) — complex layouts (magazine columns) may need cleanup. Files never leave your device.",
     "cta": "Convert to Word (.docx)",
     "progress_idle": "Ready to convert {{base}}.",
     "progress_extract": "Reading the text layer...",

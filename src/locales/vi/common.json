@@ -1076,7 +1076,7 @@
     "mode_scan_hint": "Dùng AI OCR chạy trên máy cho trang không có lớp chữ.",
     "detected_badge": "phát hiện tự động",
     "detected_mixed_note": "File trộn: trang digital đọc lớp chữ, trang quét đi qua AI sau khi bạn xác nhận.",
-    "honesty": "Bản trung thực: xuất ra chữ, đề mục, danh sách và bảng kẻ đường — bố cục phức tạp (viền bảng mờ, nhiều cột nghệ thuật) có thể cần chỉnh lại. File không bao giờ rời máy.",
+    "honesty": "Bản trung thực: xuất ra chữ, đề mục, danh sách, bảng kẻ đường lẫn bảng không viền (best-effort) — bố cục phức tạp (nhiều cột nghệ thuật) có thể cần chỉnh lại. File không bao giờ rời máy.",
     "cta": "Chuyển sang Word (.docx)",
     "progress_idle": "Sẵn sàng chuyển {{base}}.",
     "progress_extract": "Đang đọc lớp chữ...",
