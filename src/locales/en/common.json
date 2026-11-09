@@ -1055,7 +1055,13 @@
     "search_discard": "Discard proposals",
     "search_pending_hint": "{{count}} proposals pending",
     "search_err": "Search failed: {{message}}",
-    "search_promoted_kept": "Added {{kept}} mark(s). Skipped {{dropped}} on pages you chose to keep (kept pages are not redacted)."
+    "search_promoted_kept": "Added {{kept}} mark(s). Skipped {{dropped}} on pages you chose to keep (kept pages are not redacted).",
+    "list_title": "Result list",
+    "list_page": "Page {{page}} · {{count}} result(s)",
+    "list_keep": "keep",
+    "list_discard": "discard",
+    "list_accept_page": "Accept page",
+    "list_discard_page": "Discard page"
   },
   "pdf-to-word": {
     "title": "PDF to Word",

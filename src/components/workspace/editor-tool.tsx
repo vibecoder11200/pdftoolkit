@@ -18,7 +18,7 @@ import {
   type RedactMark,
   type RedactPhase,
 } from '../../lib/redact-pipeline';
-import { dedupeProposals, proposeMarksForPage } from '../../lib/redact-search';
+import { dedupeProposals, findMatches, markForRun, runsFromItems } from '../../lib/redact-search';
 import type { VisualTextItem } from '../../engine/pdfjs';
 import { Dropzone } from '../ui/dropzone';
 import { type ErrorDetail } from '../ui/error-banner';
@@ -28,6 +28,7 @@ import { ContinueChip } from './continue-chip';
 import { useLastOutput } from '../../hooks/use-last-output';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { EditorCanvas, newMarkId } from './editor-canvas';
+import { RedactReviewList, promotableMarks } from './redact-review-list';
 import { AnnotateCanvasArea, AnnotateControls, useAnnotateState } from './annotate-tab';
 import { EditTextArea, EditTextControls, useEditTextState } from './edit-text-tab';
 import { CropArea, CropControls, useCropState } from './crop-tab';
@@ -39,6 +40,14 @@ interface CachedPageText {
   items: VisualTextItem[];
   width: number;
   height: number;
+}
+
+/** One keyword-search proposal: the mark plus the run text captured at
+ * creation time (the review list's excerpt — no re-extraction). Local
+ * view-model only; the engine's RedactMark contract is untouched. */
+export interface SearchProposal {
+  mark: RedactMark;
+  excerpt: string;
 }
 
 /*
@@ -127,14 +136,16 @@ export function EditorTool() {
   // In-flight load+census probe: an early Apply awaits it (split-tool
   // pattern) instead of misreporting a healthy file.
   const probeRef = useRef<Promise<void> | null>(null);
-  // Keyword-search state (v0.10.0 rider): per-page text cache + proposals.
-  // F11: the cache is a REF keyed by page and dies with the file (cleared
-  // in the [source] reset below); every async search captures the
-  // generation and drops stale results (the editor-tool genRef pattern).
+  // Keyword-search state (v0.10.0 rider, review list v0.10.2 phase 3):
+  // per-page text cache + proposals. F11: the cache is a REF keyed by page
+  // and dies with the file (cleared in the [source] reset below); every
+  // async search captures the generation and drops stale results (the
+  // editor-tool genRef pattern).
   const itemsCacheRef = useRef<Map<number, CachedPageText>>(new Map());
   const [searchText, setSearchText] = useState('');
   const [searchBusy, setSearchBusy] = useState(false);
-  const [pendingMarks, setPendingMarks] = useState<RedactMark[]>([]);
+  const [pendingMarks, setPendingMarks] = useState<SearchProposal[]>([]);
+  const [discardedIds, setDiscardedIds] = useState<Set<string>>(new Set());
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
   const locale = lng === 'vi' ? 'vi-VN' : 'en-US';
@@ -159,6 +170,7 @@ export function EditorTool() {
     // F11: the search cache and proposals die with the file.
     itemsCacheRef.current = new Map();
     setPendingMarks([]);
+    setDiscardedIds(new Set());
     setSearchText('');
     setSearchMsg(null);
     // A mid-search file swap must not leave the flag set (the stale
@@ -243,7 +255,8 @@ export function EditorTool() {
   }, [source, currentPage, numPages]);
 
   const pageMarks = marks.filter((m) => m.page === currentPage);
-  const pendingOnPage = pendingMarks.filter((m) => m.page === currentPage);
+  const pendingOnPage = pendingMarks.filter((pr) => pr.mark.page === currentPage).map((pr) => pr.mark);
+  const keptProposalCount = pendingMarks.filter((pr) => !discardedIds.has(pr.mark.id)).length;
   const flagged = census?.pages ?? [];
 
   const addMark = (m: Omit<RedactMark, 'id' | 'page'>) => {
@@ -253,8 +266,12 @@ export function EditorTool() {
   const clearPageMarks = () => setMarks((prev) => prev.filter((m) => m.page !== currentPage));
 
   // Keyword → proposed marks across ALL pages (F12 canvas-first review:
-  // proposals render pending-styled on the canvas, click drops, one
-  // accept-all button — never a second list paradigm, never auto-apply).
+  // proposals render pending-styled on the canvas, the v0.10.2 review list
+  // below groups them per page with keep/discard — never a second marking
+  // paradigm, never auto-apply). The proposal composition mirrors
+  // proposeMarksForPage (runs → matching runs → run-band marks) so the run
+  // TEXT rides along for the list's excerpts without re-extraction; the
+  // apply path and the search walker stay untouched.
   const runSearch = async () => {
     const keyword = searchText.trim();
     if (!source || keyword.length === 0 || searchBusy) return;
@@ -270,8 +287,7 @@ export function EditorTool() {
         if (genRef.current !== genAtStart) return;
       }
       const { getVisualTextItems, getPageVisualSize } = await import('../../engine/pdfjs');
-      let flaggedHit = false;
-      const proposals: RedactMark[] = [];
+      const proposals: SearchProposal[] = [];
       for (let p = 1; p <= numPages; p += 1) {
         let entry = itemsCacheRef.current.get(p);
         if (!entry) {
@@ -283,14 +299,20 @@ export function EditorTool() {
           entry = { items, width: size.width, height: size.height };
           itemsCacheRef.current.set(p, entry);
         }
-        proposals.push(
-          ...proposeMarksForPage(entry.items, keyword, p, entry.width, entry.height, newMarkId),
-        );
-        if (flagged.some((f) => f.page === p)) flaggedHit = true;
+        for (const run of runsFromItems(entry.items)) {
+          if (findMatches(run.text, keyword).length === 0) continue;
+          const mark = markForRun(run, p, entry.width, entry.height, newMarkId());
+          if (!mark) continue;
+          proposals.push({ mark, excerpt: run.text });
+        }
       }
       if (genRef.current !== genAtStart) return;
+      // Census pages always lie within 1..numPages, so "a searched page is
+      // flagged" reduces to the doc having any flagged page at all.
+      const flaggedHit = flagged.length > 0;
       // Proposals REPLACE the previous review set; promotion dedupes.
       setPendingMarks(proposals);
+      setDiscardedIds(new Set());
       setSearchMsg(
         proposals.length > 0
           ? flaggedHit
@@ -315,19 +337,50 @@ export function EditorTool() {
   };
 
   const acceptAllProposals = () => {
-    // Kept flagged pages are EXCLUDED from the redaction plan by design
-    // (planRedaction skips marks on them) — promoting those proposals would
-    // show solid boxes that silently do nothing. Drop them here, loudly.
-    const promotable = pendingMarks.filter((m) => !keptFlagged.has(m.page));
+    const promotable = promotableMarks(pendingMarks, discardedIds, keptFlagged);
     const dropped = pendingMarks.length - promotable.length;
     setMarks((prev) => [...prev, ...dedupeProposals(promotable, prev)]);
     setPendingMarks([]);
+    setDiscardedIds(new Set());
     setSearchMsg(dropped > 0 ? t('redact.search_promoted_kept', { kept: promotable.length, dropped }) : null);
   };
 
   const discardProposals = () => {
     setPendingMarks([]);
+    setDiscardedIds(new Set());
     setSearchMsg(null);
+  };
+
+  // Review-list affordances (page-scoped): accept keeps the page's rows and
+  // discards every OTHER page's; discard strikes only the page's rows.
+  const toggleDiscarded = (id: string) => {
+    setDiscardedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const acceptPageProposals = (page: number) => {
+    setDiscardedIds((prev) => {
+      const next = new Set(prev);
+      for (const pr of pendingMarks) {
+        if (pr.mark.page === page) next.delete(pr.mark.id);
+        else next.add(pr.mark.id);
+      }
+      return next;
+    });
+  };
+
+  const discardPageProposals = (page: number) => {
+    setDiscardedIds((prev) => {
+      const next = new Set(prev);
+      for (const pr of pendingMarks) {
+        if (pr.mark.page === page) next.add(pr.mark.id);
+      }
+      return next;
+    });
   };
 
   const chooseKeep = (page: number) => {
@@ -545,12 +598,23 @@ export function EditorTool() {
         </div>
         {searchMsg ? <p className="mt-2 text-[13px] leading-relaxed text-text-muted">{searchMsg}</p> : null}
         {pendingMarks.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button onClick={acceptAllProposals}>{t('redact.search_accept_all', { count: pendingMarks.length })}</Button>
-            <Button variant="secondary" onClick={discardProposals}>
-              {t('redact.search_discard')}
-            </Button>
-          </div>
+          <>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button onClick={acceptAllProposals}>{t('redact.search_accept_all', { count: keptProposalCount })}</Button>
+              <Button variant="secondary" onClick={discardProposals}>
+                {t('redact.search_discard')}
+              </Button>
+            </div>
+            <RedactReviewList
+              proposals={pendingMarks}
+              discardedIds={discardedIds}
+              currentPage={currentPage}
+              onToggle={toggleDiscarded}
+              onAcceptPage={acceptPageProposals}
+              onDiscardPage={discardPageProposals}
+              onJump={(page) => setCurrentPage(page)}
+            />
+          </>
         ) : null}
       </fieldset>
 
@@ -798,7 +862,7 @@ export function EditorTool() {
                       pendingMarks={pendingOnPage}
                       onAdd={addMark}
                       onRemove={removeMark}
-                      onRemovePending={(id) => setPendingMarks((prev) => prev.filter((m) => m.id !== id))}
+                      onRemovePending={(id) => setPendingMarks((prev) => prev.filter((pr) => pr.mark.id !== id))}
                       disabled={busy}
                     />
                   ) : tab === 'annotate' ? (

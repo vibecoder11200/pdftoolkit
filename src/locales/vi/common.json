@@ -1055,7 +1055,13 @@
     "search_discard": "Bỏ đề xuất",
     "search_pending_hint": "{{count}} đề xuất đang chờ",
     "search_err": "Lỗi khi tìm kiếm: {{message}}",
-    "search_promoted_kept": "Đã thêm {{kept}} vùng. Bỏ qua {{dropped}} vùng nằm trên trang bị giữ nguyên (trang giữ nguyên không bị che)."
+    "search_promoted_kept": "Đã thêm {{kept}} vùng. Bỏ qua {{dropped}} vùng nằm trên trang bị giữ nguyên (trang giữ nguyên không bị che).",
+    "list_title": "Danh sách kết quả",
+    "list_page": "Trang {{page}} · {{count}} kết quả",
+    "list_keep": "giữ",
+    "list_discard": "bỏ",
+    "list_accept_page": "Nhận cả trang",
+    "list_discard_page": "Bỏ cả trang"
   },
   "pdf-to-word": {
     "title": "PDF sang Word",

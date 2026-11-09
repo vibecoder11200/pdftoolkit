@@ -254,3 +254,50 @@ test('redact keyword search: review → drop one → apply removes accepted band
   expect(pages[0]).not.toContain(REDACT_SECRET);
   expect(pages[1]!.replace(/\s+/g, '')).toBe('');
 });
+
+test('redact search review list: grouped rows, per-row discard via the list, stale-reset on re-search', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const outPath = join(testInfo.outputDir, 'out-list.pdf');
+  await buildRedactFixture(FIX_OUT);
+
+  await page.goto('./tools/editor');
+  await page.setInputFiles('input[type="file"]', FIX_OUT);
+  await expect(page.getByTestId('editor-overlay')).toBeVisible({ timeout: 30_000 });
+
+  // 'public' → 3 proposals on 2 pages; the list groups them ascending.
+  await page.getByTestId('redact-search-input').fill('public');
+  await page.getByRole('button', { name: 'Tìm & đánh dấu' }).click();
+  const list = page.getByTestId('redact-review-list');
+  await expect(list).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('redact-list-row')).toHaveCount(3);
+  await expect(page.getByTestId('redact-list-page-1')).toBeVisible();
+  await expect(page.getByTestId('redact-list-page-2')).toBeVisible();
+  // Excerpts are the RUN TEXT (plain text nodes — never raw HTML).
+  await expect(list).toContainText('Body line one is plain public text.');
+
+  // Per-row discard (the list's own affordance): strike "Body line two".
+  const rows = page.getByTestId('redact-list-row');
+  await rows.filter({ hasText: 'Body line two' }).click();
+  await expect(rows.filter({ hasText: 'Body line two' })).toHaveAttribute('aria-pressed', 'false');
+
+  // Stale-reset pin: a new search REPLACES the list (only new results).
+  await page.getByTestId('redact-search-input').fill(REDACT_SECRET);
+  await page.getByRole('button', { name: 'Tìm & đánh dấu' }).click();
+  await expect(page.getByTestId('redact-list-row')).toHaveCount(1, { timeout: 30_000 });
+  await expect(list).not.toContainText('Body line one');
+
+  // Accept all → apply → the secret band is redacted (the discarded
+  // 'public' lines never promoted and stay in the output).
+  await page.getByRole('button', { name: /Chấp nhận tất cả/ }).click();
+  await page.locator('textarea').fill(REDACT_KEYWORDS);
+  await page.getByRole('button', { name: 'Xác nhận che đi' }).click();
+  const download = await page.waitForEvent('download', { timeout: 120_000 });
+  await download.saveAs(outPath);
+
+  const pages = await extractionOf(outPath);
+  expect(pages[0]).not.toContain(REDACT_SECRET);
+  expect(pages[0]).toContain('Body line one is plain public text.');
+  expect(pages[0]).toContain('Body line two is also plain public text.');
+});
