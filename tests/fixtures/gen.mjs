@@ -773,6 +773,42 @@ async function makeP2wThreecol() {
 const p2wThreecol = await makeP2wThreecol();
 writeFileSync(join(here, 'fixture-p2w-threecol.pdf'), p2wThreecol);
 
+// Compare fixtures (v0.11.0 phase 7, plan 261109-1101): an A/B pair whose
+// page digests align (p1↔p1 one-word change, p2↔p2 identical) plus one
+// added page in B. The specs pin: exactly 1 changed pair (1 removed + 1
+// inserted token), addedPages=[3], banners, and the overlay marks.
+async function makeCompareDoc(mode) {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`pdftoolkit-fixture-compare-${mode}`);
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const pageOf = (heading, lines) => {
+    const page = doc.addPage([595, 842]);
+    page.drawText(heading, { x: 64, y: 760, size: 14, font: bold });
+    let y = 728;
+    for (const line of lines) {
+      page.drawText(line, { x: 64, y, size: 11, font });
+      y -= 20;
+    }
+  };
+  const p2Lines = ['Appendix: regional breakdown', 'North contributed 40 percent', 'South contributed 35 percent', 'West contributed 25 percent'];
+  const p1Common = ['Quarterly operations summary', 'Costs stayed flat for the whole year', 'Headcount reached 120 by December'];
+  if (mode === 'a') {
+    pageOf('Report — Sample Division', ['Revenue grew steadily across the region', ...p1Common]);
+    pageOf('Appendix page', p2Lines);
+  } else {
+    pageOf('Report — Sample Division', ['Revenue grew sharply across the region', ...p1Common]);
+    pageOf('Appendix page', p2Lines);
+    pageOf('Addendum', ['New: expansion plan draft', 'Two depots open in March', 'Fleet telemetry rollout completes']);
+  }
+  return doc.save({ useObjectStreams: false });
+}
+const compareA = await makeCompareDoc('a');
+writeFileSync(join(here, 'fixture-compare-a.pdf'), compareA);
+const compareB = await makeCompareDoc('b');
+writeFileSync(join(here, 'fixture-compare-b.pdf'), compareB);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -800,6 +836,8 @@ console.log(
     'fixture-p2w-borderless-caption.pdf': p2wBorderlessCaption.length,
     'fixture-p2w-paragraphs.pdf': p2wParagraphs.length,
     'fixture-p2w-threecol.pdf': p2wThreecol.length,
+    'fixture-compare-a.pdf': compareA.length,
+    'fixture-compare-b.pdf': compareB.length,
   }),
 );
 

@@ -70,5 +70,9 @@
   "pdf-to-word": {
     "title": "PDF sang Word",
     "desc": "Chuyển PDF thành file Word (.docx) ngay trên máy — chữ, đề mục, bảng kẻ đường và thứ tự đọc được giữ; trang quét dùng AI trên máy."
+  },
+  "compare": {
+    "title": "So sánh PDF",
+    "desc": "So sánh hai bản PDF theo từ — tô xanh chỗ thêm, đỏ gạch chỗ bỏ, theo trang."
   }
 }

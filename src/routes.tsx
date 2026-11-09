@@ -24,6 +24,7 @@ import { WatermarkToolPage } from './pages/watermark';
 import { PageNumbersToolPage } from './pages/page-numbers';
 import { EditorToolPage } from './pages/editor';
 import { PdfToWordToolPage } from './pages/pdf-to-word';
+import { CompareToolPage } from './pages/compare';
 import { SettingsPage } from './pages/settings';
 
 const toolRoutes = [
@@ -45,6 +46,7 @@ const toolRoutes = [
   'page-numbers',
   'editor',
   'pdf-to-word',
+  'compare',
 ].map((path) => ({
   path: `/tools/${path}`,
   element:
@@ -84,6 +86,8 @@ const toolRoutes = [
       <EditorToolPage />
     ) : path === 'pdf-to-word' ? (
       <PdfToWordToolPage />
+    ) : path === 'compare' ? (
+      <CompareToolPage />
     ) : (
       <SignToolPage />
     ),

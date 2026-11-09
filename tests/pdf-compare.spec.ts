@@ -277,6 +277,36 @@ describe('compareDocuments (page alignment)', () => {
     expect(wordsOf(res.pairs[0]!)).toEqual(['cxxxx']);
   });
 
+  it('GAP-REGION PAIRING (phase-7 repair): a word change on p1 + added p3 stays aligned', () => {
+    // The exact-text digest unaligns the edited page; the gap region pairs
+    // it back (similarity ≥ 0.5) so the word diff shows its 2 tokens
+    // instead of a silent removed+added banner with no marks.
+    const res = compareDocuments(
+      [page(['Invoice total: $2,200 due']), page(['shared page two'])],
+      [page(['Invoice total: $2,400 due']), page(['shared page two']), page(['brand new page three'])],
+    );
+    expect(res.unaligned).toBe(false);
+    expect(res.addedPages).toEqual([3]);
+    expect(res.removedPages).toEqual([]);
+    expect(res.pairs[0]).toMatchObject({ oldPage: 1, newPage: 1 });
+    expect(res.pairs[0]!.inserted).toEqual([expect.objectContaining({ text: '$2,400' })]);
+    expect(res.pairs[0]!.removed).toEqual([expect.objectContaining({ text: '$2,200' })]);
+    expect(res.pairs[1]).toMatchObject({ oldPage: 2, newPage: 2, inserted: [], removed: [] });
+    expect(res.stats).toEqual({ pagesChanged: 1, wordsAdded: 1, wordsRemoved: 1, suppressed: 0 });
+  });
+
+  it('gap region refuses a REPLACED page (similarity below 0.5) — honest banners, no marks', () => {
+    const res = compareDocuments(
+      [page(['one shared anchor']), page(['completely different words here'])],
+      [page(['one shared anchor']), page(['wholly unrelated replacement text']), page(['extra new page'])],
+    );
+    expect(res.unaligned).toBe(false);
+    expect(res.removedPages).toEqual([2]);
+    expect(res.addedPages).toEqual([2, 3]);
+    expect(res.pairs[1]).toMatchObject({ oldPage: 2, newPage: null, inserted: [], removed: [] });
+    expect(res.pairs[2]).toMatchObject({ oldPage: 0, newPage: 2 });
+  });
+
   it('identical documents produce a fully clean report', () => {
     const doc = [page(['same line one']), page(['same line two'])];
     const res = compareDocuments(doc, doc.map((p) => ({ items: p.items.map((i) => ({ ...i })), width: p.width, height: p.height })));

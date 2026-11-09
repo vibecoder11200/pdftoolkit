@@ -446,18 +446,45 @@ export function compareDocuments(oldPages: ComparePageInput[], newPages: Compare
       `compare is capped at ${COMPARE_PAGE_CAP} pages per document (got ${oldPages.length} / ${newPages.length})`,
     );
   }
-  const countWords = (pages: ComparePageInput[], doc: 'A' | 'B'): CompWord[][] =>
-    pages.map((p, i) => {
-      const words = wordsFromPage(p);
-      if (words.length > COMPARE_WORDS_PER_PAGE) {
-        throw new CompareCapError(
-          `${doc === 'A' ? 'Old' : 'New'} page ${i + 1} has ${words.length} words — above the ${COMPARE_WORDS_PER_PAGE}-word safety cap`,
-        );
-      }
-      return words;
-    });
-  const oldWords = countWords(oldPages, 'A');
-  const newWords = countWords(newPages, 'B');
+  const oldWords = oldPages.map(wordsFromPage);
+  const newWords = newPages.map(wordsFromPage);
+  for (const [i, w] of oldWords.entries()) {
+    if (w.length > COMPARE_WORDS_PER_PAGE) {
+      throw new CompareCapError(`Old page ${i + 1} has ${w.length} words — above the ${COMPARE_WORDS_PER_PAGE}-word safety cap`);
+    }
+  }
+  for (const [i, w] of newWords.entries()) {
+    if (w.length > COMPARE_WORDS_PER_PAGE) {
+      throw new CompareCapError(`New page ${i + 1} has ${w.length} words — above the ${COMPARE_WORDS_PER_PAGE}-word safety cap`);
+    }
+  }
+  return compareWordArrays(oldWords, newWords);
+}
+
+/** Word-multiset similarity for gap-region pairing: |shared norms| /
+ * max(|A|,|B|). Deterministic and cheap (Set intersection). 0.5 says a
+ * page that kept at least half its words is a REVISION of the other side's
+ * page (word diff still decides the marks); anything colder is a genuine
+ * replace (removed + added banners, honest structure). */
+const GAP_SIMILARITY_MIN = 0.5;
+function gapSimilarity(a: CompWord[], b: CompWord[]): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  const setB = new Set(b.map((w) => w.norm));
+  let shared = 0;
+  const seen = new Set<string>();
+  for (const w of a) {
+    if (setB.has(w.norm) && !seen.has(w.norm)) {
+      seen.add(w.norm);
+      shared += 1;
+    }
+  }
+  return shared / maxLen;
+}
+
+/** Pre-derived word arrays → CompareResult (the shared assembly both the
+ * pure entry and runCompare go through — no second alignment code path). */
+export function compareWordArrays(oldWords: CompWord[][], newWords: CompWord[][]): CompareResult {
 
   const oldDigests = oldWords.map(pageDigest);
   const newDigests = newWords.map(pageDigest);
@@ -468,25 +495,62 @@ export function compareDocuments(oldPages: ComparePageInput[], newPages: Compare
   const addedPages: number[] = [];
   const removedPages: number[] = [];
   if (anyAligned) {
+    // GAP-REGION PAIRING (v0.11.0 phase 7 repair): the exact-text digest
+    // unaligns any page with even one word changed — the flagship scenario
+    // (edit one word, add a page) would report removed+added banners with
+    // NO word marks. So unmatched A/B pages that sit in the SAME region
+    // between digest anchors pair up when their word sets are still
+    // similar; the word diff then decides the overlay. Leftovers (genuine
+    // page insert/remove, or a replaced page below the similarity floor)
+    // keep the honest banners.
+    let regionA: number[] = [];
+    let regionB: number[] = [];
+    const flushRegion = (): void => {
+      const used = new Set<number>();
+      for (const ai of regionA) {
+        let bestJ = -1;
+        let bestSim = -1;
+        for (const bj of regionB) {
+          if (used.has(bj)) continue;
+          const sim = gapSimilarity(oldWords[ai]!, newWords[bj]!);
+          // Strict > keeps the FIRST candidate on similarity ties — regionB
+          // iterates ascending, so that is always the lowest page index.
+          if (sim > bestSim) {
+            bestSim = sim;
+            bestJ = bj;
+          }
+        }
+        if (bestJ >= 0 && bestSim >= GAP_SIMILARITY_MIN) {
+          used.add(bestJ);
+          pairs.push(comparePagePair(ai + 1, bestJ + 1, oldWords[ai]!, newWords[bestJ]!));
+        } else {
+          removedPages.push(ai + 1);
+          pairs.push({ oldPage: ai + 1, newPage: null, inserted: [], removed: [] });
+        }
+      }
+      for (const bj of regionB) {
+        if (used.has(bj)) continue;
+        addedPages.push(bj + 1);
+        pairs.push({ oldPage: 0, newPage: bj + 1, inserted: [], removed: [] });
+      }
+      regionA = [];
+      regionB = [];
+    };
     for (const op of pageOps) {
       if (op.kind === 'equal') {
+        flushRegion();
         // One pair PER aligned page (an equal op can span a multi-page run).
         for (let i = op.aStart; i < op.aEnd; i += 1) {
           const j = op.bStart + (i - op.aStart);
           pairs.push(comparePagePair(i + 1, j + 1, oldWords[i]!, newWords[j]!));
         }
       } else if (op.kind === 'delete') {
-        for (let i = op.aStart; i < op.aEnd; i += 1) {
-          removedPages.push(i + 1);
-          pairs.push({ oldPage: i + 1, newPage: null, inserted: [], removed: [] });
-        }
+        for (let i = op.aStart; i < op.aEnd; i += 1) regionA.push(i);
       } else {
-        for (let i = op.bStart; i < op.bEnd; i += 1) {
-          addedPages.push(i + 1);
-          pairs.push({ oldPage: 0, newPage: i + 1, inserted: [], removed: [] });
-        }
+        for (let i = op.bStart; i < op.bEnd; i += 1) regionB.push(i);
       }
     }
+    flushRegion();
   } else {
     // Unaligned fallback (red-team C8): honest notice + INDEX pairing —
     // never a silently useless all-added/all-removed report.
@@ -510,6 +574,110 @@ export function compareDocuments(oldPages: ComparePageInput[], newPages: Compare
   // `unaligned` fires only when alignment had a REAL choice to get wrong
   // (≥2 pages per side): with one page each, index pairing IS alignment
   // and the honest notice would be noise.
-  const unaligned = !anyAligned && Math.min(oldPages.length, newPages.length) > 1;
+  const unaligned = !anyAligned && Math.min(oldWords.length, newWords.length) > 1;
   return { pairs, addedPages, removedPages, unaligned, stats: { pagesChanged, wordsAdded, wordsRemoved, suppressed } };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming composer (phase 7) — the ONLY surface the tool drives.
+// ---------------------------------------------------------------------------
+
+/** Doc-token LRU cache (red-team F5): the tool owns ONE cache per slot,
+ * keyed by PAGE within the slot's CURRENT document; the cache stores the
+ * derived CompWords (not raw items — a 2×100-page adversarial pair would
+ * otherwise retain ~4M item objects), and the swap button swaps slot
+ * REFERENCES — never relabels cache keys (the swap-identity spec pins
+ * swap → re-run == fresh-swapped). */
+export class WordLru {
+  private map = new Map<number, CompWord[]>();
+
+  constructor(private readonly max = 32) {}
+
+  get(page: number): CompWord[] | undefined {
+    const hit = this.map.get(page);
+    if (hit !== undefined) {
+      // Touch for LRU order.
+      this.map.delete(page);
+      this.map.set(page, hit);
+    }
+    return hit;
+  }
+
+  set(page: number, words: CompWord[]): void {
+    if (this.map.has(page)) this.map.delete(page);
+    this.map.set(page, words);
+    while (this.map.size > this.max) {
+      const oldest = this.map.keys().next().value;
+      if (oldest === undefined) break;
+      this.map.delete(oldest);
+    }
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+}
+
+export interface CompareRunOptions {
+  pageCountA: number;
+  pageCountB: number;
+  /** Caller-wired extraction (main-thread pdf.js through the tool). */
+  getItems: (doc: 'a' | 'b', page: number) => Promise<VisualTextItem[]>;
+  getSize: (doc: 'a' | 'b', page: number) => Promise<{ width: number; height: number }>;
+  /** Slot-owned CompWord caches — pass the SAME instances across runs. */
+  cacheA?: WordLru;
+  cacheB?: WordLru;
+  onProgress?: (done: number, total: number) => void;
+  /** Cancel guard (the tool's genRef flip). */
+  shouldContinue?: () => boolean;
+}
+
+export class CompareCancelled extends Error {
+  constructor() {
+    super('pdf-compare: run cancelled');
+    this.name = 'CompareCancelled';
+  }
+}
+
+/** Stream one comparison: extract both docs page-by-page (cached, bounded,
+ * cancelable), then align + diff through the shared assembly. Typed cap
+ * refusals; a cancelled run rejects with CompareCancelled. */
+export async function runCompare(opts: CompareRunOptions): Promise<CompareResult> {
+  if (opts.pageCountA > COMPARE_PAGE_CAP || opts.pageCountB > COMPARE_PAGE_CAP) {
+    throw new CompareCapError(
+      `compare is capped at ${COMPARE_PAGE_CAP} pages per document (got ${opts.pageCountA} / ${opts.pageCountB})`,
+    );
+  }
+  const extract = async (
+    doc: 'a' | 'b',
+    count: number,
+    cache: WordLru | undefined,
+    label: 'Old' | 'New',
+  ): Promise<CompWord[][]> => {
+    const out: CompWord[][] = [];
+    for (let p = 1; p <= count; p += 1) {
+      if (opts.shouldContinue && !opts.shouldContinue()) throw new CompareCancelled();
+      const cached = cache?.get(p);
+      if (cached) {
+        out.push(cached);
+        continue;
+      }
+      const [items, size] = await Promise.all([opts.getItems(doc, p), opts.getSize(doc, p)]);
+      const words = wordsFromPage({ items, width: size.width, height: size.height });
+      if (words.length > COMPARE_WORDS_PER_PAGE) {
+        throw new CompareCapError(
+          `${label} page ${p} has ${words.length} words — above the ${COMPARE_WORDS_PER_PAGE}-word safety cap`,
+        );
+      }
+      cache?.set(p, words);
+      out.push(words);
+      opts.onProgress?.(out.length, count * 2);
+    }
+    return out;
+  };
+  const wordsA = await extract('a', opts.pageCountA, opts.cacheA, 'Old');
+  const wordsB = await extract('b', opts.pageCountB, opts.cacheB, 'New');
+  const result = compareWordArrays(wordsA, wordsB);
+  opts.onProgress?.(opts.pageCountA + opts.pageCountB, opts.pageCountA + opts.pageCountB);
+  return result;
 }

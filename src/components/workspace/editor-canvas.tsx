@@ -141,6 +141,36 @@ function DraftBox({ draft }: { draft: MarkDraft | null }) {
   );
 }
 
+/** Read-only page canvas (v0.11.0 phase 7): the shared render host without
+ * any pointer/draft machinery — the compare viewer draws overlay boxes as
+ * plain children. ADDITIVE: both interactive canvases and all four editor
+ * tabs are untouched (their suites are the regression gate). */
+export function ReadOnlyPageCanvas({
+  bytes,
+  page,
+  version,
+  testid,
+  children,
+}: {
+  bytes: Uint8Array;
+  page: number;
+  version: number | string;
+  testid: string;
+  children?: React.ReactNode;
+}) {
+  const { wrapRef, canvasRef, overlayRef, width } = usePageCanvas(bytes, page, version);
+  return (
+    <div ref={wrapRef} className="w-full">
+      <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-border-strong bg-white shadow-sm">
+        <canvas ref={canvasRef} className="block max-w-full" style={{ width: width ? `${width}px` : undefined }} />
+        <div ref={overlayRef} className="absolute inset-0" data-testid={testid}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function EditorCanvas({
   bytes,
   page,

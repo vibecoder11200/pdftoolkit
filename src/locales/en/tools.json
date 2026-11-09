@@ -70,5 +70,9 @@
   "pdf-to-word": {
     "title": "PDF to Word",
     "desc": "Convert PDF to Word (.docx) on your device — text, headings, ruled tables and reading order preserved; scanned pages use on-device AI."
+  },
+  "compare": {
+    "title": "Compare PDFs",
+    "desc": "Word-level diff between two PDFs — green inserts, red strikethrough removals, per page."
   }
 }

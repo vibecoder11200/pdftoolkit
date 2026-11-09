@@ -20,6 +20,13 @@ interface ThumbnailStripProps {
   keyboardMoveHint?: string;
   /** Lazy-render hook: registers each cell so it renders when visible. */
   register?: (key: string, el: HTMLElement | null) => (() => void) | void;
+  /** ADDITIVE (v0.11.0 phase 7): per-cell badge slot, bottom-left —
+   * compare's changed-dot, blank-pages' verdict badge. */
+  tileBadge?: (pageNumber: number) => React.ReactNode;
+  /** ADDITIVE (v0.11.0 phase 7): default true keeps every existing caller
+   * byte-identical; false drops the checkbox semantics (role/aria/onToggle)
+   * and the check circle for view-only navigators. */
+  selectable?: boolean;
 }
 
 export function ThumbnailStrip({
@@ -30,6 +37,8 @@ export function ThumbnailStrip({
   onMove,
   keyboardMoveHint,
   register,
+  tileBadge,
+  selectable = true,
 }: ThumbnailStripProps) {
   const [fs, setFs] = useState<number | null>(null);
   const { t } = useTranslation();
@@ -72,15 +81,15 @@ export function ThumbnailStrip({
           <div
             key={p.key}
             ref={register ? (el) => register(p.key, el) : undefined}
-            role="checkbox"
-            aria-checked={p.selected}
+            role={selectable ? 'checkbox' : undefined}
+            aria-checked={selectable ? p.selected : undefined}
             aria-label={t('a11y.page_n', { n: p.pageNumber })}
             data-page-cell={p.pageNumber}
             tabIndex={0}
             draggable={Boolean(onMove)}
-            onClick={() => onToggle(p.pageNumber, idx)}
+            onClick={selectable ? () => onToggle(p.pageNumber, idx) : undefined}
             onKeyDown={(e) => {
-              if (e.key === ' ' || e.key === 'Enter') {
+              if (selectable && (e.key === ' ' || e.key === 'Enter')) {
                 e.preventDefault();
                 onToggle(p.pageNumber, idx);
                 return;
@@ -91,7 +100,7 @@ export function ThumbnailStrip({
                 e.preventDefault();
                 const target = e.key === 'ArrowLeft' ? idx - 1 : idx + 1;
                 if (target < 0 || target >= pages.length) return;
-                onMove?.(p.pageNumber, pages[target].pageNumber);
+                onMove?.(p.pageNumber, pages[target]!.pageNumber);
                 setMovedAnnouncement(
                   t('a11y.page_moved', { page: p.pageNumber, position: target + 1 }),
                 );
@@ -104,9 +113,9 @@ export function ThumbnailStrip({
               const from = Number(e.dataTransfer.getData('text/plain'));
               if (Number.isFinite(from)) onMove?.(from, p.pageNumber);
             }}
-            className={`relative cursor-grab rounded-lg border-2 bg-surface-card p-1.5 ${
-              p.selected ? 'border-accent' : 'border-border-default hover:border-border-strong'
-            }`}
+            className={`relative rounded-lg border-2 bg-surface-card p-1.5 ${
+              selectable ? 'cursor-grab ' : ''
+            }${p.selected ? 'border-accent' : 'border-border-default hover:border-border-strong'}`}
           >
             <span className="absolute top-2.5 left-2.5 rounded-md bg-surface-inverse/85 px-1.75 py-0.5 text-[11px] font-bold text-text-inverse tabular-nums">
               {p.pageNumber}
@@ -168,14 +177,21 @@ export function ThumbnailStrip({
                 </span>
               </>
             ) : null}
-            <span
-              className={`absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
-                p.selected ? 'border-accent bg-accent text-text-on-accent' : 'border-border-strong bg-surface-card text-transparent'
-              }`}
-              aria-hidden
-            >
-              <CheckIcon size={12} />
-            </span>
+            {selectable ? (
+              <span
+                className={`absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full border-2 text-[13px] ${
+                  p.selected ? 'border-accent bg-accent text-text-on-accent' : 'border-border-strong bg-surface-card text-transparent'
+                }`}
+                aria-hidden
+              >
+                <CheckIcon size={12} />
+              </span>
+            ) : null}
+            {tileBadge ? (
+              <span className="absolute bottom-2 left-2.5 max-w-[80%] truncate" data-testid="thumb-badge">
+                {tileBadge(p.pageNumber)}
+              </span>
+            ) : null}
             {p.url ? (
               <img src={p.url} alt="" className="block aspect-[0.707] w-full rounded border border-border-default object-contain" draggable={false} />
             ) : (
