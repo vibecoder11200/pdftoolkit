@@ -74,5 +74,9 @@
   "compare": {
     "title": "So sánh PDF",
     "desc": "So sánh hai bản PDF theo từ — tô xanh chỗ thêm, đỏ gạch chỗ bỏ, theo trang."
+  },
+  "blank-pages": {
+    "title": "Xóa trang trắng",
+    "desc": "Tự phát hiện trang trắng/trạmscan trống, duyệt rồi xóa — trang có chữ luôn được giữ."
   }
 }

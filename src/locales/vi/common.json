@@ -47,7 +47,7 @@
     "offline_title": "Mất mạng vẫn dùng được",
     "offline_desc": "Mở trang một lần, những lần sau dùng tiếp ngay cả khi không có mạng.",
     "free_title": "Miễn phí, không giới hạn",
-    "free_desc": "Đủ 19 công cụ, không tài khoản, không tính năng bị khóa."
+    "free_desc": "Đủ 20 công cụ, không tài khoản, không tính năng bị khóa."
   },
   "merge": {
     "title": "Gộp PDF",
@@ -550,7 +550,7 @@
     "welcome_dismiss": "Đóng gợi ý",
     "start_title": "🚀 Bắt đầu",
     "start_body": "Kéo PDF hoặc ảnh vào bất cứ đâu trên trang — hệ thống tự gợi ý công cụ phù hợp. Hoặc mở thẳng một công cụ và chọn file từ đó.",
-    "tools_title": "🧰 19 công cụ",
+    "tools_title": "🧰 20 công cụ",
     "tools_body": "Gộp, tách, sắp xếp lại, xoay, trích trang, xóa trang, nén, PDF→ảnh, ảnh→PDF, mã hóa, siêu dữ liệu, ký số, điền form, OCR.",
     "tools_link": "Xem tất cả công cụ",
     "ai_title": "🤖 AI OCR",
@@ -1152,5 +1152,33 @@
     "ai_downloading": "Đang tải model AI...",
     "ai_running": "AI đang đọc trang {{current}}/{{total}}...",
     "ai_declined": "Đã bỏ qua các trang scan — kết quả chỉ so sánh các trang có lớp chữ."
+  },
+  "blank": {
+    "title": "Xóa trang trắng",
+    "step_detect": "Phát hiện trang trắng",
+    "step_remove": "Xóa trang đã chọn",
+    "cta": "Phát hiện trang trắng",
+    "cta_anyway": "Vẫn quét (file trên 100 trang)",
+    "cancel": "Dừng",
+    "probing": "Đang đọc file...",
+    "progress_start": "Đang quét {{total}} trang...",
+    "progress_pages": "Đang phân tích trang {{done}}/{{total}}...",
+    "progress_done": "Xong: {{blanks}} trang trắng.",
+    "summary": "{{blanks}} trang trắng · {{near}} gần trắng · {{unknown}} không kiểm định được",
+    "select_all_blank": "Chọn tất cả trang trắng",
+    "cta_remove": "Xóa {{count}} trang đã chọn",
+    "removing": "Đang xóa...",
+    "removed_done": "Xong — còn {{kept}} trang.",
+    "badge_blank": "Trắng",
+    "badge_near": "Gần trắng",
+    "badge_unknown": "Không kiểm định được",
+    "big_confirm": "File có {{total}} trang (trên 100) — quét có thể mất một lúc. Bấm nút bên dưới để tiếp tục.",
+    "honest": "Ngưỡng phát hiện: mực ≤ {{ink}}% và độ lệch chuẩn xám ≤ {{stddev}} (quét ~30 DPI). Trang mờ/chỉ có dấu nhỏ có thể bị tính \"gần trắng\" — hãy duyệt trước khi xóa.",
+    "side_note": "Toàn bộ quá trình chạy trên máy bạn — file không bao giờ rời khỏi thiết bị. Trang có lớp chữ luôn được giữ.",
+    "err_load": "Không đọc được file PDF.",
+    "err_generic": "Phát hiện thất bại. File gốc không bị thay đổi.",
+    "err_remove": "Xóa trang thất bại. File gốc không bị thay đổi.",
+    "err_crashed": "Bộ xử lý PDF gặp sự cố",
+    "err_crashed_detail": "Thao tác bị gián đoạn. Thử lại thường sửa được; nếu lặp lại, hãy tải lại trang."
   }
 }

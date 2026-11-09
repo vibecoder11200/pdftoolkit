@@ -47,7 +47,7 @@
     "offline_title": "Works without internet",
     "offline_desc": "Load the page once, then keep using it even when you are offline.",
     "free_title": "Free, no limits",
-    "free_desc": "All 19 tools, no account, no locked features."
+    "free_desc": "All 20 tools, no account, no locked features."
   },
   "merge": {
     "title": "Merge PDF",
@@ -550,7 +550,7 @@
     "welcome_dismiss": "Dismiss",
     "start_title": "🚀 Get started",
     "start_body": "Drag a PDF or images anywhere on the page — the app suggests the right tool. Or open a tool directly and pick a file there.",
-    "tools_title": "🧰 19 tools",
+    "tools_title": "🧰 20 tools",
     "tools_body": "Merge, split, reorder, rotate, extract pages, remove pages, compress, PDF→images, images→PDF, encrypt, metadata, sign, fill forms, OCR.",
     "tools_link": "Browse all tools",
     "ai_title": "🤖 AI OCR",
@@ -1152,5 +1152,33 @@
     "ai_downloading": "Downloading the AI model...",
     "ai_running": "AI reading page {{current}}/{{total}}...",
     "ai_declined": "Scanned pages were skipped — the result covers text-layer pages only."
+  },
+  "blank": {
+    "title": "Remove blank pages",
+    "step_detect": "Detect blank pages",
+    "step_remove": "Remove selected",
+    "cta": "Detect blank pages",
+    "cta_anyway": "Scan anyway (over 100 pages)",
+    "cancel": "Stop",
+    "probing": "Reading the file...",
+    "progress_start": "Scanning {{total}} pages...",
+    "progress_pages": "Analyzing page {{done}}/{{total}}...",
+    "progress_done": "Done: {{blanks}} blank page(s).",
+    "summary": "{{blanks}} blank · {{near}} near-blank · {{unknown}} unverifiable",
+    "select_all_blank": "Select all blank pages",
+    "cta_remove": "Remove {{count}} selected",
+    "removing": "Removing...",
+    "removed_done": "Done — {{kept}} pages remain.",
+    "badge_blank": "Blank",
+    "badge_near": "Near-blank",
+    "badge_unknown": "Unverifiable",
+    "big_confirm": "The file has {{total}} pages (over 100) — scanning may take a while. Click the button below to continue.",
+    "honest": "Detection thresholds: ink ≤ {{ink}}% and grey stddev ≤ {{stddev}} (~30 DPI raster). Faint pages / tiny stamps may read \"near-blank\" — review before removing.",
+    "side_note": "Everything runs on your machine — the file never leaves your device. Pages with a text layer always stay.",
+    "err_load": "Could not read the PDF file.",
+    "err_generic": "Detection failed. Your original file was not modified.",
+    "err_remove": "Page removal failed. Your original file was not modified.",
+    "err_crashed": "PDF engine crashed",
+    "err_crashed_detail": "The operation was interrupted. Retrying usually fixes it; if it repeats, reload the page."
   }
 }

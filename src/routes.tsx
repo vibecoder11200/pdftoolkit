@@ -25,6 +25,7 @@ import { PageNumbersToolPage } from './pages/page-numbers';
 import { EditorToolPage } from './pages/editor';
 import { PdfToWordToolPage } from './pages/pdf-to-word';
 import { CompareToolPage } from './pages/compare';
+import { BlankPagesToolPage } from './pages/blank-pages';
 import { SettingsPage } from './pages/settings';
 
 const toolRoutes = [
@@ -47,6 +48,7 @@ const toolRoutes = [
   'editor',
   'pdf-to-word',
   'compare',
+  'blank-pages',
 ].map((path) => ({
   path: `/tools/${path}`,
   element:
@@ -88,6 +90,8 @@ const toolRoutes = [
       <PdfToWordToolPage />
     ) : path === 'compare' ? (
       <CompareToolPage />
+    ) : path === 'blank-pages' ? (
+      <BlankPagesToolPage />
     ) : (
       <SignToolPage />
     ),

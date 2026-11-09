@@ -74,5 +74,9 @@
   "compare": {
     "title": "Compare PDFs",
     "desc": "Word-level diff between two PDFs — green inserts, red strikethrough removals, per page."
+  },
+  "blank-pages": {
+    "title": "Remove blank pages",
+    "desc": "Detect blank/empty scanned pages, review, then remove — pages with text always stay."
   }
 }

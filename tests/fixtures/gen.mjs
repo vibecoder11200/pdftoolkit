@@ -832,6 +832,33 @@ writeFileSync(join(here, 'fixture-compare-scan-a.pdf'), compareScanA);
 const compareScanB = await makeCompareScanDoc('b');
 writeFileSync(join(here, 'fixture-compare-scan-b.pdf'), compareScanB);
 
+// Blank-pages mixed fixture (v0.11.0 phase 9, plan 261109-1101): 3 content
+// pages + 2 truly blank (NO content ops) + 1 header-only (near class —
+// small ink, unchecked by default). e2e pins: the two blanks auto-check,
+// the header page SURVIVES, removal leaves exactly 4 pages.
+async function makeBlankMixed() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-blank-mixed');
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 1; i <= 3; i += 1) {
+    const page = doc.addPage([595, 842]);
+    page.drawText(`Content page ${i} — Sample Division`, { x: 64, y: 760, size: 14, font: bold });
+    page.drawText('Body line one of the section', { x: 64, y: 726, size: 11, font });
+    page.drawText('Body line two of the section', { x: 64, y: 706, size: 11, font });
+  }
+  // 2 truly blank pages: addPage with NO drawing ops at all.
+  doc.addPage([595, 842]);
+  doc.addPage([595, 842]);
+  // Header-only page: one short line at the very top → tiny ink, 'near'.
+  const head = doc.addPage([595, 842]);
+  head.drawText('— header strip —', { x: 64, y: 800, size: 9, font });
+  return doc.save({ useObjectStreams: false });
+}
+const blankMixed = await makeBlankMixed();
+writeFileSync(join(here, 'fixture-blank-mixed.pdf'), blankMixed);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -863,6 +890,7 @@ console.log(
     'fixture-compare-b.pdf': compareB.length,
     'fixture-compare-scan-a.pdf': compareScanA.length,
     'fixture-compare-scan-b.pdf': compareScanB.length,
+    'fixture-blank-mixed.pdf': blankMixed.length,
   }),
 );
 
