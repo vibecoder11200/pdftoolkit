@@ -86,6 +86,42 @@ vi.mock('../src/engine/pdfjs', () => ({
   }),
 }));
 
+// P8 seams: engine op capture + canned AI run + download capture.
+const annotateCalls: { doc: 'a' | 'b'; bytesLen: number; marks: { page: number; kind: string }[] }[] = [];
+vi.mock('../src/engine/client', () => ({
+  engine: {
+    // The tool annotates A first, then B — call order IS the doc identity
+    // (no fixture-length coupling).
+    annotateCompare: vi.fn(async (bytes: Uint8Array, marks: { page: number; kind: string }[]) => {
+      annotateCalls.push({ doc: annotateCalls.length === 0 ? 'a' : 'b', bytesLen: bytes.length, marks });
+      return bytes;
+    }),
+  },
+}));
+vi.mock('../src/lib/download', () => ({
+  deliverBytesMulti: vi.fn(async () => true),
+}));
+const aiPagesByDoc = new Map<string, string>();
+let aiDocCall = 0; // ocrDoc call order: doc A first, then doc B
+vi.mock('../src/lib/ai-run', () => ({
+  aiTierEstimate: vi.fn(async () => ({ tier: 'webgpu' })),
+  downloadIfNeeded: vi.fn(async () => {}),
+  runAiPages: vi.fn(async (_client: unknown, _count: number, _render: unknown, _events: unknown, opts: { pages?: number[] }) => {
+    const doc = aiDocCall === 0 ? 'a' : 'b';
+    aiDocCall += 1;
+    return {
+      results: (opts.pages ?? []).map((page) => ({ page, text: aiPagesByDoc.get(`${doc}:${page}`) ?? `canned ${page}` })),
+      completedAll: true,
+    };
+  }),
+}));
+vi.mock('../src/lib/ai-worker-client', () => ({
+  sharedAiClient: vi.fn(() => ({})),
+}));
+vi.mock('../src/lib/ai-native-client', () => ({
+  sharedNativeClient: vi.fn(() => ({})),
+}));
+
 function line(str: string, x: number, baseline: number, size = 11): VisualTextItem {
   return { str, x0: x, x1: x + str.length * size * 0.5, baseline, size, fontName: 'Helvetica', rotated: false };
 }
@@ -223,7 +259,10 @@ describe('Compare tool (phase 7)', () => {
     await waitFor(() => !btn('So sánh ngay').hasAttribute('disabled'));
     act(() => btn('So sánh ngay').click());
     await waitFor(() => container.querySelector('[data-testid="compare-result"]') !== null);
-    // No additional extraction: both WordLru caches returned every page.
+    await flush();
+    // No additional extraction: both WordLru caches returned every page
+    // AND the census rode the same caches (probe-consistency gate keeps
+    // the swap-commit census from extracting against swapped slots).
     expect(itemCalls).toBe(afterFirstRun);
   });
 
@@ -271,5 +310,97 @@ describe('Compare tool (phase 7)', () => {
     // Wholesale pairs draw no overlay marks.
     expect(container.querySelector('[data-testid="compare-ins-mark"]')).toBeNull();
     expect(container.querySelector('[data-testid="compare-del-mark"]')).toBeNull();
+  });
+});
+
+describe('Compare export + AI scan leg (phase 8)', () => {
+  it('export annotates both docs with coalesced marks and delivers two PDFs', async () => {
+    registerStandardDocs();
+    const { deliverBytesMulti } = await import('../src/lib/download');
+    await dropAandB();
+    await waitFor(() => !btn('So sánh ngay').hasAttribute('disabled'));
+    act(() => btn('So sánh ngay').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-result"]') !== null);
+    annotateCalls.length = 0;
+    act(() => btn('Xuất hai PDF chú giải').click());
+    await waitFor(() => (deliverBytesMulti as ReturnType<typeof vi.fn>).mock.calls.length > 0);
+    // A first with the del band (page 1), B with the ins band (page 1).
+    expect(annotateCalls).toHaveLength(2);
+    expect(annotateCalls[0]).toMatchObject({ doc: 'a' });
+    expect(annotateCalls[0]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'del' }]);
+    expect(annotateCalls[1]).toMatchObject({ doc: 'b' });
+    expect(annotateCalls[1]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'ins' }]);
+    const entries = (deliverBytesMulti as ReturnType<typeof vi.fn>).mock.calls[0][0] as { filename: string }[];
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.filename).toMatch(/-so-sanh-A\.pdf$/);
+    expect(entries[1]!.filename).toMatch(/-so-sanh-B\.pdf$/);
+    // No scan pairs in this fixture pair — no exclusion note.
+    expect(container.textContent).not.toContain('không được chú giải');
+  });
+
+  it('scan pair: confirm card → canned AI → clause panel; export excludes the scan pair', async () => {
+    itemCalls = 0;
+    crashFirst = false;
+    aiPagesByDoc.clear();
+    // p2 on BOTH sides is image-only (0 chars < the census floor) → pair
+    // 2 is scan-class; p1 differs by one word (digital, overlay marks).
+    engineTable.set(sig(A_BYTES), {
+      count: 2,
+      pages: {
+        1: pageLines(['Report — Sample Division', 'Revenue grew steadily across the region']),
+        2: [],
+      },
+    });
+    engineTable.set(sig(B_BYTES), {
+      count: 2,
+      pages: {
+        1: pageLines(['Report — Sample Division', 'Revenue grew sharply across the region']),
+        2: [],
+      },
+    });
+    aiPagesByDoc.set('a:2', 'ban goc chi co dong nay');
+    aiPagesByDoc.set('b:2', 'ban sua chi co dong nay');
+
+    await dropAandB();
+    await waitFor(() => !btn('So sánh ngay').hasAttribute('disabled'));
+    act(() => btn('So sánh ngay').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') !== null);
+    expect(container.textContent).toContain('1 cặp trang scan');
+    aiDocCall = 0;
+    act(() => btn('Đồng ý chạy AI').click());
+    // AI done when the confirm card leaves (aiDone → aiCardVisible false).
+    await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') === null);
+    // The viewer auto-selects the changed DIGITAL pair — navigate to the
+    // scan pair (pair 2) where the clause panel lives.
+    act(() => btn('→').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-scan-panel"]') !== null);
+    expect(container.textContent).toContain('so sánh văn bản');
+    // The clause list carries the differing TOKENS (LCS), not whole strings.
+    expect(container.textContent).toContain('goc');
+    expect(container.textContent).toContain('sua');
+
+    // Export excludes the scan pair: no marks for page 2, note shows 1.
+    annotateCalls.length = 0;
+    const { deliverBytesMulti } = await import('../src/lib/download');
+    act(() => btn('Xuất hai PDF chú giải').click());
+    await waitFor(() => (deliverBytesMulti as ReturnType<typeof vi.fn>).mock.calls.length > 0);
+    expect(annotateCalls[0]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'del' }]);
+    expect(annotateCalls[1]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'ins' }]);
+    expect(container.textContent).toContain('1 cặp trang scan không được chú giải');
+  });
+
+  it('decline path: digital-only compare continues with the honest banner', async () => {
+    itemCalls = 0;
+    crashFirst = false;
+    engineTable.set(sig(A_BYTES), { count: 1, pages: { 1: [] } });
+    engineTable.set(sig(B_BYTES), { count: 1, pages: { 1: [] } });
+    await dropAandB();
+    await waitFor(() => !btn('So sánh ngay').hasAttribute('disabled'));
+    act(() => btn('So sánh ngay').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') !== null);
+    act(() => btn('Bỏ qua các trang scan').click());
+    await flush();
+    expect(container.textContent).toContain('Đã bỏ qua các trang scan');
+    expect(container.querySelector('[data-testid="compare-ai-confirm"]')).toBeNull();
   });
 });

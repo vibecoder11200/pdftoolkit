@@ -757,6 +757,7 @@ export async function fillFormFields(
 // Same append-only invariant as the 6a/6b sections above.
 
 import { renderPageTemplate } from '../lib/page-template';
+import { COMPARE_MARK_BUDGET, coalesceCompareMarks, type CompareMark } from '../lib/pdf-compare';
 import { isPngBytes } from '../lib/image-intake';
 
 /** 9-grid anchor: row ∈ {top, middle, bottom} × col ∈ {left, center, right}. */
@@ -3065,6 +3066,15 @@ export interface AnnotateElement {
   fill?: boolean;
 }
 
+/** Adversarial bound refusal (P8a RED-TEAM S2): the op refuses before any
+ * drawing when the raw mark count exceeds COMPARE_MARK_BUDGET. */
+export class CompareMarkBudgetError extends Error {
+  constructor(message = 'The compare export exceeds the mark budget.') {
+    super(message);
+    this.name = 'CompareMarkBudgetError';
+  }
+}
+
 /** Refusal before any output: encrypted input, empty/invalid elements, or a
  * text stamp that cannot fit the visible page. */
 export class AnnotationRefusedError extends Error {
@@ -3497,6 +3507,113 @@ function addAnnotToPage(
     arr.push(ref);
     node.set(PDFName.of('Annots'), arr);
   }
+}
+
+// ───────────────── Compare annotated export (v0.11.0 phase 8a) ─────────────────
+
+/**
+ * Draws the compare diff bands over a document (P8a): 'del' = light red
+ * underlay + mid-band strikethrough, 'ins' = green underlay. NO text is
+ * drawn — the op adds no /Font resource. Marks are top-left-origin
+ * FRACTIONS of the visible page; the fraction→visual flip is NAMED here
+ * (`vy = (1 - nyTop - nh) × visualHeight` — the redact-pipeline
+ * do-not-double-flip class) and placement rides the v0.8.0 geometry
+ * primitives (/Rotate + CropBox compensation is NOT reimplementable).
+ *
+ * Fail-closed at the boundary (applyAnnotate template): finite + [0,1]
+ * validation refuses BEFORE any mutation (AnnotationRefusedError
+ * posture); the 50k mark budget refuses BEFORE coalescing (the caller is
+ * not trusted to have coalesced — the op runs the pure coalescer from
+ * pdf-compare itself); signed inputs refuse (the shared
+ * docHasDigitalSignature posture). Composed + retry-safe: one load, one
+ * save; a mid-draw crash rejects the whole call and a retry restarts
+ * from the ORIGINAL bytes (never double-draws).
+ */
+export async function annotateCompare(bytes: Uint8Array, rawMarks: CompareMark[]): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  pdfLibCache = pdfLib;
+  const { PDFDocument } = pdfLib;
+  let doc: import('pdf-lib').PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  } catch (e) {
+    throw new AnnotationRefusedError(
+      `The file cannot be annotated (encrypted or unreadable): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  if (docHasDigitalSignature(doc)) {
+    throw new AnnotationRefusedError(
+      'The document carries a digital signature; annotating would invalidate it.',
+    );
+  }
+  if (rawMarks.length > COMPARE_MARK_BUDGET) {
+    throw new CompareMarkBudgetError(
+      `compare export received ${rawMarks.length} marks — above the ${COMPARE_MARK_BUDGET} budget`,
+    );
+  }
+  const pageCount = doc.getPageCount();
+  for (const m of rawMarks) {
+    if (
+      !Number.isFinite(m.nx) || !Number.isFinite(m.nyTop) ||
+      !Number.isFinite(m.nw) || !Number.isFinite(m.nh)
+    ) {
+      throw new AnnotationRefusedError('A compare mark has non-finite geometry.');
+    }
+    const inRange = (v: number) => v >= 0 && v <= 1;
+    if (!inRange(m.nx) || !inRange(m.nyTop) || !inRange(m.nw) || !inRange(m.nh)) {
+      throw new AnnotationRefusedError('A compare mark fraction is outside [0, 1].');
+    }
+    if (m.page < 1 || m.page > pageCount) {
+      throw new AnnotationRefusedError(`Compare mark page ${m.page} is out of range.`);
+    }
+  }
+  const marks = coalesceCompareMarks(rawMarks);
+  const byPage = new Map<number, CompareMark[]>();
+  for (const m of marks) {
+    const list = byPage.get(m.page) ?? [];
+    list.push(m);
+    byPage.set(m.page, list);
+  }
+  for (const [p1, list] of byPage) {
+    const page = doc.getPage(p1 - 1);
+    const geom = visibleGeometry(page);
+    for (const m of list) {
+      // THE named flip (top-left fractions → visual bottom-left box).
+      const vx = m.nx * geom.visualWidth;
+      const vh = m.nh * geom.visualHeight;
+      const vy = (1 - m.nyTop - m.nh) * geom.visualHeight;
+      const vw = m.nw * geom.visualWidth;
+      const underlay =
+        m.kind === 'del'
+          ? rgb(0.86, 0.21, 0.18)
+          : rgb(0.13, 0.59, 0.25);
+      const p0 = visualToPageSpace(vx, vy, geom);
+      page.drawRectangle({
+        x: p0.x,
+        y: p0.y,
+        width: Math.max(1, vw),
+        height: Math.max(1, vh),
+        rotate: degrees(drawAngleFor(0, geom.rotate)),
+        color: underlay,
+        opacity: m.kind === 'del' ? 0.18 : 0.25,
+      });
+      if (m.kind === 'del') {
+        // Strikethrough across the band at mid-height; thickness tracks
+        // the band (0.08×) with a readable floor.
+        const midVy = vy + vh / 2;
+        const a = visualToPageSpace(vx, midVy, geom);
+        const b = visualToPageSpace(vx + vw, midVy, geom);
+        page.drawLine({
+          start: { x: a.x, y: a.y },
+          end: { x: b.x, y: b.y },
+          thickness: Math.max(0.75, 0.08 * vh),
+          opacity: 0.75,
+          color: rgb(0.71, 0.11, 0.1),
+        });
+      }
+    }
+  }
+  return doc.save({ useObjectStreams: false });
 }
 
 // ---- Text edit M3a: white-out + re-typeset (v0.9.0 phase 6) — append-only

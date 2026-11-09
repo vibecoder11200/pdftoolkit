@@ -86,6 +86,8 @@ export interface WorkerApi {
     opts: import('../engine/pdf-lib').ApplyAnnotateOptions,
     fontTtf: Uint8Array,
   ): Promise<Uint8Array>;
+  /** Compare annotated export (v0.11.0 P8a): draw del/ins diff bands. */
+  annotateCompare(bytes: Uint8Array, marks: import('../lib/pdf-compare').CompareMark[]): Promise<Uint8Array>;
   /** Page numbers (v0.8.0): token template rendered per in-scope page. */
   applyPageNumbers(
     bytes: Uint8Array,
@@ -144,6 +146,7 @@ const api: WorkerApi = {
   editTextRuns: (bytes, spec, fontTtf) => lib.editTextRuns(bytes, spec, fontTtf),
   cropPages: (bytes, boxes) => lib.cropPages(bytes, boxes),
   applyAnnotate: (bytes, opts, fontTtf) => lib.applyAnnotate(bytes, opts, fontTtf),
+  annotateCompare: (bytes, marks) => lib.annotateCompare(bytes, marks),
   applyPageNumbers: (bytes, opts, fontTtf) => lib.applyPageNumbers(bytes, opts, fontTtf),
   markdownToDocx: async (pages) => {
     const { markdownToDocx } = await import('../lib/markdown-docx');

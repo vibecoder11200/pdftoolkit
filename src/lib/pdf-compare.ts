@@ -681,3 +681,86 @@ export async function runCompare(opts: CompareRunOptions): Promise<CompareResult
   opts.onProgress?.(opts.pageCountA + opts.pageCountB, opts.pageCountA + opts.pageCountB);
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Compare marks + text diff (v0.11.0 phase 8).
+//
+// The annotated export draws del/ins bands over BOTH documents; marks are
+// top-left-origin FRACTIONS of the visible page (repo convention — the op
+// applies the named flip). The coalescer is PURE and lives here (plan P8):
+// the engine op calls it before drawing, the tool reuses it for nothing
+// (the overlay divs are already per-word), and the specs pin run-merging
+// semantics. textDiffClauses wraps the EXPORTED lcsTokens (RED-TEAM C6:
+// wrapper, never a sibling diff implementation) for the AI-OCR scan leg.
+// ---------------------------------------------------------------------------
+
+/** One drawn diff band. Top-left origin fractions of the VISIBLE page box
+ * (RedactMark convention — the engine op owns the y-flip). */
+export interface CompareMark {
+  page: number;
+  nx: number;
+  nyTop: number;
+  nw: number;
+  nh: number;
+  kind: 'del' | 'ins';
+}
+
+/** Adversarial bound (RED-TEAM S2): raw marks above this refuse BEFORE
+ * drawing even though coalescing would shrink them — the caller is not
+ * trusted to have coalesced. */
+export const COMPARE_MARK_BUDGET = 50_000;
+
+/** Merge adjacent same-row same-kind marks into band rects: one rect per
+ * word-run, so a 100-page×20k-word adversarial diff draws runs, not 2M
+ * ops. Pure + deterministic (sort → linear run-merge). Rows merge on a
+ * vertical-band overlap (≥ half the smaller band); horizontal adjacency
+ * tolerates a small fraction gap (word spacing). */
+export function coalesceCompareMarks(marks: CompareMark[]): CompareMark[] {
+  const sorted = [...marks].sort(
+    (a, b) => a.page - b.page || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) || a.nyTop - b.nyTop || a.nx - b.nx,
+  );
+  const out: CompareMark[] = [];
+  const X_GAP = 0.012; // fraction — word boxes carry the redact pad and touch or slightly overlap; column gaps are ≥3× this
+  const ROW_OVERLAP = 0.5;
+  let cur: CompareMark | null = null;
+  const canJoin = (a: CompareMark, b: CompareMark): boolean => {
+    if (a.page !== b.page || a.kind !== b.kind) return false;
+    const overlapTop = Math.max(a.nyTop, b.nyTop);
+    const overlapBottom = Math.min(a.nyTop + a.nh, b.nyTop + b.nh);
+    const overlap = Math.max(0, overlapBottom - overlapTop);
+    const sameRow = overlap >= ROW_OVERLAP * Math.min(a.nh, b.nh);
+    return sameRow && b.nx <= a.nx + a.nw + X_GAP;
+  };
+  const absorb = (a: CompareMark, b: CompareMark): CompareMark => {
+    const top = Math.min(a.nyTop, b.nyTop);
+    const bottom = Math.max(a.nyTop + a.nh, b.nyTop + b.nh);
+    const left = Math.min(a.nx, b.nx);
+    const right = Math.max(a.nx + a.nw, b.nx + b.nw);
+    return { page: a.page, kind: a.kind, nx: left, nyTop: top, nw: right - left, nh: bottom - top };
+  };
+  for (const m of sorted) {
+    if (cur && canJoin(cur, m)) cur = absorb(cur, m);
+    else {
+      if (cur) out.push(cur);
+      cur = { ...m };
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Text-level diff for AI-OCR scan pairs: whitespace tokens through the
+ * exported lcsTokens, adjacent same-kind runs joined back into clause
+ * strings. Pure — the clause panel renders these verbatim. */
+export function textDiffClauses(oldText: string, newText: string): { added: string[]; removed: string[] } {
+  const a = oldText.split(/\s+/).filter((w) => w.length > 0);
+  const b = newText.split(/\s+/).filter((w) => w.length > 0);
+  const ops = lcsTokens(a, b);
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const op of ops) {
+    if (op.kind === 'delete') removed.push(op.aStart < op.aEnd ? a.slice(op.aStart, op.aEnd).join(' ') : '');
+    else if (op.kind === 'insert') added.push(op.bStart < op.bEnd ? b.slice(op.bStart, op.bEnd).join(' ') : '');
+  }
+  return { added: added.filter((s) => s.length > 0), removed: removed.filter((s) => s.length > 0) };
+}

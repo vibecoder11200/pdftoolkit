@@ -1135,6 +1135,22 @@
     "view_b": "Bản sửa",
     "wholesale_title": "Trang này khác quá nhiều — hiển thị nguyên văn hai lớp chữ",
     "ins_legend": "{{count}} cụm thêm (xanh)",
-    "del_legend": "{{count}} cụm bỏ (đỏ gạch)"
+    "del_legend": "{{count}} cụm bỏ (đỏ gạch)",
+    "export_cta": "Xuất hai PDF chú giải",
+    "export_busy": "Đang chú giải hai file...",
+    "err_export": "Chú giải thất bại. File gốc không bị thay đổi.",
+    "scan_excluded": "{{n}} cặp trang scan không được chú giải (không có vị trí chữ) — xuất chỉ phủ các trang digital.",
+    "scan_badge": "so sánh văn bản",
+    "clause_removed": "Đoạn chỉ có ở bản gốc:",
+    "clause_added": "Đoạn chỉ có ở bản sửa:",
+    "clause_same": "Hai trang scan có nội dung văn bản giống nhau.",
+    "ai_confirm_title": "Có {{n}} cặp trang scan cần AI OCR chạy trên máy",
+    "ai_confirm_body": "So sánh overlay cần lớp chữ; trang scan không có. Đồng ý thì model AI sẽ đọc các trang đó (lần đầu tải ~652 MB, một lần duy nhất, chạy hoàn toàn trên máy).",
+    "ai_confirm_cta": "Đồng ý chạy AI",
+    "ai_confirm_decline": "Bỏ qua các trang scan",
+    "ai_slow": "Máy bạn thuộc nhóm CPU — mỗi trang quét có thể mất vài chục giây.",
+    "ai_downloading": "Đang tải model AI...",
+    "ai_running": "AI đang đọc trang {{current}}/{{total}}...",
+    "ai_declined": "Đã bỏ qua các trang scan — kết quả chỉ so sánh các trang có lớp chữ."
   }
 }

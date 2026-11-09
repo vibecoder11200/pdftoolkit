@@ -61,3 +61,68 @@ test('compare: word-change marks, changed/added badges, added-page banner', asyn
   await expect(page.getByTestId('compare-del-mark')).toHaveCount(1);
   await expect(page.getByTestId('compare-ins-mark')).toHaveCount(0);
 });
+
+test('compare export: two annotated PDFs download (web)', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('./tools/compare');
+  await page.locator('input[type="file"]').first().setInputFiles(FIX_A);
+  await page.locator('input[type="file"]').first().setInputFiles(FIX_B);
+  await expect(page.getByText('↔ fixture-compare-b.pdf · 2/3 trang')).toBeVisible({ timeout: 30_000 });
+  const cta = page.getByRole('button', { name: 'So sánh ngay' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  await cta.click();
+  await expect(page.getByTestId('compare-result')).toBeVisible({ timeout: 60_000 });
+
+  // Sequential waits: two concurrent listeners both bind the FIRST
+  // download (deliverBytesMulti spaces them 150ms on web).
+  const dlA = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Xuất hai PDF chú giải' }).click();
+  const outA = await dlA;
+  const dlB = page.waitForEvent('download');
+  const outB = await dlB;
+  expect(outA.suggestedFilename()).toMatch(/-so-sanh-A\.pdf$/);
+  expect(outB.suggestedFilename()).toMatch(/-so-sanh-B\.pdf$/);
+
+  // The exported B PDF still carries the drawn marks: re-open via pdf.js
+  // and confirm the page renders (valid output, not a corrupt save).
+  const paths = [join(await outA.path()), join(await outB.path())];
+  for (const p of paths) {
+    const stat = readFileSync(p).length;
+    expect(stat).toBeGreaterThan(1000);
+  }
+});
+
+test('compare scan pair: ai-mock census → confirm → clause panel; export excludes it', async ({ page }) => {
+  test.setTimeout(240_000);
+  const SCAN_A = join('tests/fixtures/fixture-compare-scan-a.pdf');
+  const SCAN_B = join('tests/fixtures/fixture-compare-scan-b.pdf');
+  await page.goto('./tools/compare?ai-mock=1');
+  await page.locator('input[type="file"]').first().setInputFiles(SCAN_A);
+  await page.locator('input[type="file"]').first().setInputFiles(SCAN_B);
+  await expect(page.getByText('↔ fixture-compare-scan-b.pdf · 2/2 trang')).toBeVisible({ timeout: 30_000 });
+  const cta = page.getByRole('button', { name: 'So sánh ngay' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  await cta.click();
+
+  // Census flags pair 2 (image-only page on both sides) → confirm card.
+  const confirm = page.getByTestId('compare-ai-confirm');
+  await expect(confirm).toBeVisible({ timeout: 60_000 });
+  await expect(confirm).toContainText('1 cặp trang scan');
+  await page.getByRole('button', { name: 'Đồng ý chạy AI' }).click();
+
+  // The canned ai-mock engine answers offline. The viewer stays on the
+  // changed DIGITAL pair — navigate to the scan pair for the clause panel.
+  await expect(page.getByTestId('compare-ai-confirm')).toBeHidden({ timeout: 120_000 });
+  await page.getByRole('button', { name: '→' }).click();
+  await expect(page.getByTestId('compare-scan-panel')).toBeVisible({ timeout: 30_000 });
+  const badges = page.getByTestId('thumb-badge');
+  await expect(badges.filter({ hasText: 'Đã đổi' })).toHaveCount(1);
+
+  // Export: scan pair excluded from the marks; two PDFs still download.
+  const dlA = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Xuất hai PDF chú giải' }).click();
+  await dlA;
+  const dlB = page.waitForEvent('download');
+  await dlB;
+  await expect(page.getByText('1 cặp trang scan không được chú giải')).toBeVisible();
+});

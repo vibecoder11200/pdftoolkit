@@ -809,6 +809,29 @@ writeFileSync(join(here, 'fixture-compare-a.pdf'), compareA);
 const compareB = await makeCompareDoc('b');
 writeFileSync(join(here, 'fixture-compare-b.pdf'), compareB);
 
+// Compare SCAN fixture pair (phase 8b e2e): p1 digital (same one-word
+// change as the digital pair), p2 IMAGE-ONLY (a PNG fills the page, no
+// text ops) — the census classifies pair 2 as scan; the ai-mock engine
+// answers the OCR calls offline.
+async function makeCompareScanDoc(mode) {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`pdftoolkit-fixture-compare-scan-${mode}`);
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page1 = doc.addPage([595, 842]);
+  page1.drawText('Report — Sample Division', { x: 64, y: 760, size: 14, font: bold });
+  page1.drawText(mode === 'a' ? 'Revenue grew steadily across the region' : 'Revenue grew sharply across the region', { x: 64, y: 728, size: 11, font });
+  const png = await doc.embedPng(makePng(420, 560));
+  const page2 = doc.addPage([595, 842]);
+  page2.drawImage(png, { x: 88, y: 141, width: 420, height: 560 });
+  return doc.save({ useObjectStreams: false });
+}
+const compareScanA = await makeCompareScanDoc('a');
+writeFileSync(join(here, 'fixture-compare-scan-a.pdf'), compareScanA);
+const compareScanB = await makeCompareScanDoc('b');
+writeFileSync(join(here, 'fixture-compare-scan-b.pdf'), compareScanB);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -838,6 +861,8 @@ console.log(
     'fixture-p2w-threecol.pdf': p2wThreecol.length,
     'fixture-compare-a.pdf': compareA.length,
     'fixture-compare-b.pdf': compareB.length,
+    'fixture-compare-scan-a.pdf': compareScanA.length,
+    'fixture-compare-scan-b.pdf': compareScanB.length,
   }),
 );
 

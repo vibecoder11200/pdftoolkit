@@ -175,6 +175,10 @@ export const engine = {
       r.applyAnnotate(owned(bytes) as Uint8Array, opts, owned(font) as Uint8Array),
     );
   },
+  // Compare annotated export (v0.11.0 P8a): bands over the ORIGINAL bytes;
+  // a crash rejects and a retry restarts from the originals.
+  annotateCompare: (bytes: Uint8Array, marks: import('../lib/pdf-compare').CompareMark[]) =>
+    call((r) => r.annotateCompare(owned(bytes) as Uint8Array, marks)),
   cropPages: (bytes: Uint8Array, boxes: import('../engine/pdf-lib').CropPageBox[]) =>
     call((r) => r.cropPages(owned(bytes) as Uint8Array, boxes)),
   editTextRuns: async (

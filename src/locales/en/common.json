@@ -1135,6 +1135,22 @@
     "view_b": "Revised",
     "wholesale_title": "This page changed too much — both text layers shown verbatim",
     "ins_legend": "{{count}} inserted runs (green)",
-    "del_legend": "{{count}} removed runs (red strikethrough)"
+    "del_legend": "{{count}} removed runs (red strikethrough)",
+    "export_cta": "Export two annotated PDFs",
+    "export_busy": "Annotating both files...",
+    "err_export": "Annotation failed. Your original files were not modified.",
+    "scan_excluded": "{{n}} scanned page pair(s) are not annotated (no text positions) — the export covers digital pages only.",
+    "scan_badge": "text comparison",
+    "clause_removed": "Passages only in the original:",
+    "clause_added": "Passages only in the revised:",
+    "clause_same": "The two scanned pages have identical text.",
+    "ai_confirm_title": "{{n}} scanned page pair(s) need on-device AI OCR",
+    "ai_confirm_body": "The overlay needs a text layer; scanned pages have none. Confirming runs the AI model on those pages (first use downloads ~652 MB, once, fully on-device).",
+    "ai_confirm_cta": "Run AI OCR",
+    "ai_confirm_decline": "Skip scanned pages",
+    "ai_slow": "Your machine is on the CPU tier — each scanned page may take tens of seconds.",
+    "ai_downloading": "Downloading the AI model...",
+    "ai_running": "AI reading page {{current}}/{{total}}...",
+    "ai_declined": "Scanned pages were skipped — the result covers text-layer pages only."
   }
 }
