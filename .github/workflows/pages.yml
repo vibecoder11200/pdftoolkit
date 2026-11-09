@@ -82,6 +82,13 @@ jobs:
         env:
           MATRIX_100MB: '1'
           NODE_OPTIONS: --max-old-space-size=8192
+      # pdf2word over the same 100MB fixture (v0.10.2 phase 2): sampled
+      # first/middle/last pages through the whole pipeline (the run refuses
+      # above its own 100-page cap, so the leg samples — never the full 4500)
+      - run: npx vitest run tests/matrix-p2w-100mb.spec.ts --no-file-parallelism --reporter=default --reporter=json --outputFile=test-results/matrix-p2w-100mb.json
+        env:
+          MATRIX_100MB: '1'
+          NODE_OPTIONS: --max-old-space-size=8192
       - uses: actions/upload-artifact@v4
         if: always()
         with:
