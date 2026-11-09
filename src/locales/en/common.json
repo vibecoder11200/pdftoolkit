@@ -1179,6 +1179,8 @@
     "err_generic": "Detection failed. Your original file was not modified.",
     "err_remove": "Page removal failed. Your original file was not modified.",
     "err_crashed": "PDF engine crashed",
-    "err_crashed_detail": "The operation was interrupted. Retrying usually fixes it; if it repeats, reload the page."
+    "err_crashed_detail": "The operation was interrupted. Retrying usually fixes it; if it repeats, reload the page.",
+    "dropzone_title": "Drop a PDF here",
+    "dropzone_hint": "or click to choose a file"
   }
 }

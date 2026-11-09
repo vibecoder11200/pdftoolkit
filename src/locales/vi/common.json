@@ -1179,6 +1179,8 @@
     "err_generic": "Phát hiện thất bại. File gốc không bị thay đổi.",
     "err_remove": "Xóa trang thất bại. File gốc không bị thay đổi.",
     "err_crashed": "Bộ xử lý PDF gặp sự cố",
-    "err_crashed_detail": "Thao tác bị gián đoạn. Thử lại thường sửa được; nếu lặp lại, hãy tải lại trang."
+    "err_crashed_detail": "Thao tác bị gián đoạn. Thử lại thường sửa được; nếu lặp lại, hãy tải lại trang.",
+    "dropzone_title": "Kéo PDF vào đây",
+    "dropzone_hint": "hoặc bấm để chọn file"
   }
 }

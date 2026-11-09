@@ -215,8 +215,8 @@ export function BlankPagesTool() {
     >
       {!src ? (
         <Dropzone
-          title={t('dropzone.title')}
-          hint={t('dropzone.hint')}
+          title={t('blank.dropzone_title')}
+          hint={t('blank.dropzone_hint')}
           accept="application/pdf,.pdf"
           multiple={false}
           onFiles={(f) => f[0] && void makeSrc(f[0])}
