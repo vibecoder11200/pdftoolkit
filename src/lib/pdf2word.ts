@@ -202,19 +202,127 @@ export function xyCut(
   return [items];
 }
 
+// ---------------------------------------------------------------------------
+// Borderless table tier (v0.10.2 phase 1, plan 261109-1101): gutter
+// geometry, not alignment guesses. In-cell word gaps run 2–4pt; real
+// gutters run >10pt — 6pt is the documented separator (pdfplumber's
+// borderless recipe, re-expressed; no camelot/Nurminen code). Region
+// proposal stays OUT of scope: the pitch-band segmentation already isolates
+// the candidate band (a textedge upgrade is the journaled stretch).
+// ---------------------------------------------------------------------------
+
+/** Minimum whitespace corridor that opens a column gutter (pt). */
+export const BORDERLESS_MIN_GAP_PT = 6;
+
+/** Gutters required to qualify a band (⇒ ≥3 columns). Two-column body text
+ * has exactly one corridor and can never qualify. */
+export const BORDERLESS_MIN_COLS = 2;
+
 /**
- * Table band detection over cell ALIGNMENT only (spike probe: recovers the
- * ruled invoice grid without reading ruling lines). The page is first cut
- * into bands by row pitch (break where pitch > 1.8× the median pitch — a
- * table's rows sit at one tight pitch, surrounded by larger gaps to body
- * text), then a band is a table when: ≥3 rows, ≥2 column edges (left-edge
- * clustering, ≥50% row coverage), EVERY interior column's median cell
- * extent ≤65% of the gap to the next edge (extent = widest x1 in the
- * column band — a cell can be several items), and ≥3 rows carry ≥2 cells. Two-column BODY
- * text fills its columns (right column measured 0.92 on the fixture) while
- * table cells stay short (invoice ≤0.5) — the coverage guard is what keeps
- * body columns from false-tabulating. Rows with <2 cells return to the
- * text flow (a stray full-width line inside the band is not table data).
+ * Column boundaries from a whitespace sweep over the UNION of all word
+ * spans in a band: walking items left→right, a gutter opens where the next
+ * item starts more than BORDERLESS_MIN_GAP_PT beyond the running right edge
+ * of EVERY preceding item. Union semantics make right-aligned numbers and
+ * sparse cells safe — a wide header overlapping a narrow number can never
+ * open a false gutter between them (no whitespace corridor survives it).
+ * Boundaries sit at the corridor midpoints. Returns ≥ BORDERLESS_MIN_COLS
+ * gutters, else null (the band is paragraphs or ≤2 columns of body text).
+ */
+export function gutterColumns(items: Item[]): ColumnEdge[] | null {
+  if (items.length === 0) return null;
+  const sorted = [...items].sort((a, b) => a.x0 - b.x0);
+  const gutters: ColumnEdge[] = [];
+  let maxRight = sorted[0]!.x1;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const f = sorted[i]!;
+    if (f.x0 - maxRight > BORDERLESS_MIN_GAP_PT) {
+      gutters.push({ x: (maxRight + f.x0) / 2, hits: 0 });
+    }
+    if (f.x1 > maxRight) maxRight = f.x1;
+  }
+  return gutters.length >= BORDERLESS_MIN_COLS ? gutters : null;
+}
+
+/** Grid assembly shared by both tiers: items join the column whose
+ * [edge-3, next-edge-3) band contains their x0; rows with <2 non-empty
+ * cells fall back to the text flow. (Moved verbatim from the lattice tier
+ * when the borderless tier joined — its specs are the regression gate.) */
+function assembleGrid(rows: Row[], cols: ColumnEdge[]): { rows: string[][]; items: Item[] } | null {
+  const grid: { cells: string[]; items: Item[] }[] = rows.map((r) => {
+    const cells = cols.map(() => '');
+    const used: Item[] = [];
+    for (const f of r.items) {
+      const ci = cols.findIndex(
+        (e, i) => f.x0 >= e.x - 3 && (i + 1 >= cols.length || f.x0 < cols[i + 1]!.x - 3),
+      );
+      if (ci < 0) continue;
+      // Cells are single-line by construction (pdf.js items never carry
+      // newlines); whitespace collapses here. Pipe escaping happens once,
+      // at the emitter (the single choke point every table path shares).
+      const text = f.str.replace(/\s+/g, ' ').trim();
+      cells[ci] = cells[ci] ? `${cells[ci]} ${text}` : text;
+      used.push(f);
+    }
+    return { cells, items: used };
+  });
+  const full = grid.filter((g) => g.cells.filter((c) => c !== '').length >= 2);
+  if (full.length < 3) return null;
+  return {
+    rows: full.map((g) => g.cells),
+    items: full.flatMap((g) => g.items),
+  };
+}
+
+/**
+ * Interior-column coverage guard shared by both tiers: EVERY interior
+ * column's median cell extent must stay ≤65% of the gap to the next edge.
+ * Extents run from the boundary x (`fromInkedX0: false`, lattice tier) or
+ * from the column's LEFTMOST INKED x0 (`true`, borderless tier — a gutter
+ * midpoint adds a half-corridor to every width, so a boundary-based extent
+ * would wrongly refuse a realistic wide description column; red-team A1).
+ * The LAST column has no right bound in text geometry (the drawn ruling
+ * line lies beyond the longest cell) — its coverage test is self-defeating
+ * and is skipped; interior columns carry the guard.
+ */
+function coverageOk(rows: Row[], cols: ColumnEdge[], fromInkedX0: boolean): boolean {
+  for (const [i, col] of cols.entries()) {
+    if (i + 1 >= cols.length) break;
+    const next = cols[i + 1]!.x;
+    const width = next - col.x;
+    // Full cell EXTENT (review P2): a cell may be several pdf.js items —
+    // measure the widest x1 inside the column band (the same membership
+    // rule the grid assembly uses), never just the first chunk.
+    const extents: number[] = [];
+    for (const r of rows) {
+      const band = r.items.filter((f) => f.x0 >= col.x - 3 && f.x0 < next - 3);
+      if (band.length === 0) continue;
+      extents.push(maxOf(band.map((f) => f.x1)) - (fromInkedX0 ? minOf(band.map((f) => f.x0)) : col.x));
+    }
+    if (extents.length === 0) return false;
+    extents.sort((a, b) => a - b);
+    const median = extents[Math.floor(extents.length / 2)]!;
+    if (median > 0.65 * width) return false;
+  }
+  return true;
+}
+
+/**
+ * Table band detection in TWO tiers. The page is first cut into bands by
+ * row pitch (break where pitch > 1.8× the median pitch — a table's rows sit
+ * at one tight pitch, surrounded by larger gaps to body text).
+ *
+ * Lattice tier (v0.10.0): a band is a table when: ≥3 rows, ≥2 column edges
+ * (left-edge alignment clustering, ≥50% row coverage), the coverage guard
+ * above passes, and ≥3 rows carry ≥2 cells. Two-column BODY text fills its
+ * columns (right column measured 0.92 on the fixture) while table cells
+ * stay short (invoice ≤0.5) — the coverage guard is what keeps body
+ * columns from false-tabulating. Rows with <2 cells return to the text
+ * flow (a stray full-width line inside the band is not table data).
+ *
+ * Borderless tier (v0.10.2): bands the lattice refused get a
+ * whitespace-gutter qualification via gutterColumns + the recalibrated
+ * coverage guard (extents from inked x0). Runs only after the lattice tier
+ * failed the band, so the ruled-invoice path is byte-unchanged.
  */
 export function detectTable(items: Item[]): { rows: string[][]; items: Item[] } | null {
   const allRows = clusterRows(items);
@@ -250,60 +358,34 @@ export function detectTable(items: Item[]): { rows: string[][]; items: Item[] } 
     const minHits = Math.ceil(rows.length * 0.5);
     const cols = edges.filter((e) => e.hits >= minHits).sort((a, b) => a.x - b.x);
     if (cols.length < 2) continue;
+    if (!coverageOk(rows, cols, false)) continue;
 
-    let covered = true;
-    for (const [i, col] of cols.entries()) {
-      // The LAST column has no right bound in text geometry (the drawn
-      // ruling line lies beyond the longest cell) — its coverage test is
-      // self-defeating and is skipped; interior columns carry the guard.
-      if (i + 1 >= cols.length) break;
-      const next = cols[i + 1]!.x;
-      const width = next - col.x;
-      // Full cell EXTENT (review P2): a cell may be several pdf.js items —
-      // measure the widest x1 inside the column band (the same membership
-      // rule the grid assembly below uses), never just the first chunk.
-      const extents: number[] = [];
-      for (const r of rows) {
-        const band = r.items.filter((f) => f.x0 >= col.x - 3 && f.x0 < next - 3);
-        if (band.length === 0) continue;
-        extents.push(maxOf(band.map((f) => f.x1)) - col.x);
-      }
-      if (extents.length === 0) {
-        covered = false;
-        break;
-      }
-      extents.sort((a, b) => a - b);
-      const median = extents[Math.floor(extents.length / 2)]!;
-      if (median > 0.65 * width) {
-        covered = false;
-        break;
-      }
-    }
-    if (!covered) continue;
+    const grid = assembleGrid(rows, cols);
+    if (!grid) continue;
+    return grid;
+  }
 
-    const grid: { cells: string[]; items: Item[] }[] = rows.map((r) => {
-      const cells = cols.map(() => '');
-      const used: Item[] = [];
-      for (const f of r.items) {
-        const ci = cols.findIndex(
-          (e, i) => f.x0 >= e.x - 3 && (i + 1 >= cols.length || f.x0 < cols[i + 1]!.x - 3),
-        );
-        if (ci < 0) continue;
-        // Cells are single-line by construction (pdf.js items never carry
-        // newlines); whitespace collapses here. Pipe escaping happens once,
-        // at the emitter (the single choke point every table path shares).
-        const text = f.str.replace(/\s+/g, ' ').trim();
-        cells[ci] = cells[ci] ? `${cells[ci]} ${text}` : text;
-        used.push(f);
-      }
-      return { cells, items: used };
-    });
-    const full = grid.filter((g) => g.cells.filter((c) => c !== '').length >= 2);
-    if (full.length < 3) continue;
-    return {
-      rows: full.map((g) => g.cells),
-      items: full.flatMap((g) => g.items),
-    };
+  // Borderless tier (v0.10.2): bands the alignment tier refused get a
+  // whitespace-gutter qualification. The sweep needs a corridor no word
+  // crosses — the pitch-band segmentation already bounds the candidate
+  // region, so no separate region proposal is added in v1.
+  for (const rows of bands) {
+    if (rows.length < 3) continue;
+    const bandItems = rows.flatMap((r) => r.items);
+    const gutters = gutterColumns(bandItems);
+    if (!gutters) continue;
+    const cols = [{ x: minOf(bandItems.map((f) => f.x0)), hits: 0 }, ...gutters].sort(
+      (a, b) => a.x - b.x,
+    );
+
+    // Coverage guard, RECALIBRATED for gutter boundaries (red-team A1):
+    // extents from the column's LEFTMOST INKED x0 under the same 0.65
+    // median semantics; a paragraph band whose "columns" are line fragments
+    // still fails (its lines fill the band).
+    if (!coverageOk(rows, cols, true)) continue;
+
+    const grid = assembleGrid(rows, cols);
+    if (grid) return grid;
   }
   return null;
 }

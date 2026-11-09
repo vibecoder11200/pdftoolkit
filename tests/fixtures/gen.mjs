@@ -638,6 +638,141 @@ async function makeP2wAdversarial() {
 const p2wAdversarial = await makeP2wAdversarial();
 writeFileSync(join(here, 'fixture-p2w-adversarial.pdf'), p2wAdversarial);
 
+// v0.10.2 borderless-table fixtures (plan 261109-1101 P1): statement-style
+// tables with NO ruling lines — the gutter tier's contract. Right-aligned
+// dates/amounts (varying widths so the lattice left-edge clustering finds
+// <50% coverage), a sparse Amount column (every 3rd data row empty), and a
+// wide description column — the recalibrated coverage-guard gate (red-team
+// A1: under the lattice from-boundary measurement this column scores ~0.70
+// and would be wrongly refused; from leftmost inked x0 it scores ~0.60).
+// All names synthetic Sample/Example data.
+async function makeP2wBorderless(withCaption) {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`pdftoolkit-fixture-p2w-borderless${withCaption ? '-caption' : ''}`);
+  doc.setCreator('pdftoolkit-gen');
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText('Account statement — Sample Bank', {
+    x: 48,
+    y: withCaption ? 790 : 782,
+    size: 13,
+    font: bold,
+  });
+  if (withCaption) {
+    // Tight pitch (== the table's own row pitch): the caption JOINS the
+    // table band and must be dropped by the grid's ≥2-cells rule, never
+    // become a table row — that boundary is what this variant pins.
+    page.drawText('Transaction details', { x: 130, y: 756, size: 10, font });
+  }
+  const right = (text, xEnd, y, f) =>
+    page.drawText(text, { x: xEnd - f.widthOfTextAtSize(text, 10), y, size: 10, font: f });
+  right('Date', 96, 740, bold);
+  page.drawText('Description', { x: 150, y: 740, size: 10, font: bold });
+  right('Amount', 350, 740, bold);
+  right('Balance', 460, 740, bold);
+  const rows = [
+    ['3/10', 'ATM withdrawal', '250.00', '2,548.20'],
+    ['15/10', 'Monthly service fee', '96.50', '2,451.70'],
+    ['8/10', 'Grocery — Sample Mart', '', '2,451.70'],
+    ['12/10', 'Transfer to online savings', '1,250.00', '1,201.70'],
+  ];
+  let y = 722;
+  for (const [d, desc, amt, bal] of rows) {
+    right(d, 96, y, font);
+    page.drawText(desc, { x: 150, y, size: 10, font });
+    if (amt) right(amt, 350, y, font);
+    right(bal, 460, y, font);
+    y -= 18;
+  }
+  page.drawText('Closing balance: $1,201.70', { x: 48, y: 620, size: 10, font });
+  return doc.save({ useObjectStreams: false });
+}
+const p2wBorderless = await makeP2wBorderless(false);
+writeFileSync(join(here, 'fixture-p2w-borderless.pdf'), p2wBorderless);
+const p2wBorderlessCaption = await makeP2wBorderless(true);
+writeFileSync(join(here, 'fixture-p2w-borderless-caption.pdf'), p2wBorderlessCaption);
+
+// Negative: dense full-width paragraphs — no whitespace corridor survives
+// all rows, so the gutter sweep must find nothing (and the lattice tier's
+// single left edge never qualifies either).
+async function makeP2wParagraphs() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-paragraphs');
+  doc.setCreator('pdftoolkit-gen');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  para(page, font, [
+    'During the fourth quarter the fulfillment centers processed a record',
+    'volume of orders while keeping the on-time dispatch rate above the',
+    'target threshold for twelve consecutive weeks of holiday demand.',
+    'Warehouse throughput improved after the second conveyor line entered',
+    'service in September; picking errors fell by a third and the average',
+    'order cycle time dropped below the contractual ceiling for the first',
+    'time since the network expanded into the two new regional depots.',
+  ], 48, 760, 10, 15);
+  para(page, font, [
+    'The outlook for the first quarter remains cautious: demand is',
+    'seasonally weaker, two clients renegotiated volumes, and energy',
+    'prices stay volatile. hiring stays frozen except for replacements',
+    'and the overtime budget carries into March under the same cap.',
+  ], 48, 640, 10, 15);
+  return doc.save({ useObjectStreams: false });
+}
+const p2wParagraphs = await makeP2wParagraphs();
+writeFileSync(join(here, 'fixture-p2w-paragraphs.pdf'), p2wParagraphs);
+
+// Negative: THREE-column body text — exactly 2 gutters by construction, so
+// it QUALIFIES for the borderless attempt (the red-team F2 danger class);
+// the recalibrated coverage guard is the only backstop. Column corridors
+// are ≥18pt so the XY-cut honest degrade still splits the reading order.
+async function makeP2wThreecol() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-p2w-threecol');
+  doc.setCreator('pdftoolkit-gen');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  const cols = [48, 236, 424];
+  const lines = [
+    [
+      'Depot utilization held above',
+      'ninety percent through the year',
+      'and the audit closed with no',
+      'findings; two new routes opened',
+      'in the northern valley after',
+      'the fleet telemetry rollout and',
+      'winter contingency stock is',
+      'fully positioned for December.',
+    ],
+    [
+      'Coastal depots absorbed the',
+      'storm season intact and the',
+      'ferry contract ended without',
+      'service disruption; driver',
+      'training hours doubled in the',
+      'south and the warehouse added',
+      'cold storage ahead of the',
+      'summer produce peak season.',
+    ],
+    [
+      'Grid capacity limits capped',
+      'summer throughput and a',
+      'regional review is planned',
+      'for early 2027 with customer',
+      'satisfaction scoring 4.2 of 5',
+      'in the south region overall',
+      'while the north scored 4.6',
+      'on the same survey scale.',
+    ],
+  ];
+  for (const [c, x] of cols.entries()) {
+    para(page, font, lines[c], x, 760, 10, 15);
+  }
+  return doc.save({ useObjectStreams: false });
+}
+const p2wThreecol = await makeP2wThreecol();
+writeFileSync(join(here, 'fixture-p2w-threecol.pdf'), p2wThreecol);
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -661,6 +796,10 @@ console.log(
     'fixture-p2w-mixed.pdf': p2wMixed.length,
     'fixture-p2w-list.pdf': p2wList.length,
     'fixture-p2w-adversarial.pdf': p2wAdversarial.length,
+    'fixture-p2w-borderless.pdf': p2wBorderless.length,
+    'fixture-p2w-borderless-caption.pdf': p2wBorderlessCaption.length,
+    'fixture-p2w-paragraphs.pdf': p2wParagraphs.length,
+    'fixture-p2w-threecol.pdf': p2wThreecol.length,
   }),
 );
 

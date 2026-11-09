@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  BORDERLESS_MIN_COLS,
+  BORDERLESS_MIN_GAP_PT,
   PDF2WORD_CENSUS_MIN_CHARS,
   PDF2WORD_MAX_ITEMS_PER_PAGE,
   PDF2WORD_PAGE_CAP,
@@ -12,6 +14,7 @@ import {
   censusSample,
   detectTable,
   emitTableMarkdown,
+  gutterColumns,
   pageToMarkdown,
   runPdf2Word,
   sanitizeItems,
@@ -106,6 +109,93 @@ describe('pdf2word tables: invoice (ruled, alignment clustering)', () => {
     expect((html.match(/<tr>/g) ?? []).length).toBe(2);
     expect(html).toContain('b|c');
     expect(html).not.toContain('| <td'); // no column torn open by a raw pipe
+  });
+});
+
+describe('pdf2word tables: borderless (gutter tier, v0.10.2)', () => {
+  it('recovers the 5x4 statement grid: right-aligned numbers, sparse column, wide description', async () => {
+    const md = await pageMd('fixture-p2w-borderless.pdf');
+    expect(md).toContain('| Date | Description | Amount | Balance |');
+    expect(md).toContain('| --- | --- | --- | --- |');
+    expect(md).toContain('| 3/10 | ATM withdrawal | 250.00 | 2,548.20 |');
+    expect(md).toContain('| 15/10 | Monthly service fee | 96.50 | 2,451.70 |');
+    expect(md).toContain('| 8/10 | Grocery — Sample Mart |  | 2,451.70 |'); // sparse cell emits empty
+    expect(md).toContain('| 12/10 | Transfer to online savings | 1,250.00 | 1,201.70 |');
+    // Surrounding content keeps reading order around the table band.
+    expect(md.indexOf('Account statement')).toBeLessThan(md.indexOf('| Date |'));
+    expect(md.indexOf('Closing balance')).toBeGreaterThan(md.indexOf('| 12/10'));
+  });
+
+  it('caption on a tight pitch above the table stays text, never a table row', async () => {
+    const md = await pageMd('fixture-p2w-borderless-caption.pdf');
+    expect(md).toContain('| Date | Description | Amount | Balance |');
+    expect(md).toContain('| 12/10 | Transfer to online savings | 1,250.00 | 1,201.70 |');
+    expect(md).toContain('Transaction details');
+    // The caption joins the band (its pitch == the table pitch) and must
+    // fall out of the grid via the ≥2-cells rule — never become a row.
+    expect(md).not.toContain('| Transaction details');
+    expect(md.split('\n').filter((l) => l.startsWith('|'))).toHaveLength(6); // header + sep + 4 rows
+  });
+
+  it('dense full-width paragraphs never tabulate (no corridor survives all rows)', async () => {
+    const md = await pageMd('fixture-p2w-paragraphs.pdf');
+    expect(md.split('\n').filter((l) => l.startsWith('|'))).toHaveLength(0);
+    expect(md).toContain('During the fourth quarter');
+    expect(md).toContain('overtime budget carries into March');
+  });
+
+  it('three-column body text never tabulates — the 2-gutter danger class refuses via the guard', async () => {
+    const items = await getVisualTextItems(bytesOf('fixture-p2w-threecol.pdf'), 1);
+    expect(detectTable(items)).toBeNull();
+    const md = await pageMd('fixture-p2w-threecol.pdf');
+    expect(md.split('\n').filter((l) => l.startsWith('|'))).toHaveLength(0);
+    // Honest degrade: XY-cut still splits the columns — reading order is
+    // column-by-column (all of col1 before col2, col2 before col3).
+    expect(md.indexOf('fully positioned for December.')).toBeLessThan(md.indexOf('Coastal depots absorbed the'));
+    expect(md.indexOf('summer produce peak season.')).toBeLessThan(md.indexOf('Grid capacity limits capped'));
+  });
+});
+
+describe('gutterColumns (unit, v0.10.2)', () => {
+  const item = (str: string, x0: number, x1: number, baseline = 100) => ({
+    str,
+    x0,
+    x1,
+    baseline,
+    size: 10,
+    fontName: 'F',
+    rotated: false,
+  });
+
+  it(`requires >= ${BORDERLESS_MIN_COLS} gutters and returns corridor midpoints`, () => {
+    expect(gutterColumns([])).toBeNull();
+    expect(gutterColumns([item('a', 10, 50), item('b', 70, 120)])).toBeNull(); // 1 gutter = 2 columns
+    const g = gutterColumns([item('a', 10, 50), item('b', 70, 120), item('c', 140, 200)]);
+    expect(g).not.toBeNull();
+    expect(g!.map((e) => e.x)).toEqual([60, 130]);
+  });
+
+  it(`in-cell word gaps below ${BORDERLESS_MIN_GAP_PT}pt never open a gutter`, () => {
+    const g = gutterColumns([
+      item('Card', 10, 30),
+      item('purchase', 33, 62),
+      item('scan', 64, 80),
+      item('250.00', 200, 240),
+      item('settled', 280, 320),
+    ]);
+    // The 2-4pt word gaps stay inside one cell; only the real corridors open.
+    expect(g!.map((e) => e.x)).toEqual([(80 + 200) / 2, (240 + 280) / 2]);
+  });
+
+  it('union property: a wide header overlapping a right-aligned number opens no gutter', () => {
+    const header = item('Total amount due', 100, 300);
+    const number = item('1,800.00', 250, 300); // right-aligned under the header
+    const right = item('Note', 340, 380);
+    // Header + number are one ink mass for the sweep: the only corridor is
+    // 300→340, so the band refuses (1 gutter < 2). Without the header the
+    // same number column opens its own gutter.
+    expect(gutterColumns([header, number, right])).toBeNull();
+    expect(gutterColumns([item('x', 100, 140), number, right])!.map((e) => e.x)).toEqual([195, 320]);
   });
 });
 
