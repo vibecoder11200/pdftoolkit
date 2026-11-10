@@ -24,8 +24,9 @@ interface ThumbnailStripProps {
    * compare's changed-dot, blank-pages' verdict badge. */
   tileBadge?: (pageNumber: number) => React.ReactNode;
   /** ADDITIVE (v0.11.0 phase 7): default true keeps every existing caller
-   * byte-identical; false drops the checkbox semantics (role/aria/onToggle)
-   * and the check circle for view-only navigators. */
+   * byte-identical; false drops the checkbox semantics (role/aria-checked)
+   * while click/Enter/Space still fire onToggle (view-only navigators that
+   * jump — compare). */
   selectable?: boolean;
 }
 
@@ -87,9 +88,12 @@ export function ThumbnailStrip({
             data-page-cell={p.pageNumber}
             tabIndex={0}
             draggable={Boolean(onMove)}
-            onClick={selectable ? () => onToggle(p.pageNumber, idx) : undefined}
+            // Act on click/Enter/Space whenever onToggle exists — selectable
+            // only adds the checkbox role/aria-checked (compare's navigator
+            // passes selectable={false} but still needs click-to-jump).
+            onClick={() => onToggle(p.pageNumber, idx)}
             onKeyDown={(e) => {
-              if (selectable && (e.key === ' ' || e.key === 'Enter')) {
+              if (e.key === ' ' || e.key === 'Enter') {
                 e.preventDefault();
                 onToggle(p.pageNumber, idx);
                 return;
@@ -113,8 +117,8 @@ export function ThumbnailStrip({
               const from = Number(e.dataTransfer.getData('text/plain'));
               if (Number.isFinite(from)) onMove?.(from, p.pageNumber);
             }}
-            className={`relative rounded-lg border-2 bg-surface-card p-1.5 ${
-              selectable ? 'cursor-grab ' : ''
+            className={`group relative rounded-lg border-2 bg-surface-card p-1.5 ${
+              selectable ? 'cursor-grab ' : 'cursor-pointer '
             }${p.selected ? 'border-accent' : 'border-border-default hover:border-border-strong'}`}
           >
             <span className="absolute top-2.5 left-2.5 rounded-md bg-surface-inverse/85 px-1.75 py-0.5 text-[11px] font-bold text-text-inverse tabular-nums">
@@ -213,7 +217,13 @@ export function ThumbnailStrip({
       </div>
       <Dialog open={fs !== null} onClose={() => setFs(null)} title={fs !== null ? fullscreenTitle(fs) : ''}>
         {fs !== null && pages[fs - 1]?.url ? (
-          <img src={pages[fs - 1].url ?? ''} alt="" className="w-full rounded-lg border border-border-default" />
+          // Cap the height: an unconstrained A4 image overflows the centered
+          // overlay and clips the header X + Đóng button out of reach.
+          <img
+            src={pages[fs - 1].url ?? ''}
+            alt=""
+            className="mx-auto max-h-[70vh] w-auto max-w-full object-contain rounded-lg border border-border-default"
+          />
         ) : (
           <div className="aspect-[0.707] w-full rounded-lg border border-border-default bg-surface-sunken" />
         )}

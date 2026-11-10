@@ -60,6 +60,22 @@ test('compare: word-change marks, changed/added badges, added-page banner', asyn
   await page.getByRole('button', { name: 'Bản gốc' }).first().click();
   await expect(page.getByTestId('compare-del-mark')).toHaveCount(1);
   await expect(page.getByTestId('compare-ins-mark')).toHaveCount(0);
+
+  // Navigator tile click jumps to that pair (the strip acts on onToggle even
+  // when selectable={false} — a walkthrough regression: tiles were inert).
+  await page.locator('[data-page-cell="3"]').click();
+  await expect(page.getByText('Cặp trang 3')).toBeVisible();
+
+  // Fullscreen preview opens from the hover-revealed expand button and closes
+  // (a walkthrough regression: the button was display:none forever — the tile
+  // lacked the `group` class — and the uncapped image clipped the close row).
+  await page.locator('[data-page-cell="3"]').hover();
+  await page.locator('[data-page-cell="3"] button[aria-label="Trang 3"]').click();
+  const dlg = page.getByRole('dialog');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByRole('button', { name: 'Đóng' }).first()).toBeVisible();
+  await dlg.getByRole('button', { name: 'Đóng' }).first().click();
+  await expect(dlg).toHaveCount(0);
 });
 
 test('compare export: two annotated PDFs download (web)', async ({ page }) => {
