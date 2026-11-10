@@ -23,7 +23,8 @@
     "page_drag_handle": "Drag to reorder page {{n}}",
     "page_move_left": "Move page {{n}} left",
     "page_move_right": "Move page {{n}} right",
-    "page_moved": "Moved page {{page}} to position {{position}}"
+    "page_moved": "Moved page {{page}} to position {{position}}",
+    "need_file": "No PDF loaded yet — drop a file or click to pick one first."
   },
   "dropzone": {
     "single_taken": "Only one file is accepted — taking the first one."
@@ -895,7 +896,8 @@
   "chip": {
     "chip_label": "Continue with result",
     "chip_title": "Pick the next tool",
-    "chip_cancel": "Close"
+    "chip_cancel": "Close",
+    "redownload": "Download again"
   },
   "presets": {
     "strip_title": "Quick chains",
@@ -1151,7 +1153,8 @@
     "ai_slow": "Your machine is on the CPU tier — each scanned page may take tens of seconds.",
     "ai_downloading": "Downloading the AI model...",
     "ai_running": "AI reading page {{current}}/{{total}}...",
-    "ai_declined": "Scanned pages were skipped — the result covers text-layer pages only."
+    "ai_declined": "Scanned pages were skipped — the result covers text-layer pages only.",
+    "cancelled_note": "Stopped as requested — no result yet. Click “So sánh ngay” to run again."
   },
   "blank": {
     "title": "Remove blank pages",
@@ -1182,5 +1185,10 @@
     "err_crashed_detail": "The operation was interrupted. Retrying usually fixes it; if it repeats, reload the page.",
     "dropzone_title": "Drop a PDF here",
     "dropzone_hint": "or click to choose a file"
+  },
+  "not_found": {
+    "title": "Page not found",
+    "hint": "This link does not exist or has moved. All tools are on the home page.",
+    "cta": "Back to home"
   }
 }

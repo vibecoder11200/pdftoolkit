@@ -23,7 +23,8 @@
     "page_drag_handle": "Kéo để đổi thứ tự trang {{n}}",
     "page_move_left": "Chuyển trang {{n}} sang trái",
     "page_move_right": "Chuyển trang {{n}} sang phải",
-    "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}"
+    "page_moved": "Đã chuyển trang {{page}} đến vị trí {{position}}",
+    "need_file": "Chưa có file PDF nào — hãy kéo thả hoặc bấm để chọn file trước."
   },
   "dropzone": {
     "single_taken": "Chỉ nhận 1 file — đã lấy file đầu tiên."
@@ -895,7 +896,8 @@
   "chip": {
     "chip_label": "Tiếp tục với kết quả",
     "chip_title": "Chọn công cụ tiếp theo",
-    "chip_cancel": "Đóng"
+    "chip_cancel": "Đóng",
+    "redownload": "Tải lại"
   },
   "presets": {
     "strip_title": "Chuỗi nhanh",
@@ -1151,7 +1153,8 @@
     "ai_slow": "Máy bạn thuộc nhóm CPU — mỗi trang quét có thể mất vài chục giây.",
     "ai_downloading": "Đang tải model AI...",
     "ai_running": "AI đang đọc trang {{current}}/{{total}}...",
-    "ai_declined": "Đã bỏ qua các trang scan — kết quả chỉ so sánh các trang có lớp chữ."
+    "ai_declined": "Đã bỏ qua các trang scan — kết quả chỉ so sánh các trang có lớp chữ.",
+    "cancelled_note": "Đã dừng theo yêu cầu — chưa có kết quả. Bấm “So sánh ngay” để chạy lại."
   },
   "blank": {
     "title": "Xóa trang trắng",
@@ -1182,5 +1185,10 @@
     "err_crashed_detail": "Thao tác bị gián đoạn. Thử lại thường sửa được; nếu lặp lại, hãy tải lại trang.",
     "dropzone_title": "Kéo PDF vào đây",
     "dropzone_hint": "hoặc bấm để chọn file"
+  },
+  "not_found": {
+    "title": "Không tìm thấy trang này",
+    "hint": "Đường dẫn không tồn tại hoặc đã bị đổi. Các công cụ vẫn ở ngay trên trang chủ.",
+    "cta": "Về trang chủ"
   }
 }

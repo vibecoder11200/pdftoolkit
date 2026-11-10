@@ -62,6 +62,9 @@ const engineTable = new Map<string, DocSpec>();
 const sig = (b: Uint8Array) => `${b.length}:${Array.from(b.slice(0, 8)).join(',')}:${Array.from(b.slice(-8)).join(',')}`;
 let itemCalls = 0;
 let crashFirst = false;
+// One-shot async gate: blocks the NEXT extraction call so a test can press
+// Dừng while a run is genuinely in flight (cancel-note pin).
+let gateNext: (() => Promise<void>) | null = null;
 
 vi.mock('../src/engine/pdfjs', () => ({
   getPageCount: vi.fn(async (b: Uint8Array) => {
@@ -77,6 +80,11 @@ vi.mock('../src/engine/pdfjs', () => ({
       const e = new Error('worker died');
       e.name = 'EngineCrashedError';
       throw e;
+    }
+    if (gateNext) {
+      const gate = gateNext;
+      gateNext = null;
+      await gate();
     }
     itemCalls += 1;
     return spec.pages[page] ?? [];
@@ -244,6 +252,30 @@ describe('Compare tool (phase 7)', () => {
     expect(badges.filter((s) => s === 'Trang mới').length).toBe(1);
     // A/B toggle present; switching to A keeps the viewer mounted.
     expect(container.querySelector('[role="group"]')).not.toBeNull();
+  });
+
+  it('cancel (Dừng) surfaces the cancelled note and the aborted run never renders', async () => {
+    registerStandardDocs();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    gateNext = () => gate;
+    await dropAandB();
+    await waitFor(() => container.textContent?.includes('2/3') ?? false);
+    act(() => btn('So sánh ngay').click());
+    // Busy state swaps the CTA row for Dừng.
+    await waitFor(() => container.textContent?.includes('Dừng') ?? false);
+    act(() => btn('Dừng').click());
+    await flush();
+    expect(container.textContent).toContain('Đã dừng theo yêu cầu');
+    expect(container.querySelector('[data-testid="compare-result"]')).toBeNull();
+    // The aborted continuation (gate released) must not overwrite the note
+    // or silently deliver a result for a cancelled run.
+    release();
+    await flush();
+    expect(container.textContent).toContain('Đã dừng theo yêu cầu');
+    expect(container.querySelector('[data-testid="compare-result"]')).toBeNull();
   });
 
   it('swap-by-reference: a swap then re-run costs ZERO re-extraction (caches travel with slots)', async () => {

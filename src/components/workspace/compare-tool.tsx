@@ -115,6 +115,7 @@ export function CompareTool() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [error, setError] = useState<string | ErrorDetail | null>(null);
+  const [cancelled, setCancelled] = useState(false);
   const [result, setResult] = useState<CompareResult | null>(null);
   const [pairIdx, setPairIdx] = useState(0);
   const [viewSide, setViewSide] = useState<'a' | 'b'>('b');
@@ -156,6 +157,7 @@ export function CompareTool() {
     setPairIdx(0);
     setProgress(null);
     setError(null);
+    setCancelled(false);
     setBusy(false);
     setScanChars(null);
     setTextDiffs(new Map());
@@ -205,6 +207,7 @@ export function CompareTool() {
     runningRef.current = true;
     setBusy(true);
     setError(null);
+    setCancelled(false);
     setResult(null);
     setPairIdx(0);
     setProgress({ value: 4, label: t('compare.progress_start') });
@@ -249,6 +252,7 @@ export function CompareTool() {
     genRef.current += 1; // flips shouldContinue → CompareCancelled → silent stop
     setBusy(false);
     setProgress(null);
+    setCancelled(true); // UX audit F3: a silent return to intake read as "did it even stop?"
   };
 
   // ── P8: scan census + AI-OCR leg + annotated export ──
@@ -428,6 +432,9 @@ export function CompareTool() {
     : 'b';
   const viewSlot = viewSideEff === 'a' ? slotA : slotB;
   const viewPage = pair ? (viewSideEff === 'a' ? pair.oldPage : (pair.newPage ?? 1)) : 1;
+  // Clause panel data for the selected scan pair (undefined = not a scan
+  // pair, or the AI leg has not run).
+  const pairTextDiff = scanPairIdxs.has(pairIdx) ? textDiffs.get(pairIdx) : undefined;
   const changedBPages = new Map<number, 'changed' | 'added'>();
   if (result) {
     for (const p of result.pairs) {
@@ -486,6 +493,7 @@ export function CompareTool() {
         setAiDeclined(false);
         setExporting(false);
         setExportNote(null);
+        setCancelled(false);
       }}
     >
       <div className="grid gap-4 md:grid-cols-2">
@@ -510,6 +518,11 @@ export function CompareTool() {
         <Button variant="secondary" onClick={swap} disabled={busy || (!slotA && !slotB)}>
           {t('compare.swap')}
         </Button>
+        {cancelled ? (
+          <p className="rounded-lg border border-border-strong bg-surface-card p-2.5 text-[13px]">
+            {t('compare.cancelled_note')}
+          </p>
+        ) : null}
         {bigGate ? <span className="text-[13px] text-text-muted">{t('compare.big_gate')}</span> : null}
       </div>
       {busy ? (
@@ -623,7 +636,7 @@ export function CompareTool() {
                   <p className="mt-1 whitespace-pre-wrap text-text-muted">{pair.wholesale.oldText}</p>
                   <p className="mt-2 whitespace-pre-wrap text-text-muted">{pair.wholesale.newText}</p>
                 </div>
-              ) : scanPairIdxs.has(pairIdx) && textDiffs.has(pairIdx) ? (
+              ) : pairTextDiff ? (
                 <div className="rounded-lg border border-border-strong bg-surface-card p-3 text-[13px]" data-testid="compare-scan-panel">
                   <p className="font-bold">
                     <span className="mr-1.5 inline-block rounded-md bg-tone-purple-soft px-1.75 py-0.5 text-[11px] font-bold text-tone-purple">
@@ -631,27 +644,27 @@ export function CompareTool() {
                     </span>
                     {t('compare.pair_label', { page: pair.newPage ?? pair.oldPage })}
                   </p>
-                  {(textDiffs.get(pairIdx)?.removed.length ?? 0) > 0 ? (
+                  {pairTextDiff.removed.length > 0 ? (
                     <div className="mt-2">
                       <p className="font-semibold text-tone-red">{t('compare.clause_removed')}</p>
                       <ul className="mt-1 list-disc pl-5">
-                        {textDiffs.get(pairIdx)!.removed.map((cl, i) => (
+                        {pairTextDiff.removed.map((cl, i) => (
                           <li key={`rm-${i}`} className="whitespace-pre-wrap">{cl}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                  {(textDiffs.get(pairIdx)?.added.length ?? 0) > 0 ? (
+                  {pairTextDiff.added.length > 0 ? (
                     <div className="mt-2">
                       <p className="font-semibold text-tone-green">{t('compare.clause_added')}</p>
                       <ul className="mt-1 list-disc pl-5">
-                        {textDiffs.get(pairIdx)!.added.map((cl, i) => (
+                        {pairTextDiff.added.map((cl, i) => (
                           <li key={`ad-${i}`} className="whitespace-pre-wrap">{cl}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                  {textDiffs.get(pairIdx)?.removed.length === 0 && textDiffs.get(pairIdx)?.added.length === 0 ? (
+                  {pairTextDiff.removed.length === 0 && pairTextDiff.added.length === 0 ? (
                     <p className="mt-2 text-text-muted">{t('compare.clause_same')}</p>
                   ) : null}
                 </div>
@@ -716,13 +729,7 @@ export function CompareTool() {
                 <Button onClick={() => void runAiScanLeg()} disabled={aiBusy}>
                   {t('compare.ai_confirm_cta')}
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setAiDeclined(true);
-                  }}
-                  disabled={aiBusy}
-                >
+                <Button variant="secondary" onClick={() => setAiDeclined(true)} disabled={aiBusy}>
                   {t('compare.ai_confirm_decline')}
                 </Button>
               </div>
@@ -783,4 +790,3 @@ function SlotPicker({
     </div>
   );
 }
-

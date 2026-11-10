@@ -144,7 +144,7 @@ export function ExtractTool() {
       error={error}
       side={
         <>
-          <Button onClick={() => void run()} disabled={!src || selected.size === 0}>
+          <Button onClick={() => void run()} disabled={!src || selected.size === 0} disabledReason={t('a11y.need_file')}>
             {t('extract.cta')}
           </Button>
           <SaveElsewhereButton

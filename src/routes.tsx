@@ -27,6 +27,7 @@ import { PdfToWordToolPage } from './pages/pdf-to-word';
 import { CompareToolPage } from './pages/compare';
 import { BlankPagesToolPage } from './pages/blank-pages';
 import { SettingsPage } from './pages/settings';
+import { NotFoundPage } from './pages/not-found';
 
 const toolRoutes = [
   'merge',
@@ -123,7 +124,8 @@ export const router = createBrowserRouter(
         { path: '/tools/convert', element: <ComingSoonPage /> },
         ...toolRoutes,
         { path: '/settings', element: <SettingsPage /> },
-        { path: '*', element: <HomePage /> },
+        // Friendly not-found instead of a silent home redirect (UX audit F9).
+        { path: '*', element: <NotFoundPage /> },
       ],
     },
   ],

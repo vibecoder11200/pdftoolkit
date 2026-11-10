@@ -301,7 +301,7 @@ export function SplitTool() {
             </button>
             <p className="-mt-1 text-xs text-text-muted">{t('split.mode_combined_hint')}</p>
           </div>
-          <Button onClick={() => void run()} disabled={!file || busy}>
+          <Button onClick={() => void run()} disabled={!file || busy} disabledReason={t('a11y.need_file')}>
             {t('split.cta')}
           </Button>
           {mode === 'combined' ? (

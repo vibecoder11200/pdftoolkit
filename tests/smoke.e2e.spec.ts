@@ -317,3 +317,26 @@ test('axe: no serious/critical violations on home, merge, and 4 swept tools', as
     expect(bad, `${path}: ${bad.map((v) => v.id).join(', ')}`).toEqual([]);
   }
 });
+
+// UX-friction batch (2026-11-10 audit): the nav must VISUALLY mark the
+// current page (aria-current existed but was invisible to sighted users),
+// and an unknown URL must land on the friendly not-found page instead of
+// silently rendering the home grid.
+test('nav marks the active tool visually', async ({ page }) => {
+  await page.goto('./tools/merge');
+  const active = page.locator('nav a[aria-current="page"]');
+  await expect(active).toHaveCount(1);
+  await expect(active).toHaveText('GỘP PDF');
+  await expect(active).toHaveCSS('background-color', /oklch|rgb/);
+  // "ALL TOOLS" must NOT be active on a tool route (end="/" semantics).
+  await expect(page.locator('nav a[aria-current="page"]', { hasText: 'TẤT CẢ' })).toHaveCount(0);
+});
+
+test('unknown URL renders the friendly not-found page', async ({ page }) => {
+  await page.goto('./tools/no-such-tool');
+  await expect(page.getByText('Không tìm thấy trang này')).toBeVisible();
+  const home = page.getByRole('link', { name: 'Về trang chủ', exact: true });
+  await expect(home).toBeVisible();
+  await home.click();
+  await expect(page).toHaveURL(/\/pdftoolkit\/?$/);
+});

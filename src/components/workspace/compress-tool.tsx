@@ -287,7 +287,7 @@ export function CompressTool() {
       error={error}
       side={
         <>
-          <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy}>
+          <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy} disabledReason={t('a11y.need_file')}>
             {t('compress.cta')}
           </Button>
           {lastOutput ? (

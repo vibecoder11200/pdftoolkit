@@ -162,7 +162,7 @@ export function MergeTool() {
       error={fileError ?? runError}
       side={
         <>
-          <Button onClick={() => void run()} disabled={kept.length === 0}>
+          <Button onClick={() => void run()} disabled={kept.length === 0} disabledReason={t('a11y.need_file')}>
             {t('merge.cta')}
           </Button>
           <SaveElsewhereButton disabled={kept.length === 0} onClick={() => void run('pick')} />

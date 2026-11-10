@@ -232,11 +232,11 @@ export function BlankPagesTool() {
           {verdicts.length === 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               {capped ? (
-                <Button onClick={() => void detect()} disabled={!src || probePending || Boolean(probeError) || busy}>
+                <Button onClick={() => void detect()} disabled={!src || probePending || Boolean(probeError) || busy} disabledReason={t('a11y.need_file')}>
                   {t('blank.cta_anyway')}
                 </Button>
               ) : (
-                <Button onClick={() => void detect()} disabled={!src || probePending || Boolean(probeError) || busy}>
+                <Button onClick={() => void detect()} disabled={!src || probePending || Boolean(probeError) || busy} disabledReason={t('a11y.need_file')}>
                   {t('blank.cta')}
                 </Button>
               )}

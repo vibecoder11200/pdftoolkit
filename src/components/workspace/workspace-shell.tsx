@@ -41,6 +41,13 @@ export function WorkspaceShell({
   useEffect(() => {
     markToolVisited();
   }, []);
+  // Run finished (progress pinned at 100): light up the last step so the
+  // strip never reads "still to do" next to a completion line.
+  const lastIdx = steps.length - 1;
+  const stepsView =
+    progress?.value === 100 && steps[lastIdx]?.state === 'todo'
+      ? steps.map((s, i) => (i === lastIdx ? { ...s, state: 'done' as const } : s))
+      : steps;
   return (
     <div className="mt-3.5 overflow-hidden rounded-2xl border border-border-default bg-surface-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-default px-5.5 py-4">
@@ -49,7 +56,7 @@ export function WorkspaceShell({
           <span className="text-[13px] text-text-muted tabular-nums">{meta}</span>
         ) : null}
         <div className="flex items-center gap-2 text-xs font-semibold text-text-muted" aria-label={t('a11y.progress')}>
-          {steps.map((s, i) => (
+          {stepsView.map((s, i) => (
             <span key={s.key} className="flex items-center gap-1.5">
               {i > 0 ? <span className="h-px w-5 bg-border-default" aria-hidden /> : null}
               <span
@@ -73,6 +80,7 @@ export function WorkspaceShell({
           <button
             type="button"
             aria-label={t('a11y.new_files')}
+            title={t('a11y.new_files')}
             className="grid min-h-10 min-w-10 place-items-center text-text-muted hover:text-text-primary"
             onClick={onNewFiles}
           >
@@ -88,28 +96,36 @@ export function WorkspaceShell({
         </div>
         <aside className="flex flex-col gap-3.5 bg-surface-sunken px-4.5 py-4">{side}</aside>
       </div>
-      <div className="flex flex-wrap items-center gap-3 border-t border-border-default px-5.5 py-3.5">
-        {onReselectAll ? (
-          <button
-            type="button"
-            aria-label={t('a11y.reselect')}
-            onClick={onReselectAll}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-border-strong bg-surface-card text-text-muted hover:text-text-primary"
-          >
-            <RefreshIcon size={17} />
-          </button>
-        ) : null}
-        {onReset ? (
-          <button
-            type="button"
-            aria-label={t('a11y.reset')}
-            onClick={onReset}
-            className="grid min-h-10 min-w-10 place-items-center text-text-muted hover:text-text-primary"
-          >
-            <ResetIcon size={17} />
-          </button>
-        ) : null}
-      </div>
+      {onReselectAll || onReset ? (
+        <div className="flex flex-wrap items-center gap-3 border-t border-border-default px-5.5 py-3.5">
+          {/* Labeled, not icon-only: the audit found users never discover a
+              bare ↺ in the footer — they leave for Home to "start over". */}
+          {onReselectAll ? (
+            <button
+              type="button"
+              aria-label={t('a11y.reselect')}
+              title={t('a11y.reselect')}
+              onClick={onReselectAll}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-strong bg-surface-card px-3.5 text-[13px] font-semibold text-text-muted hover:text-text-primary"
+            >
+              <RefreshIcon size={15} />
+              {t('a11y.reselect')}
+            </button>
+          ) : null}
+          {onReset ? (
+            <button
+              type="button"
+              aria-label={t('a11y.reset')}
+              title={t('a11y.reset')}
+              onClick={onReset}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-[13px] font-semibold text-text-muted hover:text-text-primary"
+            >
+              <ResetIcon size={15} />
+              {t('a11y.reset')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

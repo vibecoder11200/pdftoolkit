@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { appendPendingFiles } from '../../lib/handoff';
 import { outputFile } from '../../lib/output-file';
+import { deliverBytes } from '../../lib/download';
 import { TOOLS } from '../layout/tool-card';
 import { Dialog } from '../ui/dialog';
 
@@ -41,6 +42,7 @@ export function ContinueChip({
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [redownloading, setRedownloading] = useState(false);
 
   const currentSlug = useMemo(() => {
     const m = /\/tools\/([^/]+)/.exec(location.pathname);
@@ -76,6 +78,21 @@ export function ContinueChip({
     navigate(`/tools/${slug}`);
   };
 
+  // UX audit F8: the completion line is one muted sentence and the
+  // browser may have swallowed the auto-download — a visible re-download
+  // next to the chip fixes it without re-running the whole tool. Only
+  // for retained-output hosts (bytes prop); builder hosts build at
+  // click time and keep the single-chip view.
+  const redownload = async () => {
+    if (!bytes || !filename || redownloading) return;
+    setRedownloading(true);
+    try {
+      await deliverBytes(bytes, filename, 'download');
+    } finally {
+      setRedownloading(false);
+    }
+  };
+
   return (
     <>
       <button
@@ -89,6 +106,19 @@ export function ContinueChip({
         </svg>
         {t('chip.chip_label')}
       </button>
+      {bytes ? (
+        <button
+          type="button"
+          disabled={redownloading}
+          onClick={() => void redownload()}
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-strong bg-surface-card px-3.5 text-sm font-semibold text-text-muted hover:text-text-primary disabled:opacity-50"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 3v12m0 0-4-4m4 4 4-4m-8 6v4h16v-4" />
+          </svg>
+          {t('chip.redownload')}
+        </button>
+      ) : null}
       <Dialog open={open} onClose={() => setOpen(false)} title={t('chip.chip_title')}>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {targets.map((tool) => (

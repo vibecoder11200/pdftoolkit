@@ -1,12 +1,16 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
-type Size = 'md' | 'sm';
+type Size = 'sm' | 'md';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
   children: ReactNode;
+  /** Shown as a hover/focus tooltip when the button is disabled — native
+   * title is swallowed by disabled buttons in several browsers, so the
+   * reason rides a wrapping span (UX audit F10). */
+  disabledReason?: string;
 }
 
 const base =
@@ -24,8 +28,16 @@ const sizes: Record<Size, string> = {
   sm: 'min-h-9 px-3.5 text-[13px]',
 };
 
-export function Button({ variant = 'primary', size = 'md', className = '', ...rest }: ButtonProps) {
-  return <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest} />;
+export function Button({ variant = 'primary', size = 'md', className = '', disabledReason, ...rest }: ButtonProps) {
+  const cls = `${base} ${variants[variant]} ${sizes[size]} ${className}`;
+  if (rest.disabled && disabledReason) {
+    return (
+      <span title={disabledReason} className="inline-flex cursor-not-allowed">
+        <button className={cls} disabled {...rest} />
+      </span>
+    );
+  }
+  return <button className={cls} {...rest} />;
 }
 
 // token-mapped
