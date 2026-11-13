@@ -752,15 +752,25 @@ export function coalesceCompareMarks(marks: CompareMark[]): CompareMark[] {
 /** Text-level diff for AI-OCR scan pairs: whitespace tokens through the
  * exported lcsTokens, adjacent same-kind runs joined back into clause
  * strings. Pure — the clause panel renders these verbatim. */
-export function textDiffClauses(oldText: string, newText: string): { added: string[]; removed: string[] } {
+export type TextDiffResult =
+  | { kind: 'clauses'; added: string[]; removed: string[] }
+  | { kind: 'wholesale'; oldText: string; newText: string };
+
+export function textDiffClauses(oldText: string, newText: string): TextDiffResult {
   const a = oldText.split(/\s+/).filter((w) => w.length > 0);
   const b = newText.split(/\s+/).filter((w) => w.length > 0);
-  const ops = lcsTokens(a, b);
+  let ops: ReturnType<typeof lcsTokens>;
+  try {
+    ops = lcsTokens(a, b);
+  } catch (e) {
+    if (e instanceof LcsBudgetError) return { kind: 'wholesale', oldText, newText };
+    throw e;
+  }
   const added: string[] = [];
   const removed: string[] = [];
   for (const op of ops) {
     if (op.kind === 'delete') removed.push(op.aStart < op.aEnd ? a.slice(op.aStart, op.aEnd).join(' ') : '');
     else if (op.kind === 'insert') added.push(op.bStart < op.bEnd ? b.slice(op.bStart, op.bEnd).join(' ') : '');
   }
-  return { added: added.filter((s) => s.length > 0), removed: removed.filter((s) => s.length > 0) };
+  return { kind: 'clauses', added: added.filter((s) => s.length > 0), removed: removed.filter((s) => s.length > 0) };
 }

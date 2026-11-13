@@ -22,6 +22,17 @@ async function arrange(page: Page): Promise<void> {
       __tauriSetHandler: (cmd: string, fn: (payload?: unknown) => unknown) => void;
     };
     w.__tauriSetHandler('plugin:dialog|save', () => path);
+    // Phase-3 session writer (multi-output): ONE directory pick + token
+    // writes; the write handler reports the basename it received.
+    w.__tauriSetHandler('plugin:dialog|open', () => 'C:\\Users\\tester\\Documents\\wm-out');
+    w.__tauriSetHandler('save_session_begin', () => ({ token: 'tok' }));
+    w.__tauriSetHandler('save_session_write', (_payload: unknown, options?: unknown) => {
+      const name = decodeURIComponent(
+        (options as { headers?: { name?: string } } | undefined)?.headers?.name ?? '',
+      );
+      return { ok: true, path: 'C:\\Users\\tester\\Documents\\wm-out' + String.fromCharCode(92) + name };
+    });
+    w.__tauriSetHandler('save_session_end', () => null);
   }, SAVE_PATH);
 }
 
@@ -92,7 +103,7 @@ test('page-numbers preset run → native Save-As with -numbered.pdf', async ({ p
   expect(calls.filter((c) => c.cmd === 'plugin:fs|write_file').length).toBe(1);
 });
 
-test('folder batch → ONE Save-As dialog, sibling writes, named X/Y report', async ({
+test('folder batch → ONE directory pick + session writes, named X/Y report', async ({
   page,
 }) => {
   const dir = join('test-results', 'watermark-batch-desktop');
@@ -118,13 +129,18 @@ test('folder batch → ONE Save-As dialog, sibling writes, named X/Y report', as
   await expect(page.getByText(/2\/3 thành công/)).toBeVisible({ timeout: 60_000 });
   expect(await page.getByText(/2\/3 thành công/).textContent()).toContain('c-locked.pdf');
   const calls = await readCalls(page);
-  expect(calls.filter((c) => c.cmd === 'plugin:dialog|save').length).toBe(1);
-  const writes = calls.filter((c) => c.cmd === 'plugin:fs|write_file');
+  // Phase-3: ONE directory pick (plugin:dialog|open) + session-writer
+  // writes; no Save-As dialog, no plugin-fs sibling writes.
+  expect(calls.filter((c) => c.cmd === 'plugin:dialog|open').length).toBe(1);
+  expect(calls.filter((c) => c.cmd === 'plugin:dialog|save').length).toBe(0);
+  const writes = calls.filter((c) => c.cmd === 'save_session_write');
   expect(writes.length).toBe(2);
-  // First file at the picked path; the sibling lands beside it (folder cut
-  // from the picked path + its own name — saveBytesDesktopMulti).
-  expect(writePathOf(writes[0])).toBe(SAVE_PATH);
-  expect(writePathOf(writes[1])).toBe('C:\\Users\\tester\\Downloads\\b-pagenums-watermarked.pdf');
+  const names = writes.map((w) =>
+    decodeURIComponent((w.options as { headers: { name: string } }).headers.name),
+  );
+  expect(names).toEqual(['a-small-watermarked.pdf', 'b-pagenums-watermarked.pdf']);
+  // The locked third file never reaches the writer (processing gate).
+  expect(calls.filter((c) => c.cmd === 'save_session_begin').length).toBe(1);
   for (const w of writes) expect(payloadSizeOf(w)).toBeGreaterThan(1000);
   rmSync(dir, { recursive: true, force: true });
 });

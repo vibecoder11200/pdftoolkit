@@ -614,12 +614,13 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
   const total = queue.length;
 
   const chars: number[] = [];
-  const pagesItems = new Map<number, Item[]>();
+  const digitalMarkdown = new Map<number, string>();
   for (const [i, p] of queue.entries()) {
     const items = await extractPage(p);
     if (items.length > PDF2WORD_MAX_ITEMS_PER_PAGE) throw new Pdf2WordItemCapError(p, items.length);
-    pagesItems.set(p, items);
-    chars.push(items.reduce((n, item) => n + item.str.length, 0));
+    const charCount = items.reduce((n, item) => n + item.str.length, 0);
+    chars.push(charCount);
+    if (charCount >= PDF2WORD_CENSUS_MIN_CHARS) digitalMarkdown.set(p, pageToMarkdown(items));
     opts.onProgress?.(i + 1, total * 2); // extraction half + conversion half
   }
   // censusSample returns 1-based positions WITHIN the queue; chars is
@@ -650,7 +651,7 @@ export async function runPdf2Word(opts: Pdf2WordRunOptions): Promise<Pdf2WordRes
       markdown.push(ai);
       converted.push(p);
     } else {
-      markdown.push(pageToMarkdown(pagesItems.get(p)!));
+      markdown.push(digitalMarkdown.get(p)!);
     }
     opts.onProgress?.(total + i + 1, total * 2);
     await yieldToUi();

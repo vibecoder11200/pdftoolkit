@@ -15,12 +15,20 @@ const internals = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
 
-import { saveBytesDesktop, saveBytesDesktopMulti } from '../src/lib/desktop-save';
+import { saveBytesDesktop, saveSessionMulti } from '../src/lib/desktop-save';
 import {
   canSaveElsewhere,
   deliverBytes,
   deliverBytesMulti,
 } from '../src/lib/download';
+
+const sessionFs = () => (cmd: string) => {
+  if (cmd === 'plugin:dialog|open') return Promise.resolve('C:\\Users\\u\\Documents');
+  if (cmd === 'save_session_begin') return Promise.resolve({ token: 'tok' });
+  if (cmd === 'save_session_write') return Promise.resolve({ ok: true });
+  if (cmd === 'save_session_end') return Promise.resolve(null);
+  throw new Error(`unexpected command: ${cmd}`);
+};
 
 beforeEach(() => {
   delete globals[KEY];
@@ -73,27 +81,52 @@ describe('saveBytesDesktop', () => {
   });
 });
 
-describe('saveBytesDesktopMulti', () => {
-  it('one dialog; siblings are written beside the picked file', async () => {
-    internals.invoke.mockImplementation((cmd: string) => {
-      if (cmd === 'plugin:dialog|save') return Promise.resolve('C:\\Users\\u\\Downloads\\doc-part1.pdf');
-      if (cmd === 'plugin:fs|write_file') return Promise.resolve(null);
-      throw new Error(`unexpected command: ${cmd}`);
-    });
-    const ok = await saveBytesDesktopMulti([
+describe('saveSessionMulti (phase-3 session writer)', () => {
+  it('one directory pick; siblings ride per-entry writes as raw bytes + name header', async () => {
+    internals.invoke.mockImplementation(sessionFs());
+    const report = await saveSessionMulti([
       { bytes, filename: 'doc-part1.pdf' },
       { bytes, filename: 'doc-part2.pdf' },
       { bytes, filename: 'doc-part3.pdf' },
     ]);
-    expect(ok).toBe(true);
-    const writes = internals.invoke.mock.calls
-      .filter((c) => c[0] === 'plugin:fs|write_file')
-      .map((c) => decodeURIComponent((c[2] as { headers: { path: string } }).headers.path));
-    expect(writes).toEqual([
-      'C:\\Users\\u\\Downloads\\doc-part1.pdf',
-      'C:\\Users\\u\\Downloads\\doc-part2.pdf',
-      'C:\\Users\\u\\Downloads\\doc-part3.pdf',
+    expect(report.overall).toBe('complete');
+    const writes = internals.invoke.mock.calls.filter((c) => c[0] === 'save_session_write');
+    expect(writes).toHaveLength(3);
+    const names = writes.map((c) =>
+      decodeURIComponent((c[2] as { headers: { name: string } }).headers.name),
+    );
+    expect(names).toEqual(['doc-part1.pdf', 'doc-part2.pdf', 'doc-part3.pdf']);
+    // bytes ride the raw body (plugin-fs raw-body invoke pattern)
+    expect(new Uint8Array(writes[0]?.[1] as ArrayBuffer).length).toBe(bytes.length);
+    // path never crosses the write IPC
+    expect(writes.every((c) => JSON.stringify(c[1]).includes('C:'))).toBe(false);
+    expect(internals.invoke.mock.calls.at(-1)?.[0]).toBe('save_session_end');
+  });
+
+  it('cancelled pick → cancelled report, no session commands', async () => {
+    internals.invoke.mockImplementation((cmd: string) =>
+      cmd === 'plugin:dialog|open' ? Promise.resolve(null) : Promise.resolve(null),
+    );
+    const report = await saveSessionMulti([{ bytes, filename: 'a.pdf' }]);
+    expect(report.overall).toBe('cancelled');
+    expect(internals.invoke.mock.calls.some((c) => c[0].startsWith('save_session_'))).toBe(false);
+  });
+
+  it('end runs in finally even when a write rejects', async () => {
+    internals.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'plugin:dialog|open') return Promise.resolve('C:\\d');
+      if (cmd === 'save_session_begin') return Promise.resolve({ token: 'tok' });
+      if (cmd === 'save_session_write') return Promise.reject(new Error('disk full'));
+      if (cmd === 'save_session_end') return Promise.resolve(null);
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const report = await saveSessionMulti([
+      { bytes, filename: 'a.pdf' },
+      { bytes, filename: 'b.pdf' },
     ]);
+    expect(report.overall).toBe('failed');
+    expect(report.entries.every((e) => e.status === 'failed' && e.error === 'disk full')).toBe(true);
+    expect(internals.invoke.mock.calls.at(-1)?.[0]).toBe('save_session_end');
   });
 });
 
@@ -106,18 +139,17 @@ describe('deliverBytes desktop routing', () => {
     expect(internals.invoke.mock.calls.some((c) => c[0] === 'plugin:dialog|save')).toBe(true);
   });
 
-  it('deliverBytesMulti goes through one dialog on desktop', async () => {
-    internals.invoke.mockImplementation((cmd: string) =>
-      cmd === 'plugin:dialog|save' ? Promise.resolve('C:\\a-part1.pdf') : Promise.resolve(null),
-    );
-    const ok = await deliverBytesMulti([
+  it('deliverBytesMulti picks ONE directory via the folder dialog on desktop', async () => {
+    internals.invoke.mockImplementation(sessionFs());
+    const report = await deliverBytesMulti([
       { bytes, filename: 'a-part1.pdf' },
       { bytes, filename: 'a-part2.pdf' },
     ]);
-    expect(ok).toBe(true);
+    expect(report.overall).toBe('complete');
     expect(
-      internals.invoke.mock.calls.filter((c) => c[0] === 'plugin:dialog|save'),
+      internals.invoke.mock.calls.filter((c) => c[0] === 'plugin:dialog|open'),
     ).toHaveLength(1);
+    expect(internals.invoke.mock.calls.some((c) => c[0] === 'plugin:dialog|save')).toBe(false);
   });
 });
 

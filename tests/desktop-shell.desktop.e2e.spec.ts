@@ -34,6 +34,19 @@ test.beforeEach(async ({ page }) => {
         calls.push({ cmd, payload, options });
         if (cmd === 'plugin:dialog|save')
           return Promise.resolve('C:\\Users\\tester\\Downloads\\merged.pdf');
+        if (cmd === 'plugin:dialog|open')
+          return Promise.resolve('C:\\Users\\tester\\Documents\\shell-out');
+        if (cmd === 'save_session_begin') return Promise.resolve({ token: 'tok' });
+        if (cmd === 'save_session_write') {
+          const name = decodeURIComponent(
+            (options as { headers?: { name?: string } } | undefined)?.headers?.name ?? '',
+          );
+          return Promise.resolve({
+            ok: true,
+            path: 'C:\\Users\\tester\\Documents\\shell-out' + String.fromCharCode(92) + name,
+          });
+        }
+        if (cmd === 'save_session_end') return Promise.resolve(null);
         if (cmd === 'initial_open_files') return Promise.resolve([]);
         if (cmd === 'plugin:event|listen') return Promise.resolve(1);
         return Promise.resolve(null);
@@ -145,7 +158,7 @@ test('every tool page renders at its desktop root path; convert shows coming-soo
   await expect(page.locator('main')).toContainText(/đang phát triển|coming soon/i);
 });
 
-test('split multi-output: ONE dialog, parts written beside the pick', async ({ page }) => {
+test('split multi-output: ONE directory pick, session-writer part writes', async ({ page }) => {
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => {
     if (m.type() === 'error') console.log('[console.error]', m.text());
@@ -162,28 +175,31 @@ test('split multi-output: ONE dialog, parts written beside the pick', async ({ p
   await page.getByText(/File có [1-9]\d* trang/).waitFor({ timeout: 30_000 });
   // default mode is 'separate' → deliverBytesMulti path
   await page.getByRole('button', { name: 'Tách và tải xuống' }).click();
+  // Phase-3 contract: ONE directory pick + session-writer writes, one ask
+  // per BATCH (never per part), basename-only writes.
   await page.waitForFunction(
     () =>
       (window as unknown as { __desktopCalls: DesktopCall[] }).__desktopCalls.filter(
-        (c) => c.cmd === 'plugin:fs|write_file',
+        (c) => c.cmd === 'save_session_write',
       ).length >= 2,
     undefined,
     { timeout: 60_000 },
   );
   const calls = await readCalls(page);
-  const dialogSaves = calls.filter((c) => c.cmd === 'plugin:dialog|save');
-  expect(dialogSaves).toHaveLength(1); // one ask, not one per part
-  const paths = calls
-    .filter((c) => c.cmd === 'plugin:fs|write_file')
-    .map((c) =>
-      decodeURIComponent((c.options as { headers: { path: string } }).headers.path),
-    );
-  expect(paths).toEqual([
-    // Contract: the FIRST part is written to the exact picked path (the user
-    // may have renamed it in the dialog); siblings are derived beside it.
-    PICKED,
-    'C:\\Users\\tester\\Downloads\\fixture-small-part2.pdf',
-  ]);
+  expect(calls.filter((c) => c.cmd === 'plugin:dialog|open')).toHaveLength(1);
+  expect(calls.filter((c) => c.cmd === 'plugin:dialog|save')).toHaveLength(0);
+  const writes = calls.filter((c) => c.cmd === 'save_session_write');
+  const names = writes.map((w) =>
+    decodeURIComponent(
+      (w.options as { headers: { name: string } }).headers.name,
+    ),
+  );
+  expect(names).toEqual(['fixture-small-part1.pdf', 'fixture-small-part2.pdf']);
+  for (const w of writes) {
+    // no path ever rides a write command (basename + token only)
+    expect(JSON.stringify(w.payload ?? null)).not.toContain('C:');
+  }
+  expect(calls.at(-1)?.cmd).toBe('save_session_end');
 });
 
 test('pdf-to-img: 2-page PDF saves one zip through the dialog (no browser download)', async ({

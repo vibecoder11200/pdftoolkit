@@ -45,6 +45,10 @@ export const TOOLS: ToolDef[] = [
   { slug: 'pdf-to-word', icon: 'M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM14 3v6h6M12 12h8m0 0-3-3m3 3-3 3', tone: 'bg-tone-green-soft text-tone-green', category: 'opt', acceptsPdf: true },
   { slug: 'compare', icon: 'M8 3v6a2 2 0 0 1-2 2H4m0 0 3-3m-3 3 3 3M16 21v-6a2 2 0 0 1 2-2h2m0 0-3 3m3-3-3-3', tone: 'bg-tone-blue-soft text-tone-blue', category: 'opt', acceptsPdf: true },
   { slug: 'blank-pages', icon: 'M4 5h16M4 12h16M4 19h10M18 15v6m0-6 3 3m-3-3-3 3', tone: 'bg-tone-orange-soft text-tone-orange', category: 'org', acceptsPdf: true },
+  { slug: 'organize', icon: 'M3 5h7v7H3V5Zm11 0h7v7h-7V5ZM3 14h7v7H3v-7Zm11 3h7m-7 0 3 3m-3-3-3 3', tone: 'bg-tone-teal-soft text-tone-teal', category: 'org', multiFile: true, acceptsPdf: true },
+  { slug: 'tables', icon: 'M4 5h16M4 12h16M4 19h16M9 5v14M15 5v14', tone: 'bg-tone-blue-soft text-tone-blue', category: 'org', acceptsPdf: true },
+  { slug: 'diagnostics', icon: 'M12 3v3m0 12v3m-9-9h3m12 0h3M5.6 5.6l2.2 2.2m8.4 8.4l2.2 2.2m0-12.8l-2.2 2.2m-8.4 8.4l-2.2 2.2M12 8a4 4 0 100 8 4 4 0 000-8z', tone: 'bg-tone-green-soft text-tone-green', category: 'sec', acceptsPdf: true },
+  { slug: 'scan-cleanup', icon: 'M4 4h16v16H4V4Zm4 8 3 3 5-6', tone: 'bg-tone-green-soft text-tone-green', category: 'opt', acceptsPdf: true },
 ];
 
 export function ToolCard({ tool }: { tool: ToolDef }) {

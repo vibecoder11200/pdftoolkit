@@ -16,6 +16,10 @@ use tauri::{Emitter, Manager, WindowEvent};
 // module directly, and the fake-child hook in main.rs routes through it.
 pub mod native_engine;
 
+// Phase-3 session-token save writer: one held directory handle per batch;
+// writes are token + basename + raw bytes only (see save_writer.rs header).
+pub mod save_writer;
+
 /// Filter argv down to real files (drops the exe path and junk args), lossy-
 /// encoding non-UTF8 paths exactly like the emit payload will.
 fn files_from_args(args: &[String]) -> Vec<std::path::PathBuf> {
@@ -234,6 +238,107 @@ async fn restart_with_gpu_force(
     std::process::exit(0);
 }
 
+/* ------------------- phase-3 save smoke (debug builds) ------------------ */
+/*
+ * Actual-host gate driver: launched with `--save-smoke <report.json>`, the
+ * app opens the REAL native folder picker once (the same blocking_pick_folder
+ * the plugin's `open {directory}` command uses), then drives the phase-3
+ * session writer against the picked directory and writes a JSON report via
+ * std::fs before exiting. The picker itself is driven externally by a UIA
+ * script (temp/full-document-workflows/save-smoke-uia.ps1) — no mock, no
+ * in-app controller. Debug builds only; never ships in release.
+ */
+#[cfg(debug_assertions)]
+fn maybe_start_save_smoke(app: tauri::AppHandle) {
+    let args: Vec<String> = std::env::args().collect();
+    let Some(pos) = args.iter().position(|a| a == "--save-smoke") else {
+        return;
+    };
+    let Some(report_path) = args.get(pos + 1).cloned() else {
+        eprintln!("[save-smoke] missing report path argument");
+        std::process::exit(2);
+    };
+    let initial_dir = args.get(pos + 2).cloned();
+    std::thread::spawn(move || {
+        use tauri_plugin_dialog::DialogExt;
+        let t0 = std::time::Instant::now();
+        let stamp = |msg: &str| {
+            eprintln!("[save-smoke t={:?}] {}", t0.elapsed(), msg);
+        };
+        stamp("thread started");
+        let mut report = serde_json::json!({
+            "platform": std::env::consts::OS,
+            "debug_build": true,
+            "picker": null,
+            "steps": [],
+        });
+        let builder = app
+            .dialog()
+            .file()
+            .set_title("pdftoolkit save smoke - pick a folder");
+        let builder = match &initial_dir {
+            Some(d) => builder.set_directory(d),
+            None => builder,
+        };
+        let picked = builder.blocking_pick_folder();
+        stamp("blocking_pick_folder returned");
+        let Some(picked) = picked else {
+            report["picker"] = serde_json::json!({ "picked": false, "at_ms": t0.elapsed().as_millis() as u64 });
+            let _ = std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap());
+            stamp("report written; exiting");
+            std::process::exit(0);
+        };
+        let dir = picked.into_path().expect("picked path");
+        report["picker"] = serde_json::json!({ "picked": true, "dir": dir.to_string_lossy() });
+        let state = app.state::<save_writer::SaveWriterState>();
+        let mut step = |name: &str, ok: bool, detail: String| {
+            report["steps"].as_array_mut().unwrap().push(serde_json::json!({
+                "step": name, "ok": ok, "detail": detail,
+            }));
+        };
+        match state.begin(&dir.to_string_lossy()) {
+            Ok(token) => {
+                // 1. allowed write into the chosen directory
+                let ok = state.write_file(&token, "smoke-allowed.txt", b"chosen-dir-write");
+                match &ok {
+                    Ok(o) if o.ok => {
+                        let on_disk = std::fs::read(dir.join("smoke-allowed.txt"));
+                        step("write_chosen_dir", on_disk.map(|b| b == b"chosen-dir-write").unwrap_or(false), format!("{o:?}"));
+                    }
+                    other => step("write_chosen_dir", false, format!("{other:?}")),
+                }
+                // 2. no-clobber: same name again must suffix, original intact
+                let again = state.write_file(&token, "smoke-allowed.txt", b"second");
+                match &again {
+                    Ok(o) if o.ok => {
+                        let first = std::fs::read(dir.join("smoke-allowed.txt"));
+                        let second = std::fs::read(dir.join("smoke-allowed-2.txt"));
+                        let ok2 = first.map(|b| b == b"chosen-dir-write").unwrap_or(false)
+                            && second.map(|b| b == b"second").unwrap_or(false);
+                        step("no_clobber_suffix", ok2, format!("{o:?}"));
+                    }
+                    other => step("no_clobber_suffix", false, format!("{other:?}")),
+                }
+                // 3. traversal refused at the Rust gate
+                let trav = state.write_file(&token, "..\\escape.txt", b"x");
+                step("traversal_refused", trav.is_err(), format!("{trav:?}"));
+                // 4. cleanup: end leaves no .pdftk-partial behind
+                state.end(&token);
+                let leftovers: Vec<String> = std::fs::read_dir(&dir)
+                    .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(".pdftk-partial")).collect())
+                    .unwrap_or_default();
+                step("no_partials_left", leftovers.is_empty(), format!("{leftovers:?}"));
+            }
+            Err(e) => step("begin", false, e),
+        }
+        let _ = std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap());
+        std::process::exit(0);
+    });
+}
+
+#[cfg(not(debug_assertions))]
+fn maybe_start_save_smoke(_app: tauri::AppHandle) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(is_flag_restart_child: bool) {
     let builder = tauri::Builder::default();
@@ -289,10 +394,25 @@ pub fn run(is_flag_restart_child: bool) {
             native_engine::ipc::native_cancel,
             native_engine::ipc::native_engine_delete,
             native_engine::ipc::native_engine_start,
-            native_engine::ipc::native_ocr_page
+            native_engine::ipc::native_ocr_page,
+            save_writer::save_session_begin,
+            save_writer::save_session_write,
+            save_writer::save_session_end
         ])
         .manage(std::sync::Arc::new(native_engine::NativeEngineState::new()))
+        .manage(save_writer::SaveWriterState::new())
         .setup(|app| {
+            // Phase-3 save smoke (debug): the webview window races the modal
+            // folder picker for activation and intermittently dismisses it
+            // (picked: None). The smoke drives the session writer directly,
+            // so with the flag present we close the webview BEFORE the
+            // event loop starts — the picker runs owner-less and stable.
+            #[cfg(debug_assertions)]
+            if std::env::args().any(|a| a == "--save-smoke") {
+                for w in app.webview_windows().values() {
+                    let _ = w.close();
+                }
+            }
             // Stray sweep at startup (R2.7): MANDATORY on Unix (review F6 —
             // `std::process::exit` in the restart path skips the supervisor's
             // Drop), logged escalation on Windows (Risk 1's third line — also
@@ -338,6 +458,9 @@ pub fn run(is_flag_restart_child: bool) {
             // arms tear the engine down (graceful, bounded — see
             // shutdown_all), with the blocking kill as the final belt.
             match event {
+                tauri::RunEvent::Ready => {
+                    maybe_start_save_smoke(app.clone());
+                }
                 // macOS Finder "Open with" while running.
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
@@ -348,7 +471,21 @@ pub fn run(is_flag_restart_child: bool) {
                     let payload = grant_and_collect(app, &paths);
                     deliver_paths(app, payload, "desktop://open-files");
                 }
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                tauri::RunEvent::ExitRequested { ref api, .. } => {
+                    // Save-smoke mode is windowless by design (the webview
+                    // races the modal picker); keep the app alive until the
+                    // smoke thread exit(0)s.
+                    #[cfg(debug_assertions)]
+                    if std::env::args().any(|a| a == "--save-smoke") {
+                        api.prevent_exit();
+                    }
+                    let state: tauri::State<std::sync::Arc<native_engine::NativeEngineState>> =
+                        app.state();
+                    tauri::async_runtime::block_on(native_engine::supervisor::shutdown_all(
+                        state.inner(),
+                    ));
+                }
+                tauri::RunEvent::Exit => {
                     let state: tauri::State<std::sync::Arc<native_engine::NativeEngineState>> =
                         app.state();
                     tauri::async_runtime::block_on(native_engine::supervisor::shutdown_all(

@@ -1,12 +1,14 @@
 import {
   PDFDocument,
   PDFArray,
+  PDFBool,
   PDFDict,
   PDFHexString,
   PDFName,
   PDFNull,
   PDFNumber,
   PDFRawStream,
+  PDFRef,
   PDFString,
   degrees,
   rgb,
@@ -3095,7 +3097,7 @@ function annotColor(hex: string | undefined): import('pdf-lib').RGB {
  * ByteRange (/FT /Sig + /V /ByteRange, depth <= 8) — a full pdf-lib rewrite
  * invalidates such signatures, so every mutating op refuses up front
  * (review decision 2026-10-27: one posture with redactFinalize). */
-function docHasDigitalSignature(doc: import('pdf-lib').PDFDocument): boolean {
+export function docHasDigitalSignature(doc: import('pdf-lib').PDFDocument): boolean {
   const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
   if (!(acro instanceof PDFDict)) return false;
   const fields = doc.context.lookup(acro.get(PDFName.of('Fields')));
@@ -3990,4 +3992,554 @@ export async function cropPages(
     page.setCropBox(cx0, cy0, cx1 - cx0, cy1 - cy0);
   }
   return doc.save({ useObjectStreams: false });
+}
+
+// ---- Organizer composer (phase 4, plan 261112-0955) — append-only section -
+// ONE composer for the whole-organizer export: sources load ONCE, the
+// output materializes ONCE. Forms (AcroForm fields/widgets), local links,
+// named destinations and bookmarks are remapped to surviving output pages;
+// targets that did not survive are REPORTED, never left stale. Signed
+// sources refuse BEFORE any mutation (shared posture with redactFinalize).
+
+export interface OrganizePagePlanSource {
+  kind: 'source';
+  /** Index into the sources array (0-based). */
+  source: number;
+  /** 1-based page within that source. */
+  page: number;
+  /** Absolute displayed rotation for the output page. */
+  rotation?: number;
+}
+
+export interface OrganizePagePlanBlank {
+  kind: 'blank';
+  widthPt: number;
+  heightPt: number;
+  rotation?: number;
+}
+
+export type OrganizePagePlan = OrganizePagePlanSource | OrganizePagePlanBlank;
+
+export interface OrganizeBookmarkWrite {
+  title: string;
+  /** 1-based OUTPUT page index; omit for a container node. */
+  destPage?: number;
+  view?: { kind: 'fit' | 'xyz'; x?: number; y?: number; zoom?: number };
+  children?: OrganizeBookmarkWrite[];
+}
+
+export interface OrganizeExportReport {
+  /** Deterministic field renames applied on fully-qualified-name collision. */
+  fieldRenames: Record<string, string>;
+  /** Named destinations that pointed outside the exported selection. */
+  unresolvedDests: string[];
+  /** Local links whose target page did not survive (dest removed, link inert). */
+  droppedLinks: number;
+  /** Bookmark nodes whose destPage fell outside the output. */
+  unresolvedBookmarks: string[];
+}
+
+export class OrganizeUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrganizeUnsupportedError';
+  }
+}
+
+/* Normalize the source's explicit dests to page-NUMBER form before copying:
+ * [pageRef /XYZ ...] -> [PDFNumber(pageIdx) /XYZ ...]. The copier then
+ * carries the number verbatim, and the post-copy pass rewrites numbers to
+ * the SURVIVING output page refs deterministically. Mutates OUR loaded
+ * source copy (never user bytes). Returns the count of rewritten dests. */
+function normalizeSourceDests(src: PDFDocument): number {
+  const pages = src.getPages();
+  const refToIdx = new Map<string, number>();
+  for (let i = 0; i < pages.length; i += 1) refToIdx.set(String(pages[i]!.ref), i + 1);
+  let rewritten = 0;
+  const fixDest = (arr: PDFArray): void => {
+    const first = arr.get(0);
+    const idx = refToIdx.get(String(first));
+    if (idx !== undefined && !(first instanceof PDFNumber)) {
+      arr.set(0, PDFNumber.of(idx));
+      rewritten += 1;
+    }
+  };
+  for (const page of pages) {
+    const pDict = src.context.lookup(page.ref);
+    if (!(pDict instanceof PDFDict)) continue;
+    const annots = src.context.lookup(pDict.get(PDFName.of('Annots')));
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = 0; i < annots.size(); i += 1) {
+      const a = src.context.lookup(annots.get(i));
+      if (!(a instanceof PDFDict)) continue;
+      const subtype = a.get(PDFName.of('Subtype'));
+      const isLink = subtype instanceof PDFName && subtype.asString() === '/Link';
+      const dest = a.get(PDFName.of('Dest'));
+      if (dest !== undefined) {
+        const dArr = src.context.lookup(dest);
+        if (dArr instanceof PDFArray) fixDest(dArr);
+      } else if (isLink) {
+        const action = src.context.lookup(a.get(PDFName.of('A')));
+        if (action instanceof PDFDict) {
+          const s = action.get(PDFName.of('S'));
+          const d = action.get(PDFName.of('D'));
+          if (s instanceof PDFName && s.asString() === '/GoTo' && d !== undefined) {
+            const dArr = src.context.lookup(d);
+            if (dArr instanceof PDFArray) fixDest(dArr);
+          }
+        }
+      }
+    }
+  }
+  return rewritten;
+}
+
+/** The phase-4 organizer export composer. Sources load ONCE; output
+ * materializes ONCE. Refusals happen BEFORE any mutation. */
+export async function organizeExport(
+  sources: Uint8Array[],
+  pages: OrganizePagePlan[],
+  bookmarks: OrganizeBookmarkWrite[] = [],
+): Promise<{ bytes: Uint8Array; report: OrganizeExportReport }> {
+  if (pages.length === 0) {
+    throw new OrganizeUnsupportedError('organize: empty page list produces an invalid PDF');
+  }
+  const report: OrganizeExportReport = {
+    fieldRenames: {},
+    unresolvedDests: [],
+    droppedLinks: 0,
+    unresolvedBookmarks: [],
+  };
+  // Load each source ONCE + preflight refusals (signed, XFA).
+  const docs: PDFDocument[] = [];
+  for (let i = 0; i < sources.length; i += 1) {
+    const doc = await PDFDocument.load(sources[i]!, { ignoreEncryption: false });
+    if (docHasDigitalSignature(doc)) {
+      throw new OrganizeUnsupportedError(
+        `organize: source ${i + 1} carries a digital signature — mutation refused`,
+      );
+    }
+    const acro = doc.context.lookup(doc.catalog.get(PDFName.of('AcroForm')));
+    if (acro instanceof PDFDict && acro.has(PDFName.of('XFA'))) {
+      throw new OrganizeUnsupportedError(
+        `organize: source ${i + 1} uses XFA forms — unsupported, refused before mutation`,
+      );
+    }
+    normalizeSourceDests(doc);
+    docs.push(doc);
+  }
+
+  const out = await PDFDocument.create();
+  /** sourceIdentity -> FIRST output index (1-based). Duplicate copies map
+   * to the original instance (plan: duplicate target stays original). */
+  const firstOutOfSource = new Map<string, number>();
+  /** Output index (1-based) -> out page object (for dest rewrites). */
+  const outPages: import('pdf-lib').PDFPage[] = [];
+  /** Root AcroForm field dicts collected per source (object-keyed). */
+  const fieldRoots = new Map<PDFDict, PDFRef>();
+
+  for (let i = 0; i < pages.length; i += 1) {
+    const plan = pages[i]!;
+    if (plan.kind === 'blank') {
+      const p = out.addPage([plan.widthPt, plan.heightPt]);
+      if (plan.rotation) applyOutRotation(p, plan.rotation);
+      outPages.push(p);
+      continue;
+    }
+    const src = docs[plan.source];
+    if (!src) throw new OrganizeUnsupportedError(`organize: missing source ${plan.source}`);
+    const pageIdx = plan.page - 1;
+    if (pageIdx < 0 || pageIdx >= src.getPageCount()) {
+      throw new OrganizeUnsupportedError(`organize: source ${plan.source} has no page ${plan.page}`);
+    }
+    // ONE page per copyPages call: duplicate plan entries produce
+    // independent copies (no shared object graphs between duplicates).
+    const [copied] = await out.copyPages(src, [pageIdx]);
+    out.addPage(copied);
+    const outPage = out.getPages()[out.getPageCount() - 1]!;
+    if (plan.rotation !== undefined) applyOutRotation(outPage, plan.rotation);
+    outPages.push(outPage);
+    const key = `${plan.source}:${plan.page}`;
+    if (!firstOutOfSource.has(key)) firstOutOfSource.set(key, i + 1);
+    collectFieldRoots(out, outPage, fieldRoots);
+  }
+
+  // ---- AcroForm assembly -------------------------------------------------
+  // Field dicts were copied transitively and registered in out context;
+  // assemble /AcroForm with their refs (shared radio roots dedupe by
+  // object identity), rename on fully-qualified-name collision.
+  if (fieldRoots.size > 0) {
+    const acroDict = out.context.obj({});
+    const acroRef = out.context.register(acroDict);
+    const fieldsArr = out.context.obj([...fieldRoots.values()]);
+    acroDict.set(PDFName.of('Fields'), fieldsArr);
+    // Viewers regenerate appearances (values already ride /V on the
+    // copied field dicts).
+    acroDict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+    out.catalog.set(PDFName.of('AcroForm'), acroRef);
+    const seen = new Set<string>();
+    for (const [rootDict, rootRef] of fieldRoots) {
+      const name = resolveQualifiedName(rootDict);
+      if (seen.has(name)) {
+        let n = 2;
+        let candidate = `${name}#${n}`;
+        while (seen.has(candidate)) {
+          n += 1;
+          candidate = `${name}#${n}`;
+        }
+        rootDict.set(PDFName.of('T'), PDFHexString.fromText(candidate));
+        report.fieldRenames[name] = candidate;
+        seen.add(candidate);
+        void rootRef;
+      } else {
+        seen.add(name);
+      }
+    }
+  }
+
+  // ---- Link dest remap ----------------------------------------------------
+  // Copied dest arrays carry source page NUMBERS (normalizeSourceDests);
+  // rewrite to surviving output page refs; drop + report the rest.
+  for (const outPage of outPages) {
+    const pDict = outPage.node;
+    const annots = out.context.lookup(pDict.get(PDFName.of('Annots')));
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = 0; i < annots.size(); i += 1) {
+      const a = out.context.lookup(annots.get(i));
+      if (!(a instanceof PDFDict)) continue;
+      const dest = a.get(PDFName.of('Dest'));
+      const targetArr = dest !== undefined ? out.context.lookup(dest) : null;
+      const action = dest === undefined ? out.context.lookup(a.get(PDFName.of('A'))) : null;
+      const actionArr =
+        action instanceof PDFDict ? out.context.lookup(action.get(PDFName.of('D'))) : null;
+      const arr = targetArr instanceof PDFArray ? targetArr : actionArr instanceof PDFArray ? actionArr : null;
+      if (!arr) continue;
+      const first = arr.get(0);
+      if (!(first instanceof PDFNumber)) continue; // named string or already a ref
+      // Which source did this page come from? A link can only originate
+      // from a source-copied page; find its plan entry.
+      const origin = planIndexOfPage(outPages.indexOf(outPage) + 1, pages);
+      if (origin === null) continue;
+      const key = `${origin.source}:${first.asNumber()}`;
+      const newIdx = firstOutOfSource.get(key);
+      if (newIdx === undefined) {
+        // Target page not part of the output: inert link + report.
+        if (dest !== undefined) a.delete(PDFName.of('Dest'));
+        else a.delete(PDFName.of('A'));
+        report.droppedLinks += 1;
+        continue;
+      }
+      const mode = arr.get(1);
+      const viewArr =
+        mode instanceof PDFName && mode.asString() === '/XYZ'
+          ? out.context.obj([
+              outPages[newIdx - 1]!.ref,
+              mode,
+              safeNum(out.context, arr, 2),
+              safeNum(out.context, arr, 3),
+              safeNum(out.context, arr, 4),
+            ])
+          : out.context.obj([outPages[newIdx - 1]!.ref, mode ?? PDFName.of('Fit')]);
+      if (dest !== undefined) a.set(PDFName.of('Dest'), viewArr);
+      else if (action instanceof PDFDict) action.set(PDFName.of('D'), viewArr);
+    }
+  }
+
+  // ---- Named destinations remap ------------------------------------------
+  // Source named dests whose target survived get re-registered on the out
+  // name tree with the remapped page ref; the rest are reported.
+  await remapNamedDests(docs, out, firstOutOfSource, report);
+
+  // ---- Bookmarks write -----------------------------------------------------
+  if (bookmarks.length > 0) writeOutlines(out, bookmarks, report);
+
+  return { bytes: await out.save({ useObjectStreams: false }), report };
+}
+
+/* --------------------- organizer composer helpers -------------------------- */
+
+
+/* --------------------- organizer composer helpers -------------------------- */
+
+function applyOutRotation(page: import('pdf-lib').PDFPage, rotation: number): void {
+  page.setRotation({ type: 'degrees', angle: ((rotation % 360) + 360) % 360 } as never);
+}
+
+/** Is this annot dict a form widget? */
+function isWidgetAnnot(a: PDFDict): boolean {
+  const st = a.get(PDFName.of('Subtype'));
+  return st instanceof PDFName && st.asString() === '/Widget';
+}
+
+/** Ref for a dict already registered in this context (the copier
+ * registers copied dicts as indirect objects); registers direct objects. */
+function refOfOrRegister(ctx: import('pdf-lib').PDFContext, dict: PDFDict): PDFRef {
+  // enumerateIndirectObjects finds the ref by object identity.
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    if (obj === dict) return ref;
+  }
+  return ctx.register(dict);
+}
+
+/** Walk the copied page's widget annots; collect ROOT field dicts
+ * (object-keyed) with refs. Radio roots spanning pages dedupe by identity. */
+function collectFieldRoots(
+  out: PDFDocument,
+  outPage: import('pdf-lib').PDFPage,
+  fieldRoots: Map<PDFDict, PDFRef>,
+): void {
+  const ctx = out.context;
+  const pDict = ctx.lookup(outPage.ref);
+  if (!(pDict instanceof PDFDict)) return;
+  const annots = ctx.lookup(pDict.get(PDFName.of('Annots')));
+  if (!(annots instanceof PDFArray)) return;
+  for (let i = 0; i < annots.size(); i += 1) {
+    const a = ctx.lookup(annots.get(i));
+    if (!(a instanceof PDFDict)) continue;
+    if (!isWidgetAnnot(a)) continue;
+    let cursor: PDFDict = a;
+    for (let depth = 0; depth < 16; depth += 1) {
+      const parent = cursor.get(PDFName.of('Parent'));
+      if (parent === undefined) break;
+      const parentDict = ctx.lookup(parent);
+      if (!(parentDict instanceof PDFDict)) break;
+      cursor = parentDict;
+    }
+    if (cursor !== a && !fieldRoots.has(cursor)) {
+      fieldRoots.set(cursor, refOfOrRegister(ctx, cursor));
+    }
+  }
+}
+
+/** Name-key decode across PDFString/PDFHexString/other key shapes. */
+function decodePdfTextName(k: import('pdf-lib').PDFObject): string {
+  if (k instanceof PDFHexString) return decodePdfText(k.asBytes());
+  if (k instanceof PDFString) return k.asString();
+  return k.toString();
+}
+
+/** Fully-qualified field name of a root dict (/T, UTF-16 or plain). */
+function resolveQualifiedName(rootDict: PDFDict): string {
+  const t = rootDict.get(PDFName.of('T'));
+  if (t instanceof PDFHexString) return decodePdfText(t.asBytes());
+  if (t instanceof PDFString) return decodePdfText(t.asBytes());
+  return '';
+}
+
+function decodePdfText(bytes: Uint8Array): string {
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let out = '';
+    for (let i = 2; i + 1 < bytes.length; i += 2) {
+      out += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!);
+    }
+    return out;
+  }
+  let out = '';
+  for (const b of bytes) out += String.fromCharCode(b);
+  return out;
+}
+
+/** Output index (1-based) -> the plan entry that produced it. */
+function planIndexOfPage(
+  newPageNumber: number,
+  pages: OrganizePagePlan[],
+): { source: number; page: number } | null {
+  const plan = pages[newPageNumber - 1];
+  return plan && plan.kind === 'source' ? { source: plan.source, page: plan.page } : null;
+}
+
+function safeNum(ctx: import('pdf-lib').PDFContext, arr: PDFArray, i: number): import('pdf-lib').PDFObject {
+  const v = ctx.lookup(arr.get(i));
+  return v instanceof PDFNumber ? v : PDFNumber.of(0);
+}
+
+/** Re-register surviving named dests on the output name tree (one flat
+ * Names array; bounded by source count). Missing targets reported. */
+async function remapNamedDests(
+  docs: PDFDocument[],
+  out: PDFDocument,
+  firstOutOfSource: Map<string, number>,
+  report: OrganizeExportReport,
+): Promise<void> {
+  const entries: Array<[string, BookmarkWriteDest]> = [];
+  for (let s = 0; s < docs.length; s += 1) {
+    const parsed = await parseOutlinesForDests(docs[s]!);
+    for (const [name, dest] of parsed) {
+      const outIdx = dest.kind === 'page' ? firstOutOfSource.get(`${s}:${dest.page}`) : undefined;
+      if (outIdx === undefined) {
+        report.unresolvedDests.push(name);
+        continue;
+      }
+      entries.push([name, { page: outIdx, view: dest.view }]);
+    }
+  }
+  if (entries.length === 0) return;
+  const ctx = out.context;
+  const namesArr = ctx.obj([]);
+  for (const [name, d] of entries) {
+    namesArr.push(PDFHexString.fromText(name));
+    namesArr.push(
+      ctx.obj([
+        out.getPage(d.page - 1).ref,
+        d.view.kind === 'xyz'
+          ? PDFName.of('XYZ')
+          : PDFName.of('Fit'),
+      ]),
+    );
+  }
+  const leaf = ctx.obj({ Names: namesArr });
+  const leafRef = ctx.register(leaf);
+  const destsRoot = ctx.obj({ Kids: ctx.obj([leafRef]) });
+  const destsRootRef = ctx.register(destsRoot);
+  const namesRoot = ctx.obj({ Dests: destsRootRef });
+  out.catalog.set(PDFName.of('Names'), namesRoot);
+}
+
+interface BookmarkWriteDest {
+  page: number;
+  view: { kind: 'fit' | 'xyz'; x?: number; y?: number; zoom?: number };
+}
+
+
+/** Minimal named-dest reader (name tree) used by the composer — worker-safe
+ * local semantics; returns page numbers + view per name. */
+async function parseOutlinesForDests(
+  doc: PDFDocument,
+): Promise<Array<[string, { kind: 'page'; page: number; view: BookmarkWriteDest['view'] }]>> {
+  const found: Array<[string, { kind: 'page'; page: number; view: BookmarkWriteDest['view'] }]> = [];
+  const ctx = doc.context;
+  const pages = doc.getPages();
+  const pageIdxByDict = new Map<PDFDict, number>();
+  for (let i = 0; i < pages.length; i += 1) pageIdxByDict.set(pages[i]!.node as PDFDict, i + 1);
+  const lk = (v: unknown): unknown => ctx.lookup(v as never);
+  const parseArr = (value: unknown): { page: number; view: BookmarkWriteDest['view'] } | null => {
+    const arr = lk(value);
+    if (!(arr instanceof PDFArray)) return null;
+    const first = arr.get(0);
+    if (first instanceof PDFNumber) return { page: first.asNumber(), view: { kind: 'fit' } };
+    const dict = lk(first);
+    if (!(dict instanceof PDFDict)) return null;
+    const idx = pageIdxByDict.get(dict);
+    if (idx === undefined) return null;
+    const mode = arr.get(1);
+    if (mode instanceof PDFName && mode.asString() === '/XYZ') {
+      const num = (i: number): number | undefined => {
+        const v = lk(arr.get(i));
+        return v instanceof PDFNumber ? v.asNumber() : undefined;
+      };
+      return { page: idx, view: { kind: 'xyz', x: num(2), y: num(3), zoom: num(4) } };
+    }
+    return { page: idx, view: { kind: 'fit' } };
+  };
+  const namesRoot = lk(doc.catalog.get(PDFName.of('Names')));
+  if (namesRoot instanceof PDFDict) {
+    const walk = (node: unknown, depth: number): void => {
+      if (depth > 32) return;
+      const d = lk(node);
+      if (!(d instanceof PDFDict)) return;
+      const arr = lk(d.get(PDFName.of('Names')));
+      if (arr instanceof PDFArray) {
+        for (let i = 0; i + 1 < arr.size(); i += 2) {
+          const nameObj = lk(arr.get(i));
+          const name =
+            nameObj instanceof PDFHexString
+              ? decodePdfText(nameObj.asBytes())
+              : nameObj instanceof PDFString
+                ? nameObj.asString()
+                : '';
+          const dest = parseArr(arr.get(i + 1));
+          if (name && dest) found.push([name, { kind: 'page', page: dest.page, view: dest.view }]);
+        }
+      }
+      const kids = lk(d.get(PDFName.of('Kids')));
+      if (kids instanceof PDFArray) {
+        for (let i = 0; i < kids.size(); i += 1) walk(kids.get(i), depth + 1);
+      }
+    };
+    const tree = lk(namesRoot.get(PDFName.of('Dests')));
+    walk(tree, 0);
+  }
+  // PDF 1.1 dictionary form.
+  const legacy = lk(doc.catalog.get(PDFName.of('Dests')));
+  if (legacy instanceof PDFDict) {
+    for (const [k, v] of legacy.entries()) {
+      const name = decodePdfTextName(k);
+      const dest = parseArr(v);
+      if (dest) found.push([name, { kind: 'page', page: dest.page, view: dest.view }]);
+    }
+  }
+  return found;
+}
+
+/** Materialize /Outlines from the write spec (First/Last/Next/Prev/Parent
+ * chain), dests to output page refs. Container nodes allowed. */
+function writeOutlines(
+  out: PDFDocument,
+  bookmarks: OrganizeBookmarkWrite[],
+  report: OrganizeExportReport,
+): void {
+  const ctx = out.context;
+  let count = 0;
+  let unresolvedCount = 0;
+  const build = (nodes: OrganizeBookmarkWrite[], parentRef: PDFRef): PDFRef[] => {
+    const refs: PDFRef[] = [];
+    for (const node of nodes) {
+      count += 1;
+      if (count > 10_000) {
+        unresolvedCount += 1;
+        continue;
+      }
+      const itemDict = ctx.obj({});
+      const itemRef = ctx.register(itemDict);
+      itemDict.set(PDFName.of('Title'), PDFHexString.fromText(node.title.slice(0, 500)));
+      if (node.destPage !== undefined) {
+        if (
+          node.destPage < 1 ||
+          node.destPage > out.getPageCount()
+        ) {
+          report.unresolvedBookmarks.push(node.title);
+          unresolvedCount += 1;
+        } else {
+          const v = node.view ?? { kind: 'fit' as const };
+          const destArr =
+            v.kind === 'xyz'
+              ? ctx.obj([
+                  out.getPage(node.destPage - 1).ref,
+                  PDFName.of('XYZ'),
+                  PDFNumber.of(v.x ?? 0),
+                  PDFNumber.of(v.y ?? out.getPage(node.destPage - 1).getSize().height),
+                  PDFNumber.of(v.zoom ?? 1),
+                ])
+              : ctx.obj([out.getPage(node.destPage - 1).ref, PDFName.of('Fit')]);
+          itemDict.set(PDFName.of('Dest'), destArr);
+        }
+      }
+      itemDict.set(PDFName.of('Parent'), parentRef);
+      const kids = node.children ? build(node.children, itemRef) : [];
+      if (kids.length > 0) {
+        itemDict.set(PDFName.of('First'), kids[0]!);
+        itemDict.set(PDFName.of('Last'), kids[kids.length - 1]!);
+      }
+      refs.push(itemRef);
+    }
+    // sibling Next/Prev chain
+    for (let i = 0; i < refs.length; i += 1) {
+      const dict = ctx.lookup(refs[i]!);
+      if (!(dict instanceof PDFDict)) continue;
+      if (i > 0) dict.set(PDFName.of('Prev'), refs[i - 1]!);
+      if (i + 1 < refs.length) dict.set(PDFName.of('Next'), refs[i + 1]!);
+    }
+    return refs;
+  };
+  const outlinesDict = ctx.obj({ Type: 'Outlines' });
+  const outlinesRef = ctx.register(outlinesDict);
+  const rootRefs = build(bookmarks, outlinesRef);
+  if (rootRefs.length > 0) {
+    outlinesDict.set(PDFName.of('First'), rootRefs[0]!);
+    outlinesDict.set(PDFName.of('Last'), rootRefs[rootRefs.length - 1]!);
+    outlinesDict.set(PDFName.of('Count'), PDFNumber.of(rootRefs.length));
+  }
+  out.catalog.set(PDFName.of('Outlines'), outlinesRef);
+  out.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  void unresolvedCount;
 }

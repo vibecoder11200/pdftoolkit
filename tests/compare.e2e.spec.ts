@@ -142,3 +142,23 @@ test('compare scan pair: ai-mock census → confirm → clause panel; export exc
   await dlB;
   await expect(page.getByText('1 cặp trang scan không được chú giải')).toBeVisible();
 });
+
+test('compare visual diff: heatmap + region nav on the changed pair', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('./tools/compare');
+  await page.locator('input[type="file"]').first().setInputFiles(FIX_A);
+  await page.locator('input[type="file"]').first().setInputFiles(FIX_B);
+  const cta = page.getByRole('button', { name: 'So sánh ngay' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  await cta.click();
+  await expect(page.getByTestId('compare-result')).toBeVisible({ timeout: 60_000 });
+
+  // visual mode on the changed pair (fixture pair 0: 1 word differs)
+  const panel = page.getByTestId('visual-diff-panel');
+  await expect(panel).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('visual-run').click();
+  await expect(page.getByTestId('visual-regions')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('visual-regions')).not.toContainText('0 vùng');
+  // the security disclosure renders next to the results
+  await expect(page.getByTestId('visual-not-security')).toBeVisible();
+});

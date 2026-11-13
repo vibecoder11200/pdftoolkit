@@ -10,14 +10,18 @@ import {
   coalesceCompareMarks,
   runCompare,
   textDiffClauses,
+  type TextDiffResult,
 } from '../../lib/pdf-compare';
 import type { CompareMark, CompareResult, PagePair } from '../../lib/pdf-compare';
 import { engine } from '../../engine/client';
-import { deliverBytesMulti } from '../../lib/download';
+import { useDelivery } from '../../lib/use-delivery';
+import { DeliveryReportBar } from './delivery-report-bar';
+import { VisualPairDiff } from './visual-pair-diff';
 import { aiTierEstimate, downloadIfNeeded, runAiPages, type AiRunClient } from '../../lib/ai-run';
 import { AI_MODEL_ID } from '../../lib/ai-models';
 import { sharedAiClient } from '../../lib/ai-worker-client';
 import { sharedNativeClient } from '../../lib/ai-native-client';
+import { beginJob, endJob } from '../../lib/jobs';
 import { isTauri } from '../../lib/platform';
 import type { RasterImageData } from '../../workers/pdf.worker';
 import { engineErrorDetail } from '../../lib/engine-error';
@@ -122,11 +126,12 @@ export function CompareTool() {
   // P8: annotated export + AI-OCR scan leg.
   const [exporting, setExporting] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
+  const delivery = useDelivery();
   const [scanChars, setScanChars] = useState<{ a: number[]; b: number[] } | null>(null);
   const [slowTier, setSlowTier] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiDeclined, setAiDeclined] = useState(false);
-  const [textDiffs, setTextDiffs] = useState<Map<number, { added: string[]; removed: string[] }>>(new Map());
+  const [textDiffs, setTextDiffs] = useState<Map<number, TextDiffResult>>(new Map());
 
   const genRef = useRef(0);
   const runningRef = useRef(false);
@@ -326,6 +331,12 @@ export function CompareTool() {
     const genAtStart = genRef.current;
     setAiBusy(true);
     setError(null);
+    // Shared-resource bracket (validation session 2): the compare AI leg is
+    // an interactive AI user — it MUST hold the app-wide job bracket so the
+    // update guard and the shared-client busy state see it, and release it
+    // in finally even on crash (never cancel someone else's shared client).
+    const jobId = 'compare-ai-scan';
+    beginJob(jobId);
     try {
       const client: AiRunClient = isTauri() ? (sharedNativeClient() as AiRunClient) : sharedAiClient({ mock: isAiMock() });
       const canvas = document.createElement('canvas');
@@ -375,7 +386,7 @@ export function CompareTool() {
       const textsA = await ocrDoc(slotA.bytes, countA, [...new Set(aPages)]);
       const textsB = await ocrDoc(slotB.bytes, countB, [...new Set(bPages)]);
       if (genRef.current !== genAtStart) return;
-      const diffs = new Map<number, { added: string[]; removed: string[] }>();
+      const diffs = new Map<number, TextDiffResult>();
       for (const i of scanPairIdxs) {
         const p = result.pairs[i]!;
         if (p.oldPage <= 0 || p.newPage === null) continue;
@@ -388,6 +399,7 @@ export function CompareTool() {
       if (e instanceof CompareCancelled) return;
       setError(engineErrorDetail(e, t('compare.err_generic'), crashCopy(t), () => void runAiScanLeg()));
     } finally {
+      endJob(jobId);
       setAiBusy(false);
     }
   }, [result, slotA, slotB, scanChars, countA, countB, aiBusy, t]);
@@ -406,17 +418,18 @@ export function CompareTool() {
       const bOut = await engine.annotateCompare(slotB.bytes, ins);
       const stemA = baseName(slotA.file.name);
       const stemB = baseName(slotB.file.name);
-      await deliverBytesMulti([
+      const report = await delivery.deliver([
         { bytes: aOut, filename: `${stemA}-so-sanh-A.pdf` },
         { bytes: bOut, filename: `${stemB}-so-sanh-B.pdf` },
-      ]);
+      ], 'application/pdf');
+      if (report.overall === 'cancelled') return; // picker cancel is not an error
       setExportNote(scanCount > 0 ? t('compare.scan_excluded', { n: scanCount }) : null);
     } catch (e) {
       setError(engineErrorDetail(e, t('compare.err_export'), crashCopy(t), () => void runExport()));
     } finally {
       setExporting(false);
     }
-  }, [result, slotA, slotB, exporting, t, scanPairIdxs]);
+  }, [result, slotA, slotB, exporting, t, scanPairIdxs, delivery.deliver]);
 
   // Derived view state. The A/B preference coerces per pair: an added-only
   // pair (oldPage 0) has no A page and a removed-only pair (newPage null)
@@ -636,6 +649,14 @@ export function CompareTool() {
                   <p className="mt-1 whitespace-pre-wrap text-text-muted">{pair.wholesale.oldText}</p>
                   <p className="mt-2 whitespace-pre-wrap text-text-muted">{pair.wholesale.newText}</p>
                 </div>
+              ) : pairTextDiff?.kind === 'wholesale' ? (
+                <div className="rounded-lg border border-border-strong bg-surface-card p-3 text-[13px]" data-testid="compare-scan-wholesale">
+                  <p className="font-bold">{t('compare.wholesale_title')}</p>
+                  <p className="mt-2 font-semibold text-tone-red">{t('compare.clause_removed')}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-text-muted">{pairTextDiff.oldText}</p>
+                  <p className="mt-2 font-semibold text-tone-green">{t('compare.clause_added')}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-text-muted">{pairTextDiff.newText}</p>
+                </div>
               ) : pairTextDiff ? (
                 <div className="rounded-lg border border-border-strong bg-surface-card p-3 text-[13px]" data-testid="compare-scan-panel">
                   <p className="font-bold">
@@ -717,6 +738,14 @@ export function CompareTool() {
                   {t('compare.del_legend', { count: pair.removed.length })}
                 </span>
               </div>
+              {slotA && slotB && pair.oldPage > 0 ? (
+                <VisualPairDiff
+                  bytesA={slotA.bytes}
+                  bytesB={slotB.bytes}
+                  oldPage={pair.oldPage}
+                  newPage={pair.newPage}
+                />
+              ) : null}
             </div>
           ) : null}
 
@@ -746,6 +775,14 @@ export function CompareTool() {
                 {exporting ? t('compare.export_busy') : t('compare.export_cta')}
               </Button>
               {exportNote ? <span className="text-[13px] text-text-muted">{exportNote}</span> : null}
+      {delivery.report && (
+        <DeliveryReportBar
+          report={delivery.report}
+          onRetry={() => void delivery.retry()}
+          onDismiss={delivery.dismiss}
+          busy={exporting}
+        />
+      )}
             </div>
           ) : null}
         </div>

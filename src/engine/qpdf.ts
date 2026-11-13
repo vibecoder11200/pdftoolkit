@@ -17,8 +17,56 @@ type QpdfModule = {
 
 let modPromise: Promise<QpdfModule> | null = null;
 
+/*
+ * Phase-8 diagnostics: qpdf-wasm routes its diagnostics (errors/warnings)
+ * through console.error — the Emscripten print hooks do NOT fire (spike
+ * 2026-11-13, scripts/spike-qpdf-diag.mjs + temp channel probe). Capture
+ * works by arming a sink around callMain. Because the sink AND the MEMFS
+ * are module-global, ALL qpdf access is serialized through a promise-chain
+ * lock — concurrent operations cannot steal each other's logs or files.
+ */
+const lineSink: string[] = [];
+let captureArmed = false;
+let origConsoleError: ((...a: unknown[]) => void) | null = null;
+let lockChain: Promise<unknown> = Promise.resolve();
+
+function withQpdfLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = lockChain.then(fn, fn);
+  lockChain = run.catch(() => undefined);
+  return run;
+}
+
+function installConsoleCapture(): void {
+  if (origConsoleError) return;
+  origConsoleError = console.error.bind(console);
+  console.error = (...a: unknown[]) => {
+    if (captureArmed) {
+      lineSink.push(a.map((x) => String(x)).join(' '));
+      return;
+    }
+    origConsoleError!(...a);
+  };
+}
+
+async function callCaptured(args: string[]): Promise<{ code: number | undefined; lines: string[] }> {
+  const mod = await qpdf();
+  return withQpdfLock(async () => {
+    installConsoleCapture();
+    captureArmed = true;
+    lineSink.length = 0;
+    try {
+      const code = mod.callMain(args);
+      return { code, lines: lineSink.splice(0) };
+    } finally {
+      captureArmed = false;
+      lineSink.length = 0;
+    }
+  });
+}
+
 async function qpdf(): Promise<QpdfModule> {
   if (!modPromise) {
+    installConsoleCapture(); // BEFORE instantiation: wasm glue binds console.error at create()
     modPromise = import('@neslinesli93/qpdf-wasm').then(async (m) => {
       const create = (m as unknown as { default: (opts: object) => Promise<unknown> }).default;
       const inst = (await create({ noInitialRun: true })) as {
@@ -67,7 +115,10 @@ async function runQpdfFile(
   // name into the worker-lifetime MEMFS.
   try {
     mod.FS.writeFile(inP, input);
-    const code = mod.callMain(args(inP, outP));
+    // Same serialization as callCaptured: ONE callMain at a time across the
+    // whole module (shared MEMFS + the console.error sink) — a concurrent
+    // inspect/repair capture must not steal another op's stderr.
+    const code = await withQpdfLock(() => Promise.resolve(mod.callMain(args(inP, outP))));
     const acceptable = options.acceptableExit ?? ((c: number | undefined) => c === 0 || c === undefined);
     if (!acceptable(code)) throw new Error(`qpdf exit ${code}`);
     options.onExit?.(code);
@@ -83,7 +134,7 @@ export async function qpdfCheck(input: Uint8Array): Promise<void> {
   const inP = tmp('in.pdf');
   mod.FS.writeFile(inP, input);
   try {
-    const code = mod.callMain(['--check', inP]);
+    const code = await withQpdfLock(() => Promise.resolve(mod.callMain(['--check', inP])));
     if (code !== 0 && code !== undefined) throw new Error(`qpdf --check exit ${code}`);
   } finally {
     try { mod.FS.unlink(inP); } catch { /* noop */ }
@@ -177,4 +228,83 @@ export async function qpdfRewrite(input: Uint8Array): Promise<Uint8Array> {
  * a scan on the shipped form sees nothing — red-team finding 3). */
 export async function qpdfCanonicalUncompress(input: Uint8Array): Promise<Uint8Array> {
   return runQpdfFile(input, (i, o) => ['--stream-data=uncompress', '--object-streams=disable', '--', i, o]);
+}
+
+// ---------------------------------------------------------------------------
+// Phase-8 diagnostics + best-effort repair (plan 261112-0955).
+// DELIBERATELY SEPARATE from qpdfRewrite (the internal redact tail): repair
+// is a user-facing low-level helper with its own validation layer upstream;
+// qpdfRewrite stays unwired on the client surface.
+// Spike matrix (plans/.../reports/qpdf-diagnostic-spike.md): --check exits
+// 0 healthy/garbage-appended, 2 truncated/startxref-corrupt/encrypted-no-
+// password/not-a-pdf; plain rewrite produces output ONLY on the exit-0
+// class — exit 2 yields NO output (repair refuses; never partial bytes).
+// ---------------------------------------------------------------------------
+
+export interface QpdfRawResult {
+  exitCode: number;
+  /** Raw captured stderr lines (sanitize upstream before display). */
+  lines: string[];
+}
+
+/** Read-only --check with captured diagnostics. */
+export async function qpdfInspectRaw(input: Uint8Array): Promise<QpdfRawResult> {
+  const mod = await qpdf();
+  const inP = tmp('in.pdf');
+  try {
+    // writeFile INSIDE the try: a throwing (near-OOM) write must not leak
+    // the tmp name into the worker-lifetime MEMFS (runQpdfFile discipline).
+    mod.FS.writeFile(inP, input);
+    const { code, lines } = await callCaptured(['--check', inP]);
+    return { exitCode: code ?? 0, lines };
+  } finally {
+    try { mod.FS.unlink(inP); } catch { /* noop */ }
+  }
+}
+
+export class QpdfRepairRefusedError extends Error {
+  constructor(
+    readonly exitCode: number,
+    readonly lines: string[],
+  ) {
+    super('qpdf repair refused the input (exit ' + exitCode + ')');
+    this.name = 'QpdfRepairRefusedError';
+  }
+}
+
+/**
+ * Best-effort rewrite into NEW bytes. Exit 2/1 means qpdf produced NO
+ * output (spike: truncated/corrupt-xref/encrypted inputs) → typed refusal,
+ * nothing returned. Exit 3 (warnings) keeps the output and surfaces the
+ * lines. An encrypted input needs the password option (never stripped).
+ */
+export async function qpdfRepairRaw(
+  input: Uint8Array,
+  password?: string,
+): Promise<QpdfRawResult & { bytes: Uint8Array }> {
+  const mod = await qpdf();
+  const inP = tmp('in.pdf');
+  const outP = tmp('out.pdf');
+  try {
+    // writeFile INSIDE the try (same MEMFS-leak discipline as runQpdfFile).
+    mod.FS.writeFile(inP, input);
+    // --decrypt when a password is supplied: the caller-provided password IS
+    // the explicit option to produce an OPENABLE (decrypted) output — qpdf
+    // otherwise preserves encryption and the result stays locked.
+    const args = password ? ['--password=' + password, '--decrypt', '--', inP, outP] : ['--', inP, outP];
+    const { code, lines } = await callCaptured(args);
+    const c = code ?? 0;
+    if (c !== 0 && c !== 3) throw new QpdfRepairRefusedError(c, lines);
+    let out: Uint8Array;
+    try {
+      out = mod.FS.readFile(outP).slice();
+    } catch {
+      throw new QpdfRepairRefusedError(c, lines);
+    }
+    if (out.byteLength === 0) throw new QpdfRepairRefusedError(c, lines);
+    return { bytes: out, exitCode: c, lines };
+  } finally {
+    try { mod.FS.unlink(inP); } catch { /* noop */ }
+    try { mod.FS.unlink(outP); } catch { /* noop */ }
+  }
 }

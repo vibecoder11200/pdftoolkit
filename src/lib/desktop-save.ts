@@ -1,4 +1,17 @@
 import { isTauri } from './platform';
+import { deliveryOverall, type DeliveryReport } from './delivery-report';
+
+/*
+ * Session-writer types mirror the Rust command payloads (save_writer.rs).
+ * The token authorizes writes into the ONE directory whose handle the Rust
+ * side opened at begin; write commands take token + basename only, so a
+ * non-chosen path is not merely denied — it is structurally unaddressable.
+ */
+export interface SessionWriteOutcome {
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
 
 /*
  * Desktop save flow (user probe finding: WebView2's <a download> drops files
@@ -33,30 +46,55 @@ export async function saveBytesDesktop(
   return true;
 }
 
-export type DesktopSaveEntry = { bytes: Uint8Array; filename: string };
+export type DesktopSaveEntry = { bytes: Uint8Array; filename: string; artifactId?: string };
 
 /**
- * Multi-output save (split parts, per-page images): ONE dialog for the first
- * file; siblings are written next to it with their own names (a dialog per
- * part is hostile). Sibling writes rely on the fs scope granted in
- * capabilities ($HOME/**); a pick outside the home dir may therefore fail
- * on the siblings — the error propagates to the tool's error banner.
+ * Phase-3 multi-output save: ONE native directory picker
+ * (plugin-dialog `open` with directory:true — the real dialog, mockable in
+ * desktop e2e), then the Rust session writer. The picked path crosses IPC
+ * exactly once, at begin; every write is token + basename + raw bytes
+ * (plugin-fs's raw-body invoke pattern), so a non-chosen sibling/home path
+ * is structurally unaddressable at write time. Per-entry failures continue
+ * the batch; `save_session_end` always runs in finally; a begin failure
+ * leaves no session to end. Cancel ⇒ { cancelled, [] }.
  */
-export async function saveBytesDesktopMulti(
+export async function saveSessionMulti(
   entries: DesktopSaveEntry[],
-  mime = 'application/pdf',
-): Promise<boolean> {
-  const first = entries[0];
-  const dir = await pickSavePath(first.filename, mime);
-  if (!dir) return false;
-  const { writeFile } = await import('@tauri-apps/plugin-fs');
-  const cut = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\')) + 1;
-  const folder = dir.slice(0, cut);
-  await writeFile(dir, first.bytes);
-  for (const entry of entries.slice(1)) {
-    await writeFile(`${folder}${entry.filename}`, entry.bytes);
+  _mime = 'application/pdf',
+): Promise<DeliveryReport> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const dir = await open({ directory: true, multiple: false, title: undefined });
+  if (!dir || Array.isArray(dir)) return { overall: 'cancelled', entries: [] };
+  const { invoke } = await import('@tauri-apps/api/core');
+  const { token } = await invoke<{ token: string }>('save_session_begin', { path: dir });
+  try {
+    const out: SessionWriteOutcome[] = [];
+    for (const e of entries) {
+      try {
+        const o = await invoke<SessionWriteOutcome>('save_session_write', e.bytes, {
+          headers: { token, name: encodeURIComponent(e.filename) },
+        });
+        out.push(o);
+      } catch (err) {
+        // Continue after per-file write errors (phase-3 step 4).
+        out.push({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const reportEntries = out.map((o, i) => ({
+      artifactId: entries[i]?.artifactId ?? `a${i}`,
+      filename: entries[i]?.filename ?? `out-${i + 1}`,
+      status: o.ok ? ('saved' as const) : ('failed' as const),
+      path: o.path,
+      error: o.error,
+    }));
+    return { overall: deliveryOverall(reportEntries), entries: reportEntries };
+  } finally {
+    try {
+      await invoke('save_session_end', { token });
+    } catch {
+      // end is best-effort; Drop on the Rust side closes the handle anyway.
+    }
   }
-  return true;
 }
 
 async function pickSavePath(

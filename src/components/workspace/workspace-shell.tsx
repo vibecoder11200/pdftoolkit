@@ -4,6 +4,7 @@ import { markToolVisited } from '../layout/quick-guide';
 import { Progress } from '../ui/progress';
 import { ErrorBanner, type ErrorDetail } from '../ui/error-banner';
 import { CheckIcon, RefreshIcon, ResetIcon } from '../ui/icons';
+import { QueuePanel } from "./queue-panel";
 
 export interface StepItem {
   key: string;
@@ -49,7 +50,8 @@ export function WorkspaceShell({
       ? steps.map((s, i) => (i === lastIdx ? { ...s, state: 'done' as const } : s))
       : steps;
   return (
-    <div className="mt-3.5 overflow-hidden rounded-2xl border border-border-default bg-surface-card">
+    <>
+      <div className="mt-3.5 overflow-hidden rounded-2xl border border-border-default bg-surface-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-default px-5.5 py-4">
         <h2 className="text-lg font-bold">{title}</h2>
         {meta ? (
@@ -126,7 +128,9 @@ export function WorkspaceShell({
           ) : null}
         </div>
       ) : null}
-    </div>
+      </div>
+      <QueuePanel />
+    </>
   );
 }
 

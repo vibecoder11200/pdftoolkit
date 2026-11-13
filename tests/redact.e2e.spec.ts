@@ -116,6 +116,9 @@ async function markBand(page: Page, x0: number, x1: number, y0: number, y1: numb
   // races, scroll+settle+drag never does).
   await page.waitForTimeout(300);
   const overlay = page.getByTestId('editor-overlay');
+  await expect(overlay).toBeVisible();
+  const marks = overlay.locator('[aria-label^="mark-"]');
+  const before = await marks.count();
   const box = (await overlay.boundingBox())!;
   const cx = box.x;
   const cy = box.y;
@@ -123,6 +126,7 @@ async function markBand(page: Page, x0: number, x1: number, y0: number, y1: numb
   await page.mouse.down();
   await page.mouse.move(cx + box.width * x1, cy + box.height * y1, { steps: 6 });
   await page.mouse.up();
+  await expect(marks).toHaveCount(before + 1);
 }
 
 test('redact: surgical page cleans by extraction, flagged page burns clean, marks paint pixels, channels scrub', async ({

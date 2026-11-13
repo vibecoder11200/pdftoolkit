@@ -33,6 +33,32 @@ export interface WorkerApi {
   rotatePages(bytes: Uint8Array, targets: number[], degrees: 90 | 180 | 270): Promise<Uint8Array>;
   splitRanges(bytes: Uint8Array, ranges: number[][]): Promise<Uint8Array[]>;
   extractPages(bytes: Uint8Array, targets: number[]): Promise<Uint8Array>;
+  /** Organizer composer (phase 4): sources load once, output materializes
+   * once, forms/links/named-dests/bookmarks remap + report. */
+  organizeExport(
+    sources: Uint8Array[],
+    pages: import('../engine/pdf-lib').OrganizePagePlan[],
+    bookmarks?: import('../engine/pdf-lib').OrganizeBookmarkWrite[],
+  ): Promise<{ bytes: Uint8Array; report: import('../engine/pdf-lib').OrganizeExportReport }>;
+  /** Tables XLSX export (phase 5): ExcelJS loads lazily on first call. */
+  tablesExportXlsx(
+    sheets: import('../lib/tables/xlsx').XlsxSheetInput[],
+  ): Promise<import('../lib/tables/xlsx').XlsxResult>;
+  /** Scan-cleanup raster pipeline (phase 6): pixels in, cleaned pixels
+   * out (deskew applied at full resolution + enhance chain). */
+  cleanupRaster(
+    pixels: { data: Uint8ClampedArray; width: number; height: number },
+    deskewAngle: number,
+    settings: import('../lib/scan-cleanup').CleanupSettings,
+  ): Promise<{ data: Uint8ClampedArray; width: number; height: number }>;
+  /** Signed-input refusal gate (phase 6): shared predicate over the wire. */
+  /** Phase-8 diagnostics/repair (qpdf capture-lock serialized). */
+  inspectPdf(bytes: Uint8Array): Promise<{ exitCode: number; lines: string[] }>;
+  repairPdf(
+    bytes: Uint8Array,
+    password?: string,
+  ): Promise<{ bytes: Uint8Array; exitCode: number; lines: string[] }>;
+  hasDigitalSignature(bytes: Uint8Array): Promise<boolean>;
   compressVectorPack(bytes: Uint8Array): Promise<Uint8Array>;
   linearizePdf(bytes: Uint8Array): Promise<Uint8Array>;
   encryptPdf(bytes: Uint8Array, user: string, owner: string, bits?: 128 | 256): Promise<Uint8Array>;
@@ -128,6 +154,29 @@ const api: WorkerApi = {
   rotatePages: (bytes, targets, degrees) => lib.rotatePages(bytes, targets, degrees),
   splitRanges: (bytes, ranges) => lib.splitByRanges(bytes, ranges),
   extractPages: (bytes, targets) => lib.extractPages(bytes, targets),
+  organizeExport: (sources, pages, bookmarks) => lib.organizeExport(sources, pages, bookmarks),
+  tablesExportXlsx: (sheets) =>
+    import('../lib/tables/xlsx').then((m) => m.buildXlsx(sheets)),
+  // Phase-8 diagnostics/repair (qpdf-wasm capture-lock serialized; see qpdf.ts).
+  inspectPdf: async (bytes) => {
+    const q = await import('../engine/qpdf');
+    return q.qpdfInspectRaw(bytes);
+  },
+  repairPdf: async (bytes, password) => {
+    const q = await import('../engine/qpdf');
+    return q.qpdfRepairRaw(bytes, password);
+  },
+  hasDigitalSignature: async (bytes) => {
+    const { PDFDocument } = await import('pdf-lib');
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    return lib.docHasDigitalSignature(doc);
+  },
+  cleanupRaster: async (pixels, deskewAngle, settings) => {
+    const m = await import('../lib/scan-cleanup');
+    let r: { data: Uint8ClampedArray; width: number; height: number } = pixels;
+    if (deskewAngle !== 0) r = m.rotateRaster(r, deskewAngle);
+    return m.applyCleanup(r, settings);
+  },
   compressVectorPack: (bytes) => compressVectorPack(bytes),
   linearizePdf: (bytes) => linearizePdf(bytes),
   encryptPdf: (bytes, user, owner, bits) => encryptPdf(bytes, user, owner, bits),

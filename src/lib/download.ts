@@ -2,8 +2,14 @@ import { canPickFile, saveFilePicker, type SavePickerType } from './fs-save';
 import {
   isDesktopSaveAvailable,
   saveBytesDesktop,
-  saveBytesDesktopMulti,
+  saveSessionMulti,
 } from './desktop-save';
+import {
+  deliveryOverall,
+  type DeliveryEntry,
+  type DeliveryReport,
+} from './delivery-report';
+import { resolveBatchNames } from './delivery-names';
 
 function toBlob(bytes: Uint8Array, mime: string): Blob {
   return new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime });
@@ -68,24 +74,91 @@ export async function deliverBytes(
   return true;
 }
 
-export type DeliverEntry = { bytes: Uint8Array; filename: string };
+export type DeliverEntry = { bytes: Uint8Array; filename: string; artifactId?: string };
 
 /**
  * Multi-output variant (split parts, per-page images): desktop = ONE native
- * save dialog, siblings written next to the picked file; web = plain
- * downloads with the historical 150ms gap (multi-download popup allowance).
+ * directory picker + the Rust session writer (atomic no-clobber confined
+ * writes, per-entry results); web = plain downloads with the historical
+ * 150ms gap (multi-download popup allowance). Returns the typed phase-3
+ * report — a boolean could hide partial delivery, so nothing here collapses
+ * per-entry outcomes.
+ *
+ * Retry identity: pass the same artifactId on a re-call. Only failed
+ * entries are re-sent by the caller (the success ledger is the consumer's
+ * report state), so delivered artifacts are never re-delivered.
  */
 export async function deliverBytesMulti(
   entries: DeliverEntry[],
   mime = 'application/pdf',
-): Promise<boolean> {
-  if (entries.length === 0) return true;
-  if (isDesktopSaveAvailable()) return saveBytesDesktopMulti(entries, mime);
-  for (const entry of entries) {
-    downloadBytes(entry.bytes, entry.filename, mime);
+): Promise<DeliveryReport> {
+  if (entries.length === 0) return { overall: 'cancelled', entries: [] };
+  const names = resolveBatchNames(entries.map((e) => e.filename));
+  // results stays index-aligned with `entries`; skipped slots recorded now.
+  const results: (DeliveryEntry | undefined)[] = new Array(entries.length);
+  const writable: { index: number; entry: DeliverEntry; final: string }[] = [];
+  names.forEach((res, i) => {
+    const entry = entries[i]!;
+    if (!res.ok) {
+      results[i] = {
+        artifactId: entry.artifactId ?? `a${i}`,
+        filename: entry.filename,
+        status: 'skipped',
+        error: res.error,
+      };
+      return;
+    }
+    writable.push({ index: i, entry, final: res.final });
+  });
+  if (writable.length === 0) {
+    return {
+      overall: 'failed',
+      entries: results.filter((e): e is DeliveryEntry => e !== undefined),
+    };
+  }
+
+  if (isDesktopSaveAvailable()) {
+    try {
+      const report = await saveSessionMulti(
+        writable.map((w) => ({ bytes: w.entry.bytes, filename: w.final, artifactId: w.entry.artifactId })),
+        mime,
+      );
+      if (report.overall === 'cancelled') return report; // zero writes, nothing attempted
+      report.entries.forEach((e, j) => {
+        const w = writable[j];
+        if (w) results[w.index] = e;
+      });
+    } catch (e) {
+      // IPC-level failure (begin or the whole write call): every writable
+      // entry failed; skipped slots keep their own status.
+      const msg = e instanceof Error ? e.message : String(e);
+      writable.forEach((w) => {
+        results[w.index] = {
+          artifactId: w.entry.artifactId ?? `a${w.index}`,
+          filename: w.final,
+          status: 'failed',
+          error: msg,
+        };
+      });
+    }
+    return {
+      overall: deliveryOverall(results.filter((e): e is DeliveryEntry => e !== undefined)),
+      entries: results.filter((e): e is DeliveryEntry => e !== undefined),
+    };
+  }
+
+  // Web path: dispatch in original order (skipped slots were never dispatched).
+  for (const w of writable) {
+    downloadBytes(w.entry.bytes, w.final, mime);
+    results[w.index] = {
+      artifactId: w.entry.artifactId ?? `a${w.index}`,
+      filename: w.final,
+      status: 'dispatched',
+    };
     await new Promise((r) => setTimeout(r, 150));
   }
-  return true;
+  const merged = results.filter((e): e is DeliveryEntry => e !== undefined);
+  return { overall: deliveryOverall(merged), entries: merged };
 }
 
 const PICKER_TYPES: Record<string, SavePickerType> = {

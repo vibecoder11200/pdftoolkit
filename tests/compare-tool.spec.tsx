@@ -107,7 +107,10 @@ vi.mock('../src/engine/client', () => ({
   },
 }));
 vi.mock('../src/lib/download', () => ({
-  deliverBytesMulti: vi.fn(async () => true),
+  deliverBytesMulti: vi.fn(async () => ({
+    overall: 'complete',
+    entries: [],
+  })),
 }));
 const aiPagesByDoc = new Map<string, string>();
 let aiDocCall = 0; // ocrDoc call order: doc A first, then doc B
@@ -399,9 +402,28 @@ describe('Compare export + AI scan leg (phase 8)', () => {
     await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') !== null);
     expect(container.textContent).toContain('1 cặp trang scan');
     aiDocCall = 0;
+    // Shared-resource bracket (validation session 2): the AI leg holds the
+    // app-wide job while running and releases it in finally — checked both
+    // sides of the run against the jobs registry.
+    const { hasActiveJob } = await import('../src/lib/jobs');
+    const aiRunMod = await import('../src/lib/ai-run');
+    const origImpl = (aiRunMod.runAiPages as ReturnType<typeof vi.fn>).getMockImplementation() as (
+      ...args: unknown[]
+    ) => unknown;
+    // Hold ONE macrotask so the bracket window is observable (the canned
+    // mock otherwise resolves inside the same tick).
+    (aiRunMod.runAiPages as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (...args: unknown[]) => {
+        await new Promise((r) => setTimeout(r, 50));
+        return origImpl(...(args as []));
+      },
+    );
+    expect(hasActiveJob()).toBe(false);
     act(() => btn('Đồng ý chạy AI').click());
+    await waitFor(() => hasActiveJob()); // bracket held mid-run
     // AI done when the confirm card leaves (aiDone → aiCardVisible false).
     await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') === null);
+    await waitFor(() => !hasActiveJob()); // released in finally
     // The viewer auto-selects the changed DIGITAL pair — navigate to the
     // scan pair (pair 2) where the clause panel lives.
     act(() => btn('→').click());
@@ -419,6 +441,34 @@ describe('Compare export + AI scan leg (phase 8)', () => {
     expect(annotateCalls[0]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'del' }]);
     expect(annotateCalls[1]!.marks.map((m) => ({ page: m.page, kind: m.kind }))).toEqual([{ page: 1, kind: 'ins' }]);
     expect(container.textContent).toContain('1 cặp trang scan không được chú giải');
+  });
+
+  it('oversized scan pair renders verbatim without discarding another pair', async () => {
+    itemCalls = 0;
+    crashFirst = false;
+    aiDocCall = 0;
+    aiPagesByDoc.clear();
+    engineTable.set(sig(A_BYTES), { count: 2, pages: { 1: [], 2: [] } });
+    engineTable.set(sig(B_BYTES), { count: 2, pages: { 1: [], 2: [] } });
+    const oldText = Array.from({ length: 650 }, (_, i) => `old${i}`).join('  ');
+    const newText = Array.from({ length: 650 }, (_, i) => `new${i}`).join('\n');
+    aiPagesByDoc.set('a:1', oldText);
+    aiPagesByDoc.set('b:1', newText);
+    aiPagesByDoc.set('a:2', 'shared old clause');
+    aiPagesByDoc.set('b:2', 'shared new clause');
+    await dropAandB();
+    await waitFor(() => !btn('So sánh ngay').hasAttribute('disabled'));
+    act(() => btn('So sánh ngay').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-ai-confirm"]') !== null);
+    act(() => btn('Đồng ý chạy AI').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-scan-wholesale"]') !== null);
+    const panel = container.querySelector('[data-testid="compare-scan-wholesale"]')!;
+    expect(panel.textContent).toContain(oldText);
+    expect(panel.textContent).toContain(newText);
+    act(() => btn('→').click());
+    await waitFor(() => container.querySelector('[data-testid="compare-scan-panel"]') !== null);
+    expect(container.querySelector('[data-testid="compare-scan-panel"]')!.textContent).toContain('old');
+    expect(container.querySelector('[data-testid="compare-scan-panel"]')!.textContent).toContain('new');
   });
 
   it('decline path: digital-only compare continues with the honest banner', async () => {

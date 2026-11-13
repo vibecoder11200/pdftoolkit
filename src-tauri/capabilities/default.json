@@ -8,10 +8,6 @@
     "process:allow-restart",
     "updater:default",
     "dialog:default",
-    "fs:allow-write-file",
-    {
-      "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }]
-    }
+    "fs:allow-write-file"
   ]
 }

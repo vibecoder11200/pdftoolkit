@@ -78,5 +78,21 @@
   "blank-pages": {
     "title": "Xóa trang trắng",
     "desc": "Tự phát hiện trang trắng/trạmscan trống, duyệt rồi xóa — trang có chữ luôn được giữ."
+  },
+  "organize": {
+    "title": "Tổ chức tài liệu",
+    "desc": "Gộp nhiều PDF, sắp xếp trang, xoay, chèn trang trắng, trích xuất và quản lý dấu trang"
+  },
+  "tables": {
+    "title": "Trích xuất bảng",
+    "desc": "Nhận diện bảng trong PDF, chỉnh trên lưới, xuất CSV/XLSX an toàn."
+  },
+  "scan-cleanup": {
+    "title": "Làm sạch bản scan",
+    "desc": "Xoay thẳng, làm sạch và tăng chất lượng trang scan; dò hướng gợi ý (xác nhận trước khi áp dụng)"
+  },
+  "diagnostics": {
+    "title": "Chẩn đoán & sửa PDF",
+    "desc": "Kiểm tra file PDF lỗi, mã hóa, cảnh báo cấu trúc và tạo bản sửa mới"
   }
 }

@@ -170,11 +170,19 @@ This project is indexed by GitNexus as **pdftoolkit** (3922 symbols, 10094 relat
   /pdftoolkit there).
 - **Save flow (rc-probe regression #2)**: WebView2's `<a download>` drops
   files silently (no chooser, no visible path). Every tool deliver MUST go
-  through `deliverBytes`/`deliverBytesMulti` (`src/lib/download.ts`) — on
-  desktop they intercept to the native Save-As dialog (plugin-dialog +
-  plugin-fs; multi-output = one dialog, siblings written beside via the
-  `$HOME/**` fs scope). Never call `downloadBytes` directly from a tool.
-  The FSA toggle (`canSaveElsewhere`) is web-only by design.
+  through `deliverBytes`/`deliverBytesMulti` (`src/lib/download.ts`). On
+  desktop, single-output saves go through the native Save-As dialog
+  (plugin-dialog + plugin-fs; the dialog's `save` command grants the picked
+  path to the fs scope at runtime — there is NO static `$HOME/**` scope).
+  Multi-output saves (phase 3) pick ONE directory and write through the
+  Rust session writer (`src-tauri/src/save_writer.rs`): token + basename +
+  raw bytes only, atomic no-clobber publish with `-2..-999` suffix,
+  held-handle confinement (parent swap cannot re-bind), reparse/junction
+  fail-closed — `deliverBytesMulti` returns a typed `DeliveryReport`
+  (`src/lib/delivery-report.ts`), never a boolean; consumers render
+  `DeliveryReportBar` with per-entry retry (`src/lib/use-delivery.ts`).
+  Never call `downloadBytes` directly from a tool. The FSA toggle
+  (`canSaveElsewhere`) is web-only by design.
 - **Desktop e2e**: `npm run test:e2e` runs BOTH projects — `chromium` (web
   dist, `/pdftoolkit/` base) and `desktop` (`*.desktop.e2e.spec.ts` against
   `dist-desktop/` served at ROOT with `__TAURI_INTERNALS__` mocked; scripts

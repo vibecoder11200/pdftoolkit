@@ -293,6 +293,27 @@ describe('composer routing (AI seam mocked — no model download)', () => {
   const stubDocx = (pages: { texts: string[] }): Promise<Uint8Array> =>
     Promise.resolve(new TextEncoder().encode(pages.texts.join('\n\n')));
 
+  it('consumes digital geometry before requesting another page or awaiting AI', async () => {
+    let rawAvailable = true;
+    const text = 'A sufficiently long digital paragraph to exceed the scan census floor.';
+    const items = [{
+      str: text,
+      get x0() { if (!rawAvailable) throw new Error('raw page retained past extraction boundary'); return 10; },
+      x1: 400, baseline: 100, size: 12, fontName: 'F', rotated: false,
+    }];
+    const res = await runPdf2Word({
+      pageCount: 2,
+      extractPage: async (p) => {
+        if (p === 1) return items;
+        rawAvailable = false;
+        return [];
+      },
+      aiConvertPages: async () => ['scan markdown'],
+      toDocx: stubDocx,
+    });
+    expect(res.markdown).toEqual([text, 'scan markdown']);
+  });
+
   it('digital input never touches the AI seam', async () => {
     let aiCalls = 0;
     const res = await runPdf2Word({

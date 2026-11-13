@@ -67,6 +67,24 @@ function collectSourceKeys(): Map<string, string[]> {
 const viKeySet = flatten(viCommon as Record<string, unknown>);
 
 describe('i18n resolution gate (v0.8.1 raw-key regression)', () => {
+it('never builds tools-ns lookups via the wrong translator (template-literal class)', () => {
+    // t(`tools.${slug}.title`) on the COMMON translator renders raw keys
+    // (P0 code-review finding, 2026-11-14): the tools namespace needs its
+    // own translator (useTranslation('tools')). Legit consumers rename it
+    // (tTools) and interpolate WITHOUT the tools. prefix. Limitation: this
+    // scans tracked files only (git ls-files), like the literal scan above.
+    const offenders = new Map<string, number>();
+    for (const file of execSync('git ls-files src', { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .filter((f) => /\.[jt]sx?$/.test(f))) {
+      const src = readFileSync(file, 'utf8');
+      const n = [...src.matchAll(/\bt\(`tools\./g)].length;
+      if (n > 0) offenders.set(file, n);
+    }
+    expect([...offenders.entries()]).toEqual([]);
+  });
+
   it('every bare t()/key literal in src resolves in vi common.json', () => {
     const hits = collectSourceKeys();
     const missing: string[] = [];

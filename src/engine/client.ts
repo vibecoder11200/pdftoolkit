@@ -125,6 +125,45 @@ export const engine = {
     call((r) => r.splitRanges(owned(bytes) as Uint8Array, ranges)),
   extractPages: (bytes: Uint8Array, targets: number[]) =>
     call((r) => r.extractPages(owned(bytes) as Uint8Array, targets)),
+  organizeExport(
+    sources: Uint8Array[],
+    pages: import('../engine/pdf-lib').OrganizePagePlan[],
+    bookmarks?: import('../engine/pdf-lib').OrganizeBookmarkWrite[],
+  ): Promise<{ bytes: Uint8Array; report: import('../engine/pdf-lib').OrganizeExportReport }> {
+    return call((r) =>
+      r.organizeExport(
+        sources.map((b) => owned(b) as Uint8Array),
+        pages,
+        bookmarks,
+      ),
+    );
+  },
+  tablesExportXlsx(
+    sheets: import('../lib/tables/xlsx').XlsxSheetInput[],
+  ): Promise<import('../lib/tables/xlsx').XlsxResult> {
+    return call((r) => r.tablesExportXlsx(sheets));
+  },
+  cleanupRaster(
+    pixels: { data: Uint8ClampedArray; width: number; height: number },
+    deskewAngle: number,
+    settings: import('../lib/scan-cleanup').CleanupSettings,
+  ): Promise<{ data: Uint8ClampedArray; width: number; height: number }> {
+    return call((r) => r.cleanupRaster(pixels, deskewAngle, settings));
+  },
+  hasDigitalSignature(bytes: Uint8Array): Promise<boolean> {
+    return call((r) => r.hasDigitalSignature(owned(bytes) as Uint8Array));
+  },
+  /** Phase-8 read-only qpdf --check with captured diagnostics lines. */
+  inspectPdf(bytes: Uint8Array): Promise<{ exitCode: number; lines: string[] }> {
+    return call((r) => r.inspectPdf(owned(bytes) as Uint8Array));
+  },
+  /** Phase-8 best-effort rewrite; refuses (typed error) with no output bytes. */
+  repairPdf(
+    bytes: Uint8Array,
+    password?: string,
+  ): Promise<{ bytes: Uint8Array; exitCode: number; lines: string[] }> {
+    return call((r) => r.repairPdf(owned(bytes) as Uint8Array, password));
+  },
   compressVectorPack: (bytes: Uint8Array) =>
     call((r) => r.compressVectorPack(owned(bytes) as Uint8Array)),
   linearizePdf: (bytes: Uint8Array) => call((r) => r.linearizePdf(owned(bytes) as Uint8Array)),

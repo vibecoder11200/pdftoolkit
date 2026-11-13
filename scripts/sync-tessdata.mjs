@@ -26,8 +26,15 @@ const CORE_FILES = [
   'tesseract-core-relaxedsimd-lstm.wasm.js',
   'tesseract-core-simd-lstm.wasm.js',
   'tesseract-core-lstm.wasm.js',
+  // Phase-6 RT5: the LEGACY (combined) cores are required by
+  // worker.detect (DetectOS) — the LSTM-only builds throw
+  // ' requires Legacy model'. Shipped for the orientation
+  // detector only; never precached (first-use fetch like the rest).
+  'tesseract-core-relaxedsimd.wasm.js',
+  'tesseract-core-simd.wasm.js',
+  'tesseract-core.wasm.js',
 ];
-const LANGS = ['eng', 'vie'];
+const LANGS = ['eng', 'vie', 'osd']; // osd: phase-6 RT5 orientation detector (DetectOS)
 // The data packages ship 4.0.0 (standard tesseract.js set) and
 // 4.0.0_best_int; the plan picks the default (fast) set.
 const TESSDATA_VARIANT = '4.0.0';

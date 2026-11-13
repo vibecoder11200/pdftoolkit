@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { engine, getWorker } from '../../engine/client';
-import { deliverBytes, deliverBytesMulti } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
+import { useDelivery } from '../../lib/use-delivery';
+import { DeliveryReportBar } from './delivery-report-bar';
 import { isZipSizeError } from '../../lib/zip';
 import { formatBytes } from '../../lib/format';
 import { Dropzone } from '../ui/dropzone';
@@ -52,6 +54,7 @@ export function PdfToImgTool() {
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
   const [zipOverflow, setZipOverflow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const delivery = useDelivery();
   const genRef = useRef(0);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
 
@@ -176,12 +179,17 @@ export function PdfToImgTool() {
         }
       }
       const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-      // Per-image fallback is multi-output: one save (web: plain downloads
-      // with the popup gap; desktop: one dialog, siblings beside it).
-      await deliverBytesMulti(
+      // Per-image fallback is multi-output: web = plain downloads with the
+      // popup gap; desktop = one directory picker + session writer with a
+      // typed per-file report (retry via the shared bar).
+      const report = await delivery.deliver(
         images.map((image) => ({ bytes: image.bytes, filename: image.name })),
         mime,
       );
+      if (report.overall === 'cancelled') {
+        setProgress(null); // picker cancelled — back to idle, not an error
+        return;
+      }
       setProgress({ value: 100, label: t('pdf-to-img.progress_done', { count: numPages }) });
     } catch {
       setRunErrorKey('pdf-to-img.error_save');
@@ -192,6 +200,7 @@ export function PdfToImgTool() {
   };
 
   const resetAll = () => {
+    delivery.clear();
     clear();
     setNumPages(0);
     setThumbs(replaceThumbs({}));
@@ -343,6 +352,16 @@ export function PdfToImgTool() {
             onToggle={() => {}}
           />
         </>
+      ) : null}
+      {delivery.report ? (
+        <div className="px-4 pb-4">
+          <DeliveryReportBar
+            report={delivery.report}
+            onRetry={() => void delivery.retry()}
+            onDismiss={delivery.dismiss}
+            busy={busy}
+          />
+        </div>
       ) : null}
     </WorkspaceShell>
   );

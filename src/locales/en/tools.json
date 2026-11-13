@@ -78,5 +78,21 @@
   "blank-pages": {
     "title": "Remove blank pages",
     "desc": "Detect blank/empty scanned pages, review, then remove — pages with text always stay."
+  },
+  "organize": {
+    "title": "Organize document",
+    "desc": "Merge PDFs, reorder pages, rotate, insert blanks, extract and manage bookmarks"
+  },
+  "tables": {
+    "title": "Table extraction",
+    "desc": "Detect tables in a PDF, edit in a grid, export safe CSV/XLSX."
+  },
+  "scan-cleanup": {
+    "title": "Scan cleanup",
+    "desc": "Deskew and clean up scans; orientation suggestion (confirm before applying)"
+  },
+  "diagnostics": {
+    "title": "Diagnose & repair PDF",
+    "desc": "Inspect damaged/encrypted PDFs, structural warnings, and produce a best-effort repaired copy"
   }
 }

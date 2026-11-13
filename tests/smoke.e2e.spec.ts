@@ -24,13 +24,13 @@ async function dropOnWindow(
 
 const readFixture = (name: string) => new Uint8Array(readFileSync(`tests/fixtures/${name}`));
 
-test('home renders 20 tool cards with VI copy', async ({ page }) => {
+test('home renders 24 tool cards with VI copy', async ({ page }) => {
   await page.goto('./');
   await expect(page.getByRole('heading', { level: 1 })).toContainText(
     'file không rời khỏi máy bạn',
   );
   const cards = page.locator('.tool-card, a[data-cat]');
-  await expect(cards).toHaveCount(20);
+  await expect(cards).toHaveCount(24);
   await expect(page.getByText('Gộp PDF').first()).toBeVisible();
 });
 

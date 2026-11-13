@@ -6,7 +6,9 @@ import { pickDirectory } from '../../lib/dir-picker';
 import { takePendingFiles, appendPendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { deliverBytes, deliverBytesMulti, type DeliverEntry } from '../../lib/download';
+import { deliverBytes, type DeliverEntry } from '../../lib/download';
+import { useDelivery } from '../../lib/use-delivery';
+import { DeliveryReportBar } from './delivery-report-bar';
 import { isDesktopSaveAvailable } from '../../lib/desktop-save';
 import { checkImageIntake } from '../../lib/image-intake';
 import { isEncryptedError } from '../../lib/suggest';
@@ -111,6 +113,7 @@ export function WatermarkTool() {
 
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | ErrorDetail | null>(null);
+  const delivery = useDelivery();
   const [batchNote, setBatchNote] = useState<string | null>(null);
   const genRef = useRef(0);
   const lng = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
@@ -346,7 +349,12 @@ export function WatermarkTool() {
         failed.push(f.name);
       }
     }
-    if (desktop && entries.length > 0) await deliverBytesMulti(entries);
+    if (desktop && entries.length > 0) {
+      const report = await delivery.deliver(entries);
+      if (report.overall === 'cancelled') {
+        setProgress(null); // picker cancelled — files not saved, not an error
+      }
+    }
     setProgress({ value: 100, label: t('watermark.progress_done') });
     setBatchNote(
       t('watermark.batch_summary', {
@@ -402,7 +410,12 @@ export function WatermarkTool() {
         failed.push(f.name);
       }
     }
-    if (desktop && entries.length > 0) await deliverBytesMulti(entries);
+    if (desktop && entries.length > 0) {
+      const report = await delivery.deliver(entries);
+      if (report.overall === 'cancelled') {
+        setProgress(null); // picker cancelled — files not saved, not an error
+      }
+    }
     setProgress({ value: 100, label: t('watermark.progress_done') });
     setBatchNote(
       t('watermark.batch_summary', {
@@ -777,6 +790,16 @@ export function WatermarkTool() {
             onToggle={(pageNumber: number) => toggle(pageNumber)}
           />
         </>
+      ) : null}
+      {delivery.report ? (
+        <div className="px-4 pb-4">
+          <DeliveryReportBar
+            report={delivery.report}
+            onRetry={() => void delivery.retry()}
+            onDismiss={delivery.dismiss}
+            busy={false}
+          />
+        </div>
       ) : null}
     </WorkspaceShell>
   );

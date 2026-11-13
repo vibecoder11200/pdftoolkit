@@ -4,7 +4,9 @@ import { useDropFiles } from '../../hooks/use-drop-files';
 import { takePendingFiles } from '../../lib/handoff';
 import { useThumbnails } from '../../hooks/use-thumbnails';
 import { engine } from '../../engine/client';
-import { deliverBytes, deliverBytesMulti } from '../../lib/download';
+import { deliverBytes } from '../../lib/download';
+import { useDelivery } from '../../lib/use-delivery';
+import { DeliveryReportBar } from './delivery-report-bar';
 import { formatBytes } from '../../lib/format';
 import { parseRanges } from '../../lib/ranges';
 import { Dropzone } from '../ui/dropzone';
@@ -73,6 +75,7 @@ export function SplitTool() {
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const delivery = useDelivery();
   const [probePending, setProbePending] = useState(false);
   const genRef = useRef(0);
   // numPages mirror readable from async closures (the state captured in
@@ -92,6 +95,7 @@ export function SplitTool() {
     setNumPages(0);
     setLastValid([]);
     setRunError(null);
+    delivery.clear(); // drop retained retry bytes when the source changes
     setProbePending(Boolean(file));
     probeRef.current = null;
     if (!file) return;
@@ -208,12 +212,17 @@ export function SplitTool() {
           label: t('split.progress_working_many', { count: parsedNow.ranges.length }),
         });
         const outs = await engine.splitRanges(file.bytes, parsedNow.ranges);
-        setProgress({ value: 100, label: t('split.progress_done') });
         // Multi-file mode: web = plain downloads (one picker per part would be
-        // hostile); desktop = one native save dialog, siblings written beside.
-        void deliverBytesMulti(
+        // hostile); desktop = one native directory picker + session writer
+        // with a typed per-file report (retry via the shared bar).
+        const report = await delivery.deliver(
           outs.map((out, i) => ({ bytes: out, filename: `${stem}-part${i + 1}.pdf` })),
         );
+        if (report.overall === 'cancelled') {
+          setProgress(null); // picker cancelled — back to idle, not an error
+          return;
+        }
+        setProgress({ value: 100, label: t('split.progress_done') });
       }
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
@@ -375,6 +384,16 @@ export function SplitTool() {
             onToggle={(pageNumber: number) => togglePage(pageNumber)}
           />
         </>
+      ) : null}
+      {delivery.report ? (
+        <div className="px-4 pb-4">
+          <DeliveryReportBar
+            report={delivery.report}
+            onRetry={() => void delivery.retry()}
+            onDismiss={delivery.dismiss}
+            busy={busy}
+          />
+        </div>
       ) : null}
     </WorkspaceShell>
   );

@@ -98,18 +98,34 @@ describe('coalesceCompareMarks (pure)', () => {
 });
 
 describe('textDiffClauses (lcsTokens wrapper)', () => {
+  it('preserves raw text when a disjoint pair exceeds the edit-distance budget', () => {
+    const oldText = Array.from({ length: 650 }, (_, i) => `old${i}`).join('  ');
+    const newText = Array.from({ length: 650 }, (_, i) => `new${i}`).join('\n');
+    expect(textDiffClauses(oldText, newText)).toEqual({ kind: 'wholesale', oldText, newText });
+  });
+
+  it('bounds adversarial 20k-token pairs without losing either text', () => {
+    const oldText = Array.from({ length: 20_000 }, (_, i) => `a${i}`).join(' ');
+    const newText = Array.from({ length: 20_000 }, (_, i) => `b${i}`).join(' ');
+    expect(textDiffClauses(oldText, newText)).toEqual({ kind: 'wholesale', oldText, newText });
+  });
+  it('does not turn unexpected input errors into a wholesale result', () => {
+    expect(() => textDiffClauses(null as unknown as string, 'valid')).toThrow(TypeError);
+    expect(textDiffClauses('', '')).toEqual({ kind: 'clauses', added: [], removed: [] });
+  });
+
   it('joins adjacent same-kind runs into clause strings', () => {
     const out = textDiffClauses('the quick brown fox', 'the slow brown fox');
-    expect(out).toEqual({ added: ['slow'], removed: ['quick'] });
+    expect(out).toEqual({ kind: 'clauses', added: ['slow'], removed: ['quick'] });
   });
 
   it('multi-token runs join with spaces, order preserved', () => {
     const out = textDiffClauses('a b c d', 'a x y z d');
-    expect(out).toEqual({ added: ['x y z'], removed: ['b c'] });
+    expect(out).toEqual({ kind: 'clauses', added: ['x y z'], removed: ['b c'] });
   });
 
   it('identical text yields no clauses', () => {
-    expect(textDiffClauses('same words here', 'same   words here')).toEqual({ added: [], removed: [] });
+    expect(textDiffClauses('same words here', 'same   words here')).toEqual({ kind: 'clauses', added: [], removed: [] });
   });
 });
 

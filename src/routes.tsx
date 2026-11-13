@@ -1,4 +1,5 @@
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
+import { installFileDropGuard } from './lib/file-drop-guard';
 import { createBrowserRouter, Outlet } from 'react-router-dom';
 import { HomePage } from './pages/home';
 import { ComingSoonPage } from './pages/tool-placeholder';
@@ -26,6 +27,10 @@ import { EditorToolPage } from './pages/editor';
 import { PdfToWordToolPage } from './pages/pdf-to-word';
 import { CompareToolPage } from './pages/compare';
 import { BlankPagesToolPage } from './pages/blank-pages';
+import { OrganizeToolPage } from './pages/organize';
+import { TablesToolPage } from './pages/tables';
+import { ScanCleanupToolPage } from './pages/scan-cleanup';
+import { DiagnosticsToolPage } from './pages/diagnostics';
 import { SettingsPage } from './pages/settings';
 import { NotFoundPage } from './pages/not-found';
 
@@ -50,6 +55,10 @@ const toolRoutes = [
   'pdf-to-word',
   'compare',
   'blank-pages',
+  'organize',
+  'tables',
+  'scan-cleanup',
+  'diagnostics',
 ].map((path) => ({
   path: `/tools/${path}`,
   element:
@@ -93,6 +102,14 @@ const toolRoutes = [
       <CompareToolPage />
     ) : path === 'blank-pages' ? (
       <BlankPagesToolPage />
+    ) : path === 'organize' ? (
+      <OrganizeToolPage />
+    ) : path === 'tables' ? (
+      <TablesToolPage />
+    ) : path === 'scan-cleanup' ? (
+      <ScanCleanupToolPage />
+    ) : path === 'diagnostics' ? (
+      <DiagnosticsToolPage />
     ) : (
       <SignToolPage />
     ),
@@ -103,6 +120,7 @@ const toolRoutes = [
 // remounting page components. AppUpdateProvider wraps everything: the per-page
 // Footer reads hasWaiting from the same single registration context.
 function RootLayout() {
+  useEffect(() => installFileDropGuard(window), []);
   return (
     <AppUpdateProvider>
       <LaunchBanner />

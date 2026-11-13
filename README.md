@@ -11,7 +11,7 @@ Merge, split, compress, convert and sign PDFs — 100% in your browser. Files ne
 
 Most "free PDF tools" upload your documents to a server. This one doesn't: every operation runs client-side in a Web Worker (pdf-lib + qpdf-wasm + pdf.js). There is no backend, no account, no telemetry, no runtime CDN.
 
-## Tools (20)
+## Tools (24)
 
 | Organize | Convert & optimize | Security & sign |
 |---|---|---|
@@ -43,6 +43,16 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 **Compare PDFs** (v0.11.0 — 'So sánh PDF'): word-level diff between two revisions, 100% on-device. Pages align by content (an edited page stays paired with its original; inserted/removed pages get honest banners), then the word diff paints green inserted boxes on the revised page and red strikethrough on the original — a single-pair viewer with an A/B toggle and changed/added page badges. Pages with too little text in common (replaced pages) are reported as removed+added instead of pretending; whole-document structural mismatches say so up front. Optional export produces TWO annotated PDFs (marks drawn into both files). Scanned pages have no text layer — after your explicit confirmation the on-device AI OCR reads them and shows a text-level clause list instead (never in the annotated export). Everything streams with cancel; an engine crash surfaces with Retry.
 
 **Blank-page removal** (v0.11.0 — 'Xóa trang trắng'): scans at ~30 DPI with two criteria (ink ≤ 0.5% AND grey stddev ≤ 5) so scanner-noise white reads blank while solid-colored pages never do. Pages with a text layer are kept without rendering; blank pages auto-check for removal, near-blank and unverifiable pages never do — a failed raster allocation reads "unverifiable", never blank, so real content cannot be silently deleted. You review the verdict badges per page before anything is removed.
+
+**Organizer** (v0.12.0 ): drag-to-reorder across multiple source documents, page rotation, extraction to a new file, and bookmarks — all in one canvas (category 'org', tool #21).
+
+**Tables** (v0.12.0 ): multi-table detection per page (band-split reuse of the pdf2word detector, rotated bands refused), editable grid with undo/redo, join across pages, and safe export — CSV neutralizes formula injection (=, +, -, @, tab, full-width variants; raw mode is explicit) and XLSX is data-only via ExcelJS (leading-zero IDs stay text, >15-digit precision fallback, ISO-only dates). Scanned pages route through the on-device AI OCR with review warnings + null confidence (tool #22).
+
+**Scan cleanup** (v0.12.0): deskew (projection-variance search verified by a plant-skew closure test), manual rotation with an OS-orientation SUGGESTION (never auto-applied — the local detector mirrored 90/270 in the spike corpus, disclosed in-app), grayscale/flatten/threshold enhancement, and page-cap/edge budgets (tool #23).
+
+**Diagnostics & repair** (v0.12.0 — tool #24): a read-only qpdf '--check' report (openability, password requirement, page count, sanitized structural warnings) that is explicitly NOT a security scan, plus user-triggered best-effort repair writing NEW output only — signed inputs refuse, encrypted inputs need the password (used for the run, never stored), unrecoverable damage refuses with NO output, and when the original is unreadable the result is labelled unverifiable (no parity claim). The same operations are batchable in the queue panel.
+
+**Batch queue** (v0.12.0): merge/compress/diagnose/repair over picked files with an explicit state machine (illegal transitions throw), cardinality validation naming the exact bad step BEFORE any execution, one heavy-executor slot, pause/resume at safe boundaries, cooperative cancellation, and a delivery LEDGER — a partial save retries ONLY the undelivered ids, never re-delivering successes. The queue holds an active job while work can resume so the updater/restart confirmation includes it.
 
 **Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool (OCR included since v0.8.1), the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything. OCR's AI searchable-PDF builds at click time — nothing is retained until you pick a target.
 

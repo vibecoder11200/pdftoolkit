@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFHexString, PDFString, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFHexString, PDFString, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -290,6 +290,46 @@ writeFileSync(join(here, 'form-vn-full.pdf'), formVnFull);
   const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
   acroForm.lookup(PDFName.of('Fields'), PDFArray).push(sigRef);
   writeFileSync(join(here, 'form-vn-signed.pdf'), await doc.save({ useObjectStreams: false }));
+
+// fixture-bookmarks.pdf (phase 4): 3 pages + outline tree (Unicode titles,
+// 2 roots, nested child) for organizer/bookmark suites.
+{
+  const { PDFDocument, PDFName, PDFHexString } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  const p1 = doc.addPage([595, 842]);
+  const p2 = doc.addPage([595, 842]);
+  const p3 = doc.addPage([595, 842]);
+  p1.drawText('Trang mot', { x: 20, y: 800, size: 12 });
+  p2.drawText('Trang hai', { x: 20, y: 800, size: 12 });
+  p3.drawText('Trang ba', { x: 20, y: 800, size: 12 });
+  const ctx = doc.context;
+  const mkItem = (title, destPage, children) => {
+    const itemDict = ctx.obj({});
+    const itemRef = ctx.register(itemDict);
+    itemDict.set(PDFName.of('Title'), PDFHexString.fromText(title));
+    itemDict.set(PDFName.of('Dest'), ctx.obj([destPage, PDFName.of('Fit')]));
+    if (children && children.length) {
+      itemDict.set(PDFName.of('First'), children[0].ref);
+      itemDict.set(PDFName.of('Last'), children[children.length - 1].ref);
+      for (const c of children) c.dict.set(PDFName.of('Parent'), itemRef);
+    }
+    return { ref: itemRef, dict: itemDict };
+  };
+  const leaf1 = mkItem('Chương 1', p1.ref, null);
+  const leaf3 = mkItem('Mục 1.1', p3.ref, null);
+  const leaf2 = mkItem('Chương 2 - tài liệu', p2.ref, [leaf3]);
+  const outlines = ctx.obj({ Type: 'Outlines' });
+  const outlinesRef = ctx.register(outlines);
+  outlines.set(PDFName.of('First'), leaf1.ref);
+  outlines.set(PDFName.of('Last'), leaf2.ref);
+  leaf1.dict.set(PDFName.of('Next'), leaf2.ref);
+  leaf2.dict.set(PDFName.of('Prev'), leaf1.ref);
+  leaf1.dict.set(PDFName.of('Parent'), outlinesRef);
+  leaf2.dict.set(PDFName.of('Parent'), outlinesRef);
+  doc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+  doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  writeFileSync(join(here, 'bookmarks.pdf'), await doc.save());
+}
 }
 
 // XFA variant: the catalog /AcroForm carries /XFA — the fill tool must refuse
@@ -522,6 +562,54 @@ async function makeP2wViet() {
 }
 const p2wViet = await makeP2wViet();
 writeFileSync(join(here, 'fixture-p2w-viet.pdf'), p2wViet);
+
+// Phase-6 (plan 261112-0955): dirty scan fixture — skewed text (drawn at
+// +4deg), flat gray background (low contrast), speckle noise. The cleanup
+// tool's deskew/enhance pipeline and its e2e consume this.
+async function makeScanDirty() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-scan-dirty');
+  doc.setCreator('pdftoolkit-gen');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  // Flat gray background: a scan's paper tone (low contrast).
+  page.drawRectangle({ x: 0, y: 0, width: 595, height: 842, color: rgb(0.82, 0.82, 0.80) });
+  // Speckle noise: deterministic pseudo-random dots.
+  let seed = 42;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  for (let i = 0; i < 260; i += 1) {
+    const x = rand() * 595;
+    const y = rand() * 842;
+    page.drawCircle({ x, y, size: rand() * 1.4 + 0.3, color: rgb(0.25, 0.25, 0.24) });
+  }
+  // Skewed text block: +4deg rotation via the drawText rotate option.
+  const lines = [
+    // ASCII only: WinAnsi standard fonts cannot encode Vietnamese (the
+    // v0.10 fixture lesson) - deskew/enhance do not need diacritics.
+    'INTERNAL REPORT - NOVEMBER 2026',
+    'Unit: Example Ltd - Sales department',
+    'Revenue grew 12 percent versus last month.',
+    'Operating costs stayed within the planned band.',
+    'New customers: 18 contracts signed this month.',
+  ];
+  lines.forEach((line, i) => {
+    page.drawText(line, {
+      x: 70,
+      y: 740 - i * 42,
+      size: 15,
+      font,
+      color: rgb(0.18, 0.18, 0.17),
+      rotate: degrees(4),
+    });
+  });
+  return doc.save({ useObjectStreams: false });
+}
+const scanDirty = await makeScanDirty();
+writeFileSync(join(here, 'fixture-scan-dirty.pdf'), scanDirty);
+
 
 // Census-class fixtures (RED-TEAM F10): the digital set alone never proved
 // the mode routing — the app's OWN OCR output (image + text layer) is the
