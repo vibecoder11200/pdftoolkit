@@ -22,6 +22,14 @@ import { WorkspaceShell } from './workspace-shell';
 
 const STEPS = ['pick', 'report', 'repair'] as const;
 
+// Full literal keys (i18n gate: concatenated 'diag.step_' + key renders
+// unverifiable lookups — the scan treats the prefix as a raw-render key).
+const STEP_LABEL_KEYS: Record<(typeof STEPS)[number], string> = {
+  pick: 'diag.step_pick',
+  report: 'diag.step_report',
+  repair: 'diag.step_repair',
+};
+
 export function DiagnosticsTool() {
   const { t } = useTranslation(['common']);
   const { files, error: fileError, add, clear } = useDropFiles();
@@ -88,7 +96,7 @@ export function DiagnosticsTool() {
       meta={file ? file.file.name : undefined}
       steps={STEPS.map((key, i) => ({
         key,
-        label: t('diag.step_' + key),
+        label: t(STEP_LABEL_KEYS[key]),
         state: (i === 0 && file) || (i === 1 && report) ? 'done' : i === 0 ? 'now' : 'todo',
       }))}
       error={runError ?? (fileError ? { title: fileError } : null)}

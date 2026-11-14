@@ -99,12 +99,16 @@ impl HeldDir {
     /// Non-clobbering publish: rename the temp onto `final_name`, existence
     /// checked inside the syscall. Collision => suffix from the SAME handle
     /// is attempted by the caller (write_session_file).
-    fn publish(&self, temp: &File, _temp_name: &str, final_name: &str) -> io::Result<String> {
+    fn publish(&self, temp: &File, temp_name: &str, final_name: &str) -> io::Result<String> {
         match self {
             #[cfg(windows)]
-            Self::Win(h) => h
-                .publish(temp, final_name)
-                .map(|_| final_name.to_string()),
+            Self::Win(h) => {
+                // Windows publish is handle-based: the temp NAME is only
+                // needed on unix (rename source). Keep the parameter shared
+                // so both cfg arms compile (E0425 on unix if underscored).
+                let _ = temp_name;
+                h.publish(temp, final_name).map(|_| final_name.to_string())
+            }
             #[cfg(unix)]
             Self::Unix(h) => h.publish(temp, temp_name, final_name),
         }
