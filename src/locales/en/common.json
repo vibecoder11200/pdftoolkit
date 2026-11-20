@@ -385,7 +385,19 @@
     "mode_linearize_hint": "Restructures the file so the first page renders quickly when opened online. No compression.",
     "progress_working_linearize": "Optimizing for web...",
     "result_ok_linearize": "Web-optimized — the first page now renders fast when streamed.",
-    "modes_hint": "Vector pack keeps text intact — best for text-heavy files. Image recompress suits scans and photo-heavy files. Web-optimizer does not compress — it just makes the first page render fast when streamed."
+    "modes_hint": "Vector pack keeps text intact — best for text-heavy files. Image recompress suits scans and photo-heavy files. Web-optimizer does not compress — it just makes the first page render fast when streamed.",
+    "mode_target": "Compress to a target size",
+    "mode_target_hint": "Pick 500 KB / 1 MB / 2 MB / 5 MB (or a custom MB value) — the tool searches a sensible image quality and says so plainly when the target is missed.",
+    "target_size_q": "Target size",
+    "target_size_custom": "Custom (MB)",
+    "target_invalid": "Target size must be at least 100 KB.",
+    "target_progress_sample": "Searching a sensible quality...",
+    "target_progress_pass": "Compression pass {{pass}}/{{max}}...",
+    "target_progress_rebuild": "Rebuilding the PDF...",
+    "target_result_met": "Target met (≤ {{target}}) — final size: {{size}}.",
+    "target_result_best_effort": "Target ≤ {{target}} NOT met — best result: {{size}}. Text still cannot be selected (page rasters).",
+    "target_result_refuse_bigger": "Target ≤ {{target}} not reachable: even the strongest compression produces a file larger than the original ({{size}}) — no meaningless output.",
+    "target_used_config": "Configuration: JPEG quality {{quality}}, scale {{scale}}x, {{passes}} pass(es)."
   },
   "pdf-to-img": {
     "title": "PDF to images",
@@ -1373,7 +1385,9 @@
     "state_failed": "Failed",
     "state_cancelled": "Cancelled",
     "op_diagnose": "Diagnose PDF",
-    "op_repair": "Repair PDF"
+    "op_repair": "Repair PDF",
+    "op_page_numbers": "Page numbers",
+    "op_organize": "Organize"
   },
   "diag": {
     "title": "PDF diagnostics",
@@ -1397,5 +1411,49 @@
     "repair_verified": "Repaired copy created — sampled first-page text parity held against the original.",
     "repair_unverifiable": "Repaired copy created — the original was unreadable so NO parity could be claimed; please review the result yourself.",
     "repair_refused": "This file cannot be repaired ({detail}). No output was produced."
+  },
+  "zip": {
+    "toggle_label": "Bundle into one .zip file",
+    "packing_progress": "Packing the .zip...",
+    "fallback_notice": "Too large to bundle as .zip — files were downloaded separately."
+  },
+  "pbuilder": {
+    "title": "Create your own chain",
+    "title_edit": "Edit chain",
+    "subtitle": "Compose processing steps into a chain that runs in order — save it for later.",
+    "name_label": "Chain name",
+    "name_placeholder": "e.g. Stamp then compress",
+    "steps_label": "Steps",
+    "empty": "No steps yet — add at least 2.",
+    "add_step": "Add step",
+    "one_slug_note": "Each tool appears once per chain (v1).",
+    "need_two_steps": "A chain needs at least 2 steps.",
+    "need_name": "Give the chain a name.",
+    "duplicate_slug": "Each tool can be used only once per chain.",
+    "save": "Save chain",
+    "update": "Update chain",
+    "cancel": "Cancel",
+    "move_up": "Move step up",
+    "move_down": "Move step down",
+    "remove_step": "Remove this step",
+    "import": "Import JSON",
+    "export": "Export JSON",
+    "import_ok": "Imported {{count}} chain(s).",
+    "import_error": "Import failed: {{message}}",
+    "save_invalid": "Invalid chain: {{message}}",
+    "save_error": "Save failed: {{message}}",
+    "opt_compress_mode": "Compress mode",
+    "opt_watermark_text": "Stamp text",
+    "opt_pn_preset": "Numbering style",
+    "opt_encrypt_mode": "Mode",
+    "opt_ocr_fixed": "The OCR step runs Tesseract and exports a searchable PDF (fixed).",
+    "create_card": "Create your own chain",
+    "create_card_hint": "Compose your own steps: stamp, compress, number pages...",
+    "edit": "Edit",
+    "clone": "Clone",
+    "delete": "Delete",
+    "delete_confirm": "Click again to delete",
+    "custom_tag": "Your chain",
+    "skipped_steps": "{{count}} unsupported step(s) skipped."
   }
 }

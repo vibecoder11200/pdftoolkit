@@ -10,6 +10,15 @@ import {
   type QueueOperation,
 } from './batch-queue';
 import { engine } from '../engine/client';
+import i18n from '../i18n';
+import {
+  PAGE_NUMBERS_DEFAULT_PRESET,
+  presetConfig,
+  presetScope,
+  type PageNumbersPreset,
+} from './page-numbers-config';
+import { carryOverBookmarks } from './outline-carry';
+import type { OrganizePagePlan } from '../engine/pdf-lib';
 
 /*
  * Phase-7 queue UI wiring: singleton BatchQueue with REAL merge/compress
@@ -115,6 +124,97 @@ export function buildQueueRegistry(): Map<string, QueueOperation> {
       ];
     },
   });
+  // v0.13.0 phase 4: page-numbers (1→1) + organize (many→1, keep-source-
+  // order plan with outline carry-over — the merge-with-bookmarks op).
+  // Options are PANEL-supplied; filename artifacts stay locale-INVARIANT
+  // (RT finding 11 — every existing adapter ships vi-stemmed names).
+  map.set('page-numbers', {
+    id: 'page-numbers',
+    cardinality: { in: 'one', out: 'one' },
+    acceptsPdf: true,
+    run: async (inputs, options, ctx) => {
+      const f = inputs[0];
+      if (!f) throw new Error('page-numbers: missing input');
+      if (ctx.shouldStop()) throw new CancelledError();
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const raw = (options.preset as number | undefined) ?? PAGE_NUMBERS_DEFAULT_PRESET;
+      const preset = ([0, 1, 2, 3] as const).includes(raw as PageNumbersPreset)
+        ? (raw as PageNumbersPreset)
+        : PAGE_NUMBERS_DEFAULT_PRESET;
+      // Scope needs the page count (pdf.js main-thread count; the engine
+      // clamp is the backstop only — same posture as the tool).
+      let numPages = 0;
+      try {
+        const { getPageCount } = await import('../engine/pdfjs');
+        numPages = await getPageCount(bytes);
+      } catch {
+        numPages = 0;
+      }
+      const config = presetConfig(preset, (k) => i18n.t(k));
+      const out = await engine.applyPageNumbers(bytes, {
+        template: config.template,
+        position: config.position,
+        margin: config.margin,
+        fontSize: config.fontSize,
+        startNumber: config.startNumber,
+        pages: numPages > 0 ? presetScope(numPages, config) : undefined,
+        filename: f.name,
+      });
+      ctx.onProgress(0.9);
+      const base = f.name.replace(/\.pdf$/i, '');
+      return [
+        {
+          artifactId: ctx.itemId + ':page-numbers:0',
+          filename: base + '-so-trang.pdf',
+          bytes: out,
+          mime: 'application/pdf',
+        },
+      ];
+    },
+  });
+  map.set('organize', {
+    id: 'organize',
+    cardinality: { in: 'many', out: 'one' },
+    acceptsPdf: true,
+    run: async (inputs, _options, ctx) => {
+      if (inputs.length === 0) throw new Error('organize: missing inputs');
+      const sources: Uint8Array[] = [];
+      for (const f of inputs) {
+        if (ctx.shouldStop()) throw new CancelledError();
+        sources.push(new Uint8Array(await f.arrayBuffer()));
+      }
+      ctx.onProgress(0.15);
+      // Outline carry-over: read + remap BEFORE the engine call (pdf.js
+      // main thread); a bookmarkless/corrupt source degrades to merge-like.
+      const bookmarks = await carryOverBookmarks(sources);
+      // Default plan: keep every source page in input order.
+      let counts: number[] = [];
+      try {
+        const { getPageCount } = await import('../engine/pdfjs');
+        counts = await Promise.all(sources.map((b) => getPageCount(b)));
+      } catch {
+        counts = [];
+      }
+      const pages: OrganizePagePlan[] = [];
+      sources.forEach((_b, i) => {
+        const n = counts[i] ?? 1;
+        for (let p = 1; p <= n; p += 1) pages.push({ kind: 'source', source: i, page: p });
+      });
+      if (pages.length === 0) throw new Error('organize: empty page plan');
+      const { bytes, report } = await engine.organizeExport(sources, pages, bookmarks);
+      ctx.onProgress(0.9);
+      const label = inputs.length > 1 ? `${inputs.length}-file-tap-hop` : 'tap-hop';
+      void report;
+      return [
+        {
+          artifactId: ctx.itemId + ':organize:0',
+          filename: label + '-giu-dau-trang.pdf',
+          bytes,
+          mime: 'application/pdf',
+        },
+      ];
+    },
+  });
   return map;
 }
 
@@ -170,8 +270,12 @@ class QueueStore {
     }
   }
 
-  enqueue(operationId: 'merge' | 'compress' | 'diagnose' | 'repair', inputs: File[]): QueueItem {
-    const item = this.queue.enqueue([{ operationId, options: {} }], inputs);
+  enqueue(
+    operationId: 'merge' | 'compress' | 'diagnose' | 'repair' | 'page-numbers' | 'organize',
+    inputs: File[],
+    options: Record<string, unknown> = {},
+  ): QueueItem {
+    const item = this.queue.enqueue([{ operationId, options }], inputs);
     void this.queue.pump();
     this.bump();
     return item;

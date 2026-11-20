@@ -34,6 +34,8 @@ import { WorkspaceShell } from './workspace-shell';
 import { ThumbnailStrip } from './thumbnail-strip';
 import { ReadOnlyPageCanvas } from './editor-canvas';
 import { useThumbnails } from '../../hooks/use-thumbnails';
+import { ZipToggle } from './zip-toggle';
+import { packAndDeliverZip } from '../../lib/deliver-zip';
 
 /*
  * Compare PDFs (tool #19, v0.11.0 phase 7, plan 261109-1101). Two file
@@ -126,6 +128,10 @@ export function CompareTool() {
   // P8: annotated export + AI-OCR scan leg.
   const [exporting, setExporting] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
+  // v0.13.0 phase 2: opt-in ZIP export of the annotated pair (always exactly
+  // 2 outputs → the toggle is visible whenever an export is possible).
+  const [zipRequested, setZipRequested] = useState(false);
+  const [zipNotice, setZipNotice] = useState<string | null>(null);
   const delivery = useDelivery();
   const [scanChars, setScanChars] = useState<{ a: number[]; b: number[] } | null>(null);
   const [slowTier, setSlowTier] = useState(false);
@@ -405,31 +411,42 @@ export function CompareTool() {
   }, [result, slotA, slotB, scanChars, countA, countB, aiBusy, t]);
 
   // Annotated export (8a): overlay marks (scan pairs excluded + counted)
-  // through the engine op, then deliverBytesMulti — ONE desktop Save-As
-  // dialog, siblings beside.
+  // through the engine op, then the phase-3 delivery — v0.13.0 phase 2 adds
+  // the opt-in ZIP branch (ONE .zip via the single-file seam; fallback =
+  // loose multi + notice). Default stays the loose two-file deliver.
   const runExport = useCallback(async () => {
     if (!result || !slotA || !slotB || exporting) return;
     setExporting(true);
     setError(null);
     setExportNote(null);
+    setZipNotice(null);
     try {
       const { del, ins, scanCount } = exportMarks(result, scanPairIdxs);
       const aOut = await engine.annotateCompare(slotA.bytes, del);
       const bOut = await engine.annotateCompare(slotB.bytes, ins);
       const stemA = baseName(slotA.file.name);
       const stemB = baseName(slotB.file.name);
-      const report = await delivery.deliver([
+      const parts = [
         { bytes: aOut, filename: `${stemA}-so-sanh-A.pdf` },
         { bytes: bOut, filename: `${stemB}-so-sanh-B.pdf` },
-      ], 'application/pdf');
-      if (report.overall === 'cancelled') return; // picker cancel is not an error
+      ];
+      if (zipRequested) {
+        const outcome = await packAndDeliverZip(parts, `${stemA}-so-sanh-tap-hop.zip`, {
+          deliverSingle: delivery.deliverSingle,
+        });
+        setZipNotice(outcome.zipped ? null : t('zip.fallback_notice'));
+        if (outcome.report.overall === 'cancelled') return; // picker cancel is not an error
+      } else {
+        const report = await delivery.deliver(parts, 'application/pdf');
+        if (report.overall === 'cancelled') return; // picker cancel is not an error
+      }
       setExportNote(scanCount > 0 ? t('compare.scan_excluded', { n: scanCount }) : null);
     } catch (e) {
       setError(engineErrorDetail(e, t('compare.err_export'), crashCopy(t), () => void runExport()));
     } finally {
       setExporting(false);
     }
-  }, [result, slotA, slotB, exporting, t, scanPairIdxs, delivery.deliver]);
+  }, [result, slotA, slotB, exporting, t, scanPairIdxs, delivery.deliver, delivery.deliverSingle, zipRequested]);
 
   // Derived view state. The A/B preference coerces per pair: an added-only
   // pair (oldPage 0) has no A page and a removed-only pair (newPage null)
@@ -774,7 +791,16 @@ export function CompareTool() {
               <Button onClick={() => void runExport()} disabled={exporting || busy || aiBusy}>
                 {exporting ? t('compare.export_busy') : t('compare.export_cta')}
               </Button>
+              <ZipToggle
+                checked={zipRequested}
+                onChange={(next) => {
+                  setZipRequested(next);
+                  setZipNotice(null);
+                }}
+                visible={Boolean(slotA && slotB && result)}
+              />
               {exportNote ? <span className="text-[13px] text-text-muted">{exportNote}</span> : null}
+              {zipNotice ? <span className="text-[13px] text-warning">{zipNotice}</span> : null}
       {delivery.report && (
         <DeliveryReportBar
           report={delivery.report}

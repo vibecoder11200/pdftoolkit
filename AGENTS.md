@@ -457,6 +457,40 @@ This project is indexed by GitNexus as **pdftoolkit** (3922 symbols, 10094 relat
   stays PER-PAGE chars. The 100MB nightly pdf2word leg is a journaled
   v0.10.x deferral — the PR-tier matrix leg is the real coverage.
 
+### v0.13.0 invariants (target-compress / zip / preset builder / queue)
+
+- **Target-size compression honesty** (`src/lib/target-compress.ts`): a
+  verdict is NEVER claimed without measuring the real rebuild — `met`
+  requires the delivered bytes ≤ target, `best-effort` is ≤ input but >
+  target, `refuse-bigger` returns null bytes. `pickPlan` qMax is the top
+  MEASURED rung at the current scale (encoding an unmeasured rung was a
+  real lib bug — do not "simplify" back to QUALITY_LADDER[0]). Census
+  budget is 10 encodes (6 + 2 + 2); render long edge caps at 4500px;
+  full passes stream page-by-page (no raster retention).
+- **ZIP export** (`src/lib/deliver-zip.ts`): store-only writer (cap 65535
+  entries, hard 200MB `ZIP_MAX_TOTAL_BYTES`), soft cap 150MB falls back
+  to per-file delivery — `isZipSizeError` detects BY NAME across comlink.
+  Hosts are split + compare ONLY (pdf-to-img is zip-by-default already;
+  tables is single-output). ZIP filenames stay locale-INVARIANT
+  (`-tap-hop.zip`, `-so-sanh-tap-hop.zip`) — same RT-finding-11 posture
+  as every other artifact name; do NOT add a locale key for them.
+- **Preset builder v1** (`custom-preset-adapter.ts` + `preset-session.ts`):
+  the session carries the RESOLVED chain (builtin OR custom) — customs
+  dying at step 1 was the v0.13.0 RT finding 6; the runtime prefill is
+  SLUG-keyed, which is only sound because builder v1 forbids repeating a
+  slug within one chain (UI-validated; keep that validation).
+  `BUILDER_SLUGS` = 6; organize/tables stay OUT of v1 (complex state
+  models — recorded follow-up). Builder UI keys live under `pbuilder`
+  in common.json (NOT tools.json).
+- **Queue phase 4**: `presetConfig`/`presetScope` (`src/lib/page-numbers-config.ts`)
+  is the SINGLE mapping shared by the tool UI and the queue adapter
+  (RT finding 8 — it used to live scattered in the tool). The organize
+  adapter's bookmark carry rides `carryOverBookmarks`
+  (`src/lib/outline-carry.ts`) — cumulative-offset remap, per-source
+  try/catch (outline fail → merge-like, never throws). Queue artifact
+  names stay locale-invariant (`-so-trang.pdf`,
+  `-giu-dau-trang.pdf`).
+
 ## 5. GitHub Pages deploy
 
 - Site: https://vibecoder11200.github.io/pdftoolkit/ — deployed from `main` by

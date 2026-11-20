@@ -8,6 +8,12 @@ import { engine } from '../../engine/client';
 import { deliverBytes } from '../../lib/download';
 import { isEncryptedError } from '../../lib/suggest';
 import { renderPageTemplate } from '../../lib/page-template';
+import {
+  PAGE_NUMBERS_DEFAULT_PRESET,
+  presetConfig,
+  presetScope,
+  type PageNumbersPreset,
+} from '../../lib/page-numbers-config';
 import { formatBytes } from '../../lib/format';
 import type { GridPos9, PageNumbersOptions } from '../../engine/pdf-lib';
 import { Dropzone } from '../ui/dropzone';
@@ -74,13 +80,13 @@ export function PageNumbersTool() {
   // #2 ("n/total") — the same state applyPreset(1) would build, read ONCE at
   // mount. The [source, preset] scope-seeding effect honors it from the
   // first run; the user can still switch presets before running.
-  const [state, setState] = useState<ToolState>(() =>
-    presetDefaultsFor('page-numbers')?.preset === 1
-      ? { ...BASE_STATE, template: '{n}/{total}' }
-      : { ...BASE_STATE },
-  );
-  const [preset, setPreset] = useState<0 | 1 | 2 | 3>(
-    () => presetDefaultsFor('page-numbers')?.preset ?? 0,
+  const [state, setState] = useState<ToolState>(() => {
+    const seed = (presetDefaultsFor('page-numbers')?.preset ??
+      PAGE_NUMBERS_DEFAULT_PRESET) as PageNumbersPreset;
+    return { ...BASE_STATE, ...presetConfig(seed, t) };
+  });
+  const [preset, setPreset] = useState<PageNumbersPreset>(
+    () => (presetDefaultsFor('page-numbers')?.preset ?? PAGE_NUMBERS_DEFAULT_PRESET) as PageNumbersPreset,
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -106,7 +112,7 @@ export function PageNumbersTool() {
         const { info } = await engine.loadPdf(source.bytes);
         if (cancelled || genRef.current !== gen) return;
         setNumPages(info.numPages);
-        setSelected(allPages(info.numPages, preset === 3));
+        setSelected(new Set(presetScope(info.numPages, presetConfig(preset, t))));
       } catch (e) {
         if (cancelled || genRef.current !== gen) return;
         setNumPages(0);
@@ -140,27 +146,13 @@ export function PageNumbersTool() {
     });
   }, []);
 
-  function allPages(n: number, skipFirst: boolean): Set<number> {
-    const all = new Set<number>();
-    for (let p = skipFirst ? 2 : 1; p <= n; p += 1) all.add(p);
-    return all;
-  }
-
   // Preset click = configure + run-ready: the [source, preset] effect
   // re-seeds the scope (all pages; skip-first → 2..N); the user still
   // presses the deliver button, consistent with every other tool.
-  const applyPreset = (idx: 0 | 1 | 2 | 3) => {
+  const applyPreset = (idx: PageNumbersPreset) => {
     setPreset(idx);
     setShowAdvanced(false);
-    const next: ToolState =
-      idx === 0
-        ? { ...BASE_STATE }
-        : idx === 1
-          ? { ...BASE_STATE, template: '{n}/{total}' }
-          : idx === 2
-            ? { ...BASE_STATE, template: t('page-numbers.preset3_template') }
-            : { ...BASE_STATE, template: '{n}/{total}' };
-    setState(next);
+    setState({ ...BASE_STATE, ...presetConfig(idx, t) });
   };
 
   const openAdvanced = () => {
@@ -413,7 +405,7 @@ export function PageNumbersTool() {
       }
       progress={progress}
       onReset={reset}
-      onReselectAll={() => setSelected(allPages(numPages, false))}
+      onReselectAll={() => setSelected(new Set(presetScope(numPages, presetConfig(preset, t))))}
     >
       <PresetBanner toolSlug="page-numbers" output={lastOutput} />
       <Dropzone

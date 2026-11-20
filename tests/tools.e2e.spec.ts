@@ -78,6 +78,34 @@ test('compress: vector pack output is not larger than the input', async ({ page 
   expect(outSize).toBeLessThanOrEqual(inSize);
 });
 
+test('compress target: 1MB goal reports met-or-not honestly and downloads -target.pdf', async ({ page }) => {
+  test.setTimeout(120_000);
+  // The noise-photo fixture (≈2.2MB, SYNTHETIC incompressible grayscale
+  // noise — see gen.mjs) sits well above the 1MB target so the search has
+  // real work; the verdict line is either the honest "met" or the honest
+  // "not met" — never a silent claim.
+  await page.goto('./tools/compress');
+  await loadFixture(page, 'tests/fixtures/fixture-noise-photo.pdf');
+  await page.locator('input[name="compress-mode"][value="target"]').check();
+  await page.getByTestId('compress-target-size').getByRole('combobox').selectOption('1mb');
+  const cta = page.getByRole('button', { name: 'Nén và so sánh' });
+  await expect(cta).toBeEnabled({ timeout: 30_000 });
+  await cta.click();
+  const verdict = page.getByTestId('compress-target-verdict');
+  await expect(verdict).toBeVisible({ timeout: 90_000 });
+  const text = (await verdict.textContent()) ?? '';
+  expect(text).toMatch(/≤ 1 MB|Không đạt/);
+  // met / best-effort deliver; refuse-bigger shows no download button.
+  if (!text.includes('không xuất file vô nghĩa')) {
+    const dl = page.getByRole('button', { name: 'Tải xuống file đã nén' });
+    await expect(dl).toBeVisible({ timeout: 60_000 });
+    const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+    await dl.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/-target\.pdf$/);
+  }
+});
+
 test('encrypt then decrypt round-trips back to a parsable PDF', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('./tools/encrypt');

@@ -1,15 +1,22 @@
 /*
- * Preset session store (v0.8.1 phase 4): WHICH chain is running and WHICH
- * step the user is on — nothing else. Same singleton pattern as handoff.ts.
- * NO bytes/File storage here: the chained file rides the existing handoff
- * (appendPendingFiles), and each host tool's existing done-state retention
- * (useLastOutput / outBytes) feeds the banner's continue button.
+ * Preset session store (v0.8.1 phase 4, REWORKED v0.13.0 phase 3): WHICH
+ * chain is running and WHICH step — nothing else. Same singleton pattern
+ * as handoff.ts. NO bytes/File storage: the chained file rides the
+ * existing handoff (appendPendingFiles); each host tool's done-state
+ * retention (useLastOutput / outBytes) feeds the banner's continue button.
+ *
+ * v0.13.0 rework (RT finding 6 — customs died at step 1): the session
+ * carries the RESOLVED chain (builtin or custom, via the adapter) instead
+ * of a builtin-only slug. Prefill resolves per STEP INDEX against the
+ * chain's slug-keyed defaults — expressible because builder v1 forbids
+ * repeating a slug within one chain (validated in the builder UI).
  */
-import { getPreset, type Preset, type PresetStepDefaults } from './presets';
+import { resolveChain, type Chain } from './custom-preset-adapter';
+import type { PresetStepDefaults } from './presets';
 
 export interface PresetSession {
-  presetSlug: string;
-  /** 0-based index into preset.steps — the step the user is currently ON. */
+  chain: Chain;
+  /** 0-based index into chain.steps — the step the user is currently ON. */
   stepIndex: number;
 }
 
@@ -22,20 +29,19 @@ function notify(): void {
   for (const listener of listeners) listener(session);
 }
 
-/** Begin a chain at step 0. Unknown slugs are ignored (data-driven guard). */
-export function startPresetSession(presetSlug: string): void {
-  if (!getPreset(presetSlug)) return;
-  session = { presetSlug, stepIndex: 0 };
+/** Begin a chain at step 0. Unknown ids/slugs are ignored (data-driven guard). */
+export function startPresetSession(idOrSlug: string): void {
+  const chain = resolveChain(idOrSlug);
+  if (!chain) return;
+  session = { chain, stepIndex: 0 };
   notify();
 }
 
-/** Move the walker; clamped to the preset's step range. No-op without a session. */
+/** Move the walker; clamped to the chain's step range. No-op without a session. */
 export function setPresetStep(stepIndex: number): void {
   if (!session) return;
-  const preset = getPreset(session.presetSlug);
-  if (!preset) return;
-  const clamped = Math.max(0, Math.min(preset.steps.length - 1, stepIndex));
-  session = { presetSlug: preset.slug, stepIndex: clamped };
+  const clamped = Math.max(0, Math.min(session.chain.steps.length - 1, stepIndex));
+  session = { chain: session.chain, stepIndex: clamped };
   notify();
 }
 
@@ -54,6 +60,23 @@ export function getPresetSession(): PresetSession | null {
 }
 
 /**
+ * The tool's prefill slice, ONLY when the active session stands on this
+ * tool's step right now. Called from a useState initializer (exactly once
+ * per mount); tools not targeted get undefined and stay untouched. Slugs
+ * with no defaults slice (e.g. merge) always get undefined. v1 chains have
+ * unique slugs, so slug-keyed defaults ARE the per-step prefill.
+ */
+export function presetDefaultsFor<K extends keyof PresetStepDefaults>(
+  toolSlug: K,
+): PresetStepDefaults[K] | undefined;
+export function presetDefaultsFor(toolSlug: string): undefined;
+export function presetDefaultsFor(toolSlug: string): unknown {
+  if (!session) return undefined;
+  if (session.chain.steps[session.stepIndex]?.slug !== toolSlug) return undefined;
+  return session.chain.defaults[toolSlug as keyof PresetStepDefaults];
+}
+
+/**
  * Reactive subscription (handoff.ts pattern): fires on start/step/clear AND
  * replays the current session to new subscribers — the banner mounts with
  * the session already active (parking happens before navigation).
@@ -62,23 +85,6 @@ export function onPresetSession(fn: SessionListener): () => void {
   listeners.add(fn);
   fn(session);
   return () => listeners.delete(fn);
-}
-
-/**
- * The tool's prefill slice, ONLY when the active session is standing on this
- * tool's step right now. Called from a useState initializer (exactly once
- * per mount); tools not targeted by a session get undefined and stay
- * untouched. Slugs with no defaults slice (e.g. merge) always get undefined.
- */
-export function presetDefaultsFor<K extends keyof PresetStepDefaults>(
-  toolSlug: K,
-): PresetStepDefaults[K] | undefined;
-export function presetDefaultsFor(toolSlug: string): undefined;
-export function presetDefaultsFor(toolSlug: string): unknown {
-  if (!session) return undefined;
-  const preset: Preset | undefined = getPreset(session.presetSlug);
-  if (!preset || preset.steps[session.stepIndex] !== toolSlug) return undefined;
-  return preset.defaults[toolSlug as keyof PresetStepDefaults];
 }
 
 // token-mapped

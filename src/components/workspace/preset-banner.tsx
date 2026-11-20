@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { appendPendingFiles } from '../../lib/handoff';
 import { outputFile } from '../../lib/output-file';
-import { getPreset } from '../../lib/presets';
 import {
   clearPresetSession,
   getPresetSession,
@@ -46,15 +45,15 @@ export function PresetBanner({
   const navigate = useNavigate();
   const session = useSyncExternalStore(onPresetSession, getPresetSession);
 
-  const preset = session ? getPreset(session.presetSlug) : undefined;
+  const preset = session?.chain ?? null;
   // Render only on the session's CURRENT step: navigating to some other tool
   // (or an earlier step) shows nothing — the walker stays where it was.
-  if (!session || !preset || preset.steps[session.stepIndex] !== toolSlug) return null;
+  if (!session || !preset || preset.steps[session.stepIndex]?.slug !== toolSlug) return null;
 
   const stepIndex = session.stepIndex;
   const total = preset.steps.length;
   const isLast = stepIndex === total - 1;
-  const nextSlug = isLast ? null : preset.steps[stepIndex + 1];
+  const nextSlug = isLast ? null : preset.steps[stepIndex + 1]!.slug;
   const chainable = output !== null && output.bytes.byteLength <= MAX_CHAIN_BYTES;
 
   const advance = () => {
@@ -65,7 +64,7 @@ export function PresetBanner({
   };
 
   const label = t('presets.banner_step', {
-    name: t(`presets.${preset.slug}_name`),
+    name: preset.custom ? preset.name : t(`presets.${preset.id}_name`),
     current: stepIndex + 1,
     total,
   });

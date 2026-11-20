@@ -2,9 +2,11 @@ import { useCallback, useRef, useState } from 'react';
 import {
   deliveryOverall,
   retentionBudgetOk,
+  type DeliveryEntry,
   type DeliveryReport,
 } from './delivery-report';
-import { deliverBytesMulti, type DeliverEntry } from './download';
+import { deliverBytes, deliverBytesMulti, type DeliverEntry } from './download';
+import { isDesktopSaveAvailable } from './desktop-save';
 
 /*
  * Phase-3 delivery state for tool pages: one deliver call site per tool
@@ -13,6 +15,11 @@ import { deliverBytesMulti, type DeliverEntry } from './download';
  * artifact ids (the success ledger — delivered entries are never re-sent).
  * Complete/dispatched/cancelled reports are not surfaced; partial/failed
  * render the shared DeliveryReportBar.
+ *
+ * v0.13.0 phase 2 (ADDITIVE): deliverSingle packs the ZIP-export path —
+ * one artifact through deliverBytes (native Save-As on desktop, one
+ * download on web), ledger identity + retry routed by mime so a failed zip
+ * save retries AS A ZIP, never through the multi/session-writer path.
  */
 
 let runCounter = 0;
@@ -42,6 +49,39 @@ export function useDelivery() {
     return r;
   }, []);
 
+  const deliverSingle = useCallback(
+    async (bytes: Uint8Array, filename: string, mime = 'application/zip') => {
+      runCounter += 1;
+      const runId = `r${runCounter}-${Date.now().toString(36)}`;
+      const entry: DeliverEntry = { bytes, filename, artifactId: `${runId}:zip` };
+      const ok = retentionBudgetOk([entry]);
+      entriesRef.current = ok ? [entry] : null;
+      budgetOkRef.current = ok;
+      mimeRef.current = mime;
+      const delivered = await deliverBytes(bytes, filename, 'download', mime);
+      const status: DeliveryEntry['status'] = delivered
+        ? isDesktopSaveAvailable()
+          ? 'saved'
+          : 'dispatched'
+        : 'failed';
+      const result: DeliveryReport = {
+        overall: delivered ? (isDesktopSaveAvailable() ? 'complete' : 'dispatched') : 'failed',
+        entries: [
+          {
+            artifactId: entry.artifactId!,
+            filename,
+            status,
+            ...(delivered ? {} : { error: 'cancelled' }),
+          },
+        ],
+      };
+      if (result.overall === 'complete' || result.overall === 'dispatched') setReport(null);
+      else setReport(result);
+      return result;
+    },
+    [],
+  );
+
   const retry = useCallback(async () => {
     const current = report;
     const bytes = entriesRef.current;
@@ -53,6 +93,16 @@ export function useDelivery() {
       (e) => e.artifactId !== undefined && failedIds.has(e.artifactId),
     );
     if (failedEntries.length === 0) return null;
+    if (mimeRef.current === 'application/zip') {
+      // The ZIP single path retries AS A ZIP (deliverBytes — native Save-As
+      // on desktop, one download on web), never the multi/session writer.
+      const single = await deliverSingle(
+        failedEntries[0]!.bytes,
+        failedEntries[0]!.filename,
+        'application/zip',
+      );
+      return single;
+    }
     const r = await deliverBytesMulti(failedEntries, mimeRef.current ?? 'application/pdf');
     const merged = current.entries.map((e) => {
       const replacement = r.entries.find((x) => x.artifactId === e.artifactId);
@@ -62,7 +112,7 @@ export function useDelivery() {
     if (next.overall === 'complete' || next.overall === 'dispatched') setReport(null);
     else setReport(next);
     return next;
-  }, [report]);
+  }, [report, deliverSingle]);
 
   const dismiss = useCallback(() => setReport(null), []);
 
@@ -71,5 +121,5 @@ export function useDelivery() {
     setReport(null);
   }, []);
 
-  return { report, deliver, retry, dismiss, clear, canRetry: budgetOkRef.current };
+  return { report, deliver, deliverSingle, retry, dismiss, clear, canRetry: budgetOkRef.current };
 }

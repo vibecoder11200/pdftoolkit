@@ -947,6 +947,42 @@ async function makeBlankMixed() {
 const blankMixed = await makeBlankMixed();
 writeFileSync(join(here, 'fixture-blank-mixed.pdf'), blankMixed);
 
+// fixture-noise-photo.pdf (v0.13.0 phase 1): one page carrying a SYNTHETIC
+// noise "photo" (grayscale LCG pixels — deliberately incompressible, so the
+// compress tool's target-size search has real work; PDF lands ≈1.5MB).
+// Synthetic by design: real photos never enter the repo (launch-asset rule).
+{
+  const W = 1100;
+  const H = 1400;
+  const raw = Buffer.alloc(H * (W + 1));
+  let s = 0x9e3779b9 >>> 0;
+  for (let y = 0; y < H; y += 1) {
+    const row = y * (W + 1);
+    raw[row] = 0; // filter: none (noise is its own worst filter)
+    for (let x = 0; x < W; x += 1) {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      raw[row + 1 + x] = (s >>> 24) & 0xff;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0);
+  ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 0; // color type: grayscale
+  const noisePng = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw, { level: 1 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+  const doc = await PDFDocument.create();
+  doc.setTitle('pdftoolkit-fixture-noise-photo');
+  const page = doc.addPage([595, 842]);
+  const img = await doc.embedPng(noisePng);
+  page.drawImage(img, { x: 0, y: 0, width: 595, height: 842 });
+  writeFileSync(join(here, 'fixture-noise-photo.pdf'), await doc.save());
+}
+
 console.log(
   JSON.stringify({
     'fixture-small.pdf': small.length,
@@ -979,6 +1015,7 @@ console.log(
     'fixture-compare-scan-a.pdf': compareScanA.length,
     'fixture-compare-scan-b.pdf': compareScanB.length,
     'fixture-blank-mixed.pdf': blankMixed.length,
+    'fixture-noise-photo.pdf': readFileSync(join(here, 'fixture-noise-photo.pdf')).length,
   }),
 );
 

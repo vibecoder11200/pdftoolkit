@@ -54,6 +54,14 @@ Most "free PDF tools" upload your documents to a server. This one doesn't: every
 
 **Batch queue** (v0.12.0): merge/compress/diagnose/repair over picked files with an explicit state machine (illegal transitions throw), cardinality validation naming the exact bad step BEFORE any execution, one heavy-executor slot, pause/resume at safe boundaries, cooperative cancellation, and a delivery LEDGER — a partial save retries ONLY the undelivered ids, never re-delivering successes. The queue holds an active job while work can resume so the updater/restart confirmation includes it.
 
+**Target-size compression** (v0.13.0): pick a ceiling — 500 KB / 1 MB / 2 MB / 5 MB / a custom size — in the Compress tool and the engine runs a sample-calibrated search (2 census pages × quality ladder, at most 10 sample encodes, then corrective full passes) and reports an honest verdict: **Met** (measured at or under your target), **best-effort** (smaller than the input, target not reachable) or a refusal when even the best attempt exceeds the original. A verdict is never claimed without measuring the real bytes.
+
+**ZIP export** (v0.13.0): multi-output tools (Split, Compare) offer an opt-in "Gộp thành ZIP" toggle — one `.zip` download instead of a browser flood of files, with a 150 MB soft cap that falls back to individual downloads when exceeded (desktop: the same ZIP rides the native save flow).
+
+**Preset builder** (v0.13.0): build your own chains from six steps (merge, compress, watermark, page numbers, OCR, encrypt — no repeated step in v1), name them, edit/clone/delete from the home strip, and import/export them as JSON files (50-preset store cap). Custom chains run exactly like the built-ins, prefilling each tool as the chain walks.
+
+**Queue + organizer upgrades** (v0.13.0): the batch queue gains **page-numbers** (pick one of the 4 numbering presets per item) and **organize** (many PDFs → one, keep-source-order) — and organize carries each source's bookmarks over, remapped onto the merged output (a bookmarkless source degrades merge-like, never fails). Filenames stay locale-invariant.
+
 **Continue with result**: after a successful single-PDF run, the done view offers a handoff chip — pick the next PDF tool (OCR included since v0.8.1), the output parks there automatically, and you keep chaining (merge → page numbers → watermark …) without re-uploading anything. OCR's AI searchable-PDF builds at click time — nothing is retained until you pick a target.
 
 **Chuỗi nhanh** (v0.8.1): four one-click chains on the home page — Gộp → Nén, Ảnh scan → OCR → Đánh số, Watermark → Nén, Giải mã → Gộp. Each step opens pre-filled with sensible defaults you can edit before running, and the result flows into the next step automatically.

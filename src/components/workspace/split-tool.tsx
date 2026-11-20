@@ -15,6 +15,8 @@ import { SaveElsewhereButton } from '../ui/save-elsewhere-button';
 import { WorkspaceShell } from './workspace-shell';
 import { FileIcon, XIcon } from '../ui/icons';
 import { ThumbnailStrip } from './thumbnail-strip';
+import { ZipToggle } from './zip-toggle';
+import { packAndDeliverZip } from '../../lib/deliver-zip';
 
 type SplitMode = 'combined' | 'separate';
 
@@ -70,6 +72,8 @@ export function SplitTool() {
   const [numPages, setNumPages] = useState(0);
   const [rangesText, setRangesText] = useState('');
   const [mode, setMode] = useState<SplitMode>('separate');
+  const [zipRequested, setZipRequested] = useState(false);
+  const [zipNotice, setZipNotice] = useState<string | null>(null);
   const [lastValid, setLastValid] = useState<number[]>([]);
   const [loadSeq, setLoadSeq] = useState(0);
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
@@ -95,6 +99,7 @@ export function SplitTool() {
     setNumPages(0);
     setLastValid([]);
     setRunError(null);
+    setZipNotice(null);
     delivery.clear(); // drop retained retry bytes when the source changes
     setProbePending(Boolean(file));
     probeRef.current = null;
@@ -212,15 +217,28 @@ export function SplitTool() {
           label: t('split.progress_working_many', { count: parsedNow.ranges.length }),
         });
         const outs = await engine.splitRanges(file.bytes, parsedNow.ranges);
-        // Multi-file mode: web = plain downloads (one picker per part would be
-        // hostile); desktop = one native directory picker + session writer
-        // with a typed per-file report (retry via the shared bar).
-        const report = await delivery.deliver(
-          outs.map((out, i) => ({ bytes: out, filename: `${stem}-part${i + 1}.pdf` })),
-        );
-        if (report.overall === 'cancelled') {
-          setProgress(null); // picker cancelled — back to idle, not an error
-          return;
+        const parts = outs.map((out, i) => ({ bytes: out, filename: `${stem}-part${i + 1}.pdf` }));
+        if (zipRequested) {
+          // v0.13.0 phase 2: opt-in single .zip (1 download web / 1 Save-As
+          // desktop). Fallback → loose multi + honest notice (never a dead end).
+          setProgress({ value: 60, label: t('zip.packing_progress') });
+          const outcome = await packAndDeliverZip(parts, `${stem}-tap-hop.zip`, {
+            deliverSingle: delivery.deliverSingle,
+          });
+          setZipNotice(outcome.zipped ? null : t('zip.fallback_notice'));
+          if (outcome.report.overall === 'cancelled') {
+            setProgress(null);
+            return;
+          }
+        } else {
+          // Multi-file mode: web = plain downloads (one picker per part would be
+          // hostile); desktop = one native directory picker + session writer
+          // with a typed per-file report (retry via the shared bar).
+          const report = await delivery.deliver(parts);
+          if (report.overall === 'cancelled') {
+            setProgress(null); // picker cancelled — back to idle, not an error
+            return;
+          }
         }
         setProgress({ value: 100, label: t('split.progress_done') });
       }
@@ -249,7 +267,7 @@ export function SplitTool() {
         { key: 'configure', label: t('steps.configure'), state: covered.length > 0 ? 'done' : file ? 'now' : 'todo' },
         { key: 'download', label: t('steps.download'), state: progress?.value === 100 ? 'done' : 'todo' },
       ]}
-      error={fileError ?? runError}
+      error={fileError ?? runError ?? zipNotice}
       side={
         <>
           <label className="flex flex-col gap-1.5 text-[13.5px]">
@@ -310,6 +328,14 @@ export function SplitTool() {
             </button>
             <p className="-mt-1 text-xs text-text-muted">{t('split.mode_combined_hint')}</p>
           </div>
+          <ZipToggle
+            checked={zipRequested}
+            onChange={(next) => {
+              setZipRequested(next);
+              setZipNotice(null);
+            }}
+            visible={mode === 'separate' && !parsed.error && parsed.ranges.length > 1}
+          />
           <Button onClick={() => void run()} disabled={!file || busy} disabledReason={t('a11y.need_file')}>
             {t('split.cta')}
           </Button>
@@ -329,6 +355,7 @@ export function SplitTool() {
         setLastValid([]);
         setProgress(null);
         setRunError(null);
+        setZipNotice(null);
       }}
     >
       <Dropzone

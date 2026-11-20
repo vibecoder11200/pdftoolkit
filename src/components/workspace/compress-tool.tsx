@@ -16,10 +16,16 @@ import { ContinueChip } from './continue-chip';
 import { PresetBanner } from './preset-banner';
 import { presetDefaultsFor } from '../../lib/preset-session';
 import { useLastOutput } from '../../hooks/use-last-output';
+import {
+  MAX_FULL_PASSES,
+  runTargetCompress,
+  type TargetVerdict,
+} from '../../lib/target-compress';
 import { FileIcon } from '../ui/icons';
 
-type CompressMode = 'vector' | 'image' | 'linearize';
+type CompressMode = 'vector' | 'image' | 'linearize' | 'target';
 type ImageQuality = 'balanced' | 'small';
+type TargetPreset = '500kb' | '1mb' | '2mb' | '5mb' | 'custom';
 
 // `jpeg` is the mozjpeg quality on the worker's 1-100 scale (phase 7 — the
 // 0-1 canvas.toBlob value of the same name was 75/60 in hundredths).
@@ -27,6 +33,18 @@ const QUALITY_PRESET: Record<ImageQuality, { scale: number; jpeg: number }> = {
   balanced: { scale: 1.5, jpeg: 75 },
   small: { scale: 1.0, jpeg: 60 },
 };
+
+// Target-mode size presets + the 100KB validation floor (plan phase-01).
+const TARGET_PRESET_BYTES: Record<Exclude<TargetPreset, 'custom'>, number> = {
+  '500kb': 500 * 1024,
+  '1mb': 1024 * 1024,
+  '2mb': 2 * 1024 * 1024,
+  '5mb': 5 * 1024 * 1024,
+};
+const TARGET_MIN_BYTES = 100 * 1024;
+// Sample AND full-pass renders cap the long edge at 4500px (scan-cleanup
+// parity) — the anti-OOM bound the search's memory budget relies on.
+const TARGET_MAX_EDGE = 4500;
 
 // Per-mode "worth it" thresholds, in percent saved.
 const VECTOR_THRESHOLD_PCT = 5;
@@ -41,11 +59,19 @@ interface PageSize {
 
 interface CompressResult {
   mode: CompressMode;
-  bytes: Uint8Array;
+  bytes: Uint8Array | null;
   beforeBytes: number;
   afterBytes: number;
   savedPct: number;
   filename: string;
+  /** Target-mode verdict metadata (mode 'target' only). */
+  target?: {
+    verdict: TargetVerdict;
+    targetBytes: number;
+    quality: number;
+    scale: number;
+    passesUsed: number;
+  };
 }
 
 interface RunError {
@@ -57,6 +83,7 @@ function outputName(original: string, mode: CompressMode): string {
   const base = original.replace(/\.pdf$/i, '').trim() || 'compressed';
   if (mode === 'vector') return `${base}-vector-pack.pdf`;
   if (mode === 'linearize') return `${base}-web.pdf`;
+  if (mode === 'target') return `${base}-target.pdf`;
   return `${base}-raster.pdf`;
 }
 
@@ -84,6 +111,21 @@ export function CompressTool() {
     () => presetDefaultsFor('compress')?.mode ?? 'vector',
   );
   const [quality, setQuality] = useState<ImageQuality>('balanced');
+  // Target mode (v0.13.0 phase 1): size preset + custom MB input.
+  const [targetPreset, setTargetPreset] = useState<TargetPreset>('1mb');
+  const [targetCustomMb, setTargetCustomMb] = useState('1');
+  const targetBytes = (() => {
+    if (targetPreset !== 'custom') return TARGET_PRESET_BYTES[targetPreset];
+    const mb = Number.parseFloat(targetCustomMb);
+    if (!Number.isFinite(mb)) return TARGET_MIN_BYTES;
+    return Math.max(TARGET_MIN_BYTES, Math.round(mb * 1024 * 1024));
+  })();
+  // Validation surface for the custom MB input (the bytes value itself is
+  // clamped as a backstop); run stays blocked while the raw input is below
+  // the 100KB floor.
+  const targetInvalid =
+    targetPreset === 'custom' &&
+    Number.parseFloat(targetCustomMb) * 1024 * 1024 < TARGET_MIN_BYTES;
   const [batchNote, setBatchNote] = useState<string | null>(null);
   const pickFolder = () => {
     void (async () => {
@@ -162,6 +204,10 @@ export function CompressTool() {
       setRunError({ key: 'compress.err_no_file' });
       return;
     }
+    if (mode === 'target' && targetInvalid) {
+      setRunError({ key: 'compress.target_invalid' });
+      return;
+    }
     setBusy(true);
     setResult(null);
     try {
@@ -176,6 +222,92 @@ export function CompressTool() {
         setProgress({ value: 20, label: t('compress.progress_working_linearize') });
         const out = await engine.linearizePdf(src.bytes);
         finish(out, 'linearize', src.bytes.byteLength, src.file.name);
+      } else if (mode === 'target') {
+        // Mode (d) target-size (v0.13.0 phase 1): the SAME raster pipeline
+        // as the image mode, driven by lib/target-compress's sample-
+        // calibrated search. Deps are injected here so the lib stays pure.
+        const { renderPageToCanvas, getPageVisualSize } = await import('../../engine/pdfjs');
+        const { PDFDocument } = await import('pdf-lib');
+        const inputSize = src.bytes.byteLength;
+        const cappedRender = async (page: number, scale: number): Promise<ImageData> => {
+          const { width, height } = await getPageVisualSize(src.bytes, page);
+          const eff = Math.min(scale, TARGET_MAX_EDGE / Math.max(width, height));
+          const canvas = document.createElement('canvas');
+          await renderPageToCanvas(src.bytes, page, canvas, eff);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error(ENCODE_FAILED);
+          return ctx.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        const target = await runTargetCompress(inputSize, numPages, targetBytes, {
+          renderImage: cappedRender,
+          encodeJpeg: async (image, q) =>
+            getWorker().encodeJpeg(
+              { data: image.data, width: image.width, height: image.height },
+              { quality: q, progressive: true },
+            ),
+          rebuild: async (jpegs) => {
+            const doc = await PDFDocument.create();
+            for (let i = 0; i < jpegs.length; i += 1) {
+              const embedded = await doc.embedJpg(jpegs[i]);
+              const size = pageSizes[i] ?? { width: embedded.width, height: embedded.height };
+              const page = doc.addPage([size.width, size.height]);
+              page.drawImage(embedded, { x: 0, y: 0, width: size.width, height: size.height });
+            }
+            return doc.save();
+          },
+          onProgress: (fraction, phase, pass) => {
+            setProgress({
+              value: Math.min(95, Math.round(fraction * 95)),
+              label:
+                phase === 'sample'
+                  ? t('compress.target_progress_sample')
+                  : phase === 'pass'
+                    ? t('compress.target_progress_pass', { pass: pass ?? 1, max: MAX_FULL_PASSES })
+                    : t('compress.target_progress_rebuild'),
+            });
+          },
+        });
+        if (target.verdict === 'refuse-bigger') {
+          // Honest refusal: every configuration outgrew the input — no
+          // meaningless output (no bytes kept, no download buttons).
+          setResult({
+            mode: 'target',
+            bytes: null,
+            beforeBytes: inputSize,
+            afterBytes: target.outSize,
+            savedPct: ((inputSize - target.outSize) / inputSize) * 100,
+            filename: outputName(src.file.name, 'target'),
+            target: {
+              verdict: target.verdict,
+              targetBytes: target.targetBytes,
+              quality: target.quality,
+              scale: target.scale,
+              passesUsed: target.passesUsed,
+            },
+          });
+          setProgress({ value: 100, label: t('compress.progress_done') });
+        } else {
+          const out = target.bytes!;
+          const after = out.byteLength;
+          const name = outputName(src.file.name, 'target');
+          setResult({
+            mode: 'target',
+            bytes: out,
+            beforeBytes: inputSize,
+            afterBytes: after,
+            savedPct: ((inputSize - after) / inputSize) * 100,
+            filename: name,
+            target: {
+              verdict: target.verdict,
+              targetBytes: target.targetBytes,
+              quality: target.quality,
+              scale: target.scale,
+              passesUsed: target.passesUsed,
+            },
+          });
+          keep(out, name);
+          setProgress({ value: 100, label: t('compress.progress_done') });
+        }
       } else {
         // Mode (b): opt-in canvas downsample. Each page becomes a JPEG;
         // text selection is lost (explicit raster warning in the UI).
@@ -267,6 +399,21 @@ export function CompressTool() {
         ? t('compress.result_grew', { pct: Math.abs(result.savedPct).toFixed(1) })
         : t('compress.result_saved', { pct: result.savedPct.toFixed(1) });
 
+  // Target-mode verdict line — the honesty contract surfaced verbatim.
+  const targetLine = (() => {
+    if (!result || result.mode !== 'target' || !result.target) return null;
+    const tg = result.target;
+    const targetSize = formatBytes(tg.targetBytes, locale);
+    const outSize = formatBytes(result.afterBytes, locale);
+    if (tg.verdict === 'met') {
+      return t('compress.target_result_met', { target: targetSize, size: outSize });
+    }
+    if (tg.verdict === 'best-effort') {
+      return t('compress.target_result_best_effort', { target: targetSize, size: outSize });
+    }
+    return t('compress.target_result_refuse_bigger', { target: targetSize, size: outSize });
+  })();
+
   return (
     <WorkspaceShell
       title={t('compress.title')}
@@ -287,7 +434,11 @@ export function CompressTool() {
       error={error}
       side={
         <>
-          <Button onClick={() => void run()} disabled={!src || numPages === 0 || busy} disabledReason={t('a11y.need_file')}>
+          <Button
+            onClick={() => void run()}
+            disabled={!src || numPages === 0 || busy || targetInvalid}
+            disabledReason={t('a11y.need_file')}
+          >
             {t('compress.cta')}
           </Button>
           {lastOutput ? (
@@ -393,8 +544,26 @@ export function CompressTool() {
               <span className="block text-[13px] text-text-muted">{t('compress.mode_linearize_hint')}</span>
             </span>
           </label>
+          <label
+            className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${
+              mode === 'target' ? 'border-accent bg-surface-card' : 'border-border-strong bg-surface-card'
+            }`}
+          >
+            <input
+              type="radio"
+              name="compress-mode"
+              value="target"
+              checked={mode === 'target'}
+              onChange={() => setMode('target')}
+              className="mt-1 h-4 w-4 accent-accent"
+            />
+            <span>
+              <span className="block font-semibold">{t('compress.mode_target')}</span>
+              <span className="block text-[13px] text-text-muted">{t('compress.mode_target_hint')}</span>
+            </span>
+          </label>
         </div>
-        {mode === 'image' ? (
+        {mode === 'image' || mode === 'target' ? (
           <div
             className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[13.5px]"
             role="note"
@@ -404,6 +573,45 @@ export function CompressTool() {
           </div>
         ) : null}
       </fieldset>
+      {mode === 'target' ? (
+        <fieldset className="mt-4" data-testid="compress-target-size">
+          <legend className="text-sm font-bold">{t('compress.target_size_q')}</legend>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              aria-label={t('compress.target_size_q')}
+              value={targetPreset}
+              onChange={(e) => setTargetPreset(e.target.value as TargetPreset)}
+              className="min-h-11 rounded-lg border border-border-strong bg-surface-card px-3 text-[13px]"
+            >
+              <option value="500kb">500 KB</option>
+              <option value="1mb">1 MB</option>
+              <option value="2mb">2 MB</option>
+              <option value="5mb">5 MB</option>
+              <option value="custom">{t('compress.target_size_custom')}</option>
+            </select>
+            {targetPreset === 'custom' ? (
+              <label className="flex items-center gap-2 text-[13px]">
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  inputMode="decimal"
+                  aria-label={t('compress.target_size_custom')}
+                  value={targetCustomMb}
+                  onChange={(e) => setTargetCustomMb(e.target.value)}
+                  className="min-h-11 w-24 rounded-lg border border-border-strong bg-surface-card px-3 text-[13px]"
+                />
+                <span className="text-text-muted">MB</span>
+              </label>
+            ) : null}
+          </div>
+          {targetInvalid ? (
+            <p role="alert" className="mt-1.5 text-[13px] text-danger">
+              {t('compress.target_invalid')}
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
       {mode === 'image' ? (
         <fieldset className="mt-4">
           <legend className="text-sm font-bold">{t('compress.quality_q')}</legend>
@@ -448,19 +656,43 @@ export function CompressTool() {
             {t('compress.result_before')}: {formatBytes(result.beforeBytes, locale)} →{' '}
             {t('compress.result_after')}: {formatBytes(result.afterBytes, locale)} · {savedLabel}
           </p>
-          <p className="mt-1.5 text-text-muted">
-            {t(thresholdKey(result.mode, result.savedPct), {
-              pct: Math.abs(result.savedPct).toFixed(1),
-            })}
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <Button onClick={() => void deliverBytes(result.bytes, result.filename, 'download')}>
-              {t('compress.download_cta')}
-            </Button>
-            <SaveElsewhereButton
-              onClick={() => void deliverBytes(result.bytes, result.filename, 'pick')}
-            />
-          </div>
+          {result.target ? (
+            <>
+              <p
+                className={`mt-1.5 ${
+                  result.target.verdict === 'met'
+                    ? 'text-text-primary'
+                    : 'font-semibold text-warning'
+                }`}
+                data-testid="compress-target-verdict"
+              >
+                {targetLine}
+              </p>
+              <p className="mt-1.5 text-text-muted">
+                {t('compress.target_used_config', {
+                  quality: Math.round(result.target.quality),
+                  scale: result.target.scale,
+                  passes: result.target.passesUsed,
+                })}
+              </p>
+            </>
+          ) : (
+            <p className="mt-1.5 text-text-muted">
+              {t(thresholdKey(result.mode, result.savedPct), {
+                pct: Math.abs(result.savedPct).toFixed(1),
+              })}
+            </p>
+          )}
+          {result.bytes ? (
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <Button onClick={() => void deliverBytes(result.bytes!, result.filename, 'download')}>
+                {t('compress.download_cta')}
+              </Button>
+              <SaveElsewhereButton
+                onClick={() => void deliverBytes(result.bytes!, result.filename, 'pick')}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
     </WorkspaceShell>

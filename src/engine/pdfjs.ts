@@ -212,3 +212,46 @@ export async function getVisualTextItems(
   out.sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
   return out;
 }
+
+/** Outline node resolved to a 1-based source page (null = container/remote). */
+export interface OutlineTreeNode {
+  title: string;
+  destPage: number | null;
+  children: OutlineTreeNode[];
+}
+
+/**
+ * Source outline as a resolved tree (v0.13.0 phase 4 outline carry-over).
+ * pdf.js getOutline + named-dest resolution + getPageIndex — the FIRST
+ * repo code that reads an existing outline (grep getOutline was 0 hits
+ * before this). `url` items (remote links) are skipped.
+ */
+export async function getOutlineTree(data: Uint8Array): Promise<OutlineTreeNode[]> {
+  const doc = await getDoc(data);
+  const outline = await doc.getOutline();
+  const mapItems = async (
+    items: Awaited<ReturnType<pdfjs.PDFDocumentProxy['getOutline']>> | undefined,
+  ): Promise<OutlineTreeNode[]> => {
+    const out: OutlineTreeNode[] = [];
+    for (const item of items ?? []) {
+      if (item.url) continue;
+      let page: number | null = null;
+      try {
+        let dest: unknown = item.dest;
+        if (typeof dest === 'string') dest = await doc.getDestination(dest);
+        if (Array.isArray(dest) && dest[0] != null) {
+          page = (await doc.getPageIndex(dest[0])) + 1;
+        }
+      } catch {
+        page = null; // unresolvable dest → container node, never a crash
+      }
+      out.push({
+        title: item.title,
+        destPage: page,
+        children: await mapItems(item.items as typeof items),
+      });
+    }
+    return out;
+  };
+  return mapItems(outline);
+}

@@ -385,7 +385,19 @@
     "mode_linearize_hint": "Sắp xếp lại cấu trúc file để trang đầu hiện nhanh khi mở qua mạng. Không nén.",
     "progress_working_linearize": "Đang tối ưu cho web...",
     "result_ok_linearize": "Đã tối ưu cho web — trang đầu hiển thị sớm khi mở online.",
-    "modes_hint": "Gọn vector giữ nguyên chữ — hợp file nhiều văn bản. Nén ảnh hợp file nhiều scan/ảnh. Tối ưu cho web không nén — chỉ giúp trang đầu hiện nhanh khi mở online."
+    "modes_hint": "Gọn vector giữ nguyên chữ — hợp file nhiều văn bản. Nén ảnh hợp file nhiều scan/ảnh. Tối ưu cho web không nén — chỉ giúp trang đầu hiện nhanh khi mở online.",
+    "mode_target": "Nén theo dung lượng mục tiêu",
+    "mode_target_hint": "Chọn mức 500 KB / 1 MB / 2 MB / 5 MB (hoặc số MB tuỳ chọn) — tool tự dò chất lượng ảnh hợp lý; không đạt sẽ nói thẳng.",
+    "target_size_q": "Dung lượng mục tiêu",
+    "target_size_custom": "Tuỳ chọn (MB)",
+    "target_invalid": "Dung lượng mục tiêu tối thiểu 100 KB.",
+    "target_progress_sample": "Đang dò chất lượng hợp lý...",
+    "target_progress_pass": "Lần nén {{pass}}/{{max}}...",
+    "target_progress_rebuild": "Đang dựng lại PDF...",
+    "target_result_met": "Đạt mục tiêu ≤ {{target}} — dung lượng cuối: {{size}}.",
+    "target_result_best_effort": "Không đạt ≤ {{target}} — kết quả tốt nhất: {{size}}. Chữ vẫn không bôi đen được (ảnh chụp trang).",
+    "target_result_refuse_bigger": "Không đạt ≤ {{target}}: ngay cả mức nén mạnh nhất vẫn cho file lớn hơn bản gốc ({{size}}) — không xuất file vô nghĩa.",
+    "target_used_config": "Cấu hình: chất lượng JPEG {{quality}}, tỉ lệ {{scale}}×, {{passes}} lần nén."
   },
   "pdf-to-img": {
     "title": "PDF sang ảnh",
@@ -1373,7 +1385,9 @@
     "state_failed": "Thất bại",
     "state_cancelled": "Đã hủy",
     "op_diagnose": "Chẩn đoán PDF",
-    "op_repair": "Sửa PDF"
+    "op_repair": "Sửa PDF",
+    "op_page_numbers": "Đánh số trang",
+    "op_organize": "Sắp xếp trang"
   },
   "diag": {
     "title": "Chẩn đoán PDF",
@@ -1397,5 +1411,49 @@
     "repair_verified": "Đã tạo bản sửa mới — đối chiếu văn bản mẫu (trang đầu) khớp bản gốc.",
     "repair_unverifiable": "Đã tạo bản sửa mới — bản gốc không đọc được nên KHÔNG đối chiếu được; hãy tự kiểm tra lại kết quả.",
     "repair_refused": "Không thể sửa file này ({detail}). Không tạo bản xuất nào."
+  },
+  "zip": {
+    "toggle_label": "Gộp thành 1 file .zip",
+    "packing_progress": "Đang đóng gói .zip...",
+    "fallback_notice": "File quá lớn để gộp .zip — đã tải từng file riêng."
+  },
+  "pbuilder": {
+    "title": "Tạo chuỗi của bạn",
+    "title_edit": "Sửa chuỗi",
+    "subtitle": "Ghép các bước xử lý thành một chuỗi chạy lần lượt — lưu lại để dùng sau.",
+    "name_label": "Tên chuỗi",
+    "name_placeholder": "Ví dụ: Đóng dấu rồi nén",
+    "steps_label": "Các bước",
+    "empty": "Chưa có bước nào — thêm ít nhất 2 bước.",
+    "add_step": "Thêm bước",
+    "one_slug_note": "Mỗi tool chỉ xuất hiện một lần trong chuỗi (bản v1).",
+    "need_two_steps": "Chuỗi cần ít nhất 2 bước.",
+    "need_name": "Hãy đặt tên cho chuỗi.",
+    "duplicate_slug": "Mỗi tool chỉ dùng được một lần trong chuỗi.",
+    "save": "Lưu chuỗi",
+    "update": "Cập nhật chuỗi",
+    "cancel": "Huỷ",
+    "move_up": "Chuyển bước lên trên",
+    "move_down": "Chuyển bước xuống dưới",
+    "remove_step": "Bỏ bước này",
+    "import": "Nhập JSON",
+    "export": "Xuất JSON",
+    "import_ok": "Đã nhập {{count}} chuỗi.",
+    "import_error": "Nhập thất bại: {{message}}",
+    "save_invalid": "Chuỗi không hợp lệ: {{message}}",
+    "save_error": "Lưu thất bại: {{message}}",
+    "opt_compress_mode": "Chế độ nén",
+    "opt_watermark_text": "Chữ đóng dấu",
+    "opt_pn_preset": "Kiểu đánh số",
+    "opt_encrypt_mode": "Chế độ",
+    "opt_ocr_fixed": "Bước OCR chạy bằng Tesseract và xuất PDF tìm-chữ-được (cố định).",
+    "create_card": "Tạo chuỗi của bạn",
+    "create_card_hint": "Tự ghép các bước: đóng dấu, nén, đánh số...",
+    "edit": "Sửa",
+    "clone": "Nhân bản",
+    "delete": "Xoá",
+    "delete_confirm": "Bấm lần nữa để xoá",
+    "custom_tag": "Chuỗi của bạn",
+    "skipped_steps": "Bỏ qua {{count}} bước không hỗ trợ."
   }
 }

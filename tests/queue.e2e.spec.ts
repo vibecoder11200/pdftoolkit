@@ -28,3 +28,29 @@ test("queue: two-file merge runs and delivers once", async ({ page }) => {
   await expect(page.getByTestId("queue-item")).toHaveCount(1);
   await expect(page.getByTestId("queue-item-state")).not.toContainText("Thất bại");
 });
+
+/*
+ * v0.13.0 phase 4: the queue panel's page-numbers op (1→1) — the preset
+ * picker renders, the adapter stamps via the shared page-numbers config,
+ * ONE download with the locale-invariant vi-stemmed artifact name.
+ */
+test("queue: page-numbers op stamps and delivers the numbered pdf", async ({ page }) => {
+  test.setTimeout(180_000);
+  const fix = "tests/fixtures/fixture-small.pdf";
+  if (readFileSync(fix).length === 0) {
+    throw new Error("queue fixture missing - run node tests/fixtures/gen.mjs first");
+  }
+
+  await page.goto("./tools/merge");
+  const dlPromise = page.waitForEvent("download", { timeout: 90_000 });
+  await page.getByTestId("queue-toggle").click();
+  await page.getByTestId("queue-op-select").selectOption("page-numbers");
+  // The preset picker is op-gated; default preset 0 — exercise preset 2.
+  await page.getByTestId("queue-pn-preset").selectOption("2");
+  await page.getByTestId("queue-input").setInputFiles([fix]);
+  await page.getByTestId("queue-add").click();
+  const download = await dlPromise;
+  expect(download.suggestedFilename()).toBe("fixture-small-so-trang.pdf");
+  await expect(page.getByTestId("queue-item-state")).toContainText("Hoàn tất", { timeout: 60_000 });
+  await expect(page.getByTestId("queue-item-state")).not.toContainText("Thất bại");
+});

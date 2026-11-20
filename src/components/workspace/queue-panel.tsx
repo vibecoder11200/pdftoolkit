@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useQueueItems, queueStore } from "../../lib/queue-store";
+import {
+  PAGE_NUMBERS_DEFAULT_PRESET,
+  type PageNumbersPreset,
+} from "../../lib/page-numbers-config";
 import { Button } from "../ui/button";
 
 /*
@@ -14,7 +18,13 @@ import { Button } from "../ui/button";
 
 const POLL_MS = 300;
 
-type QueueOperationId = 'merge' | 'compress' | 'diagnose' | 'repair';
+type QueueOperationId =
+  | 'merge'
+  | 'compress'
+  | 'diagnose'
+  | 'repair'
+  | 'page-numbers'
+  | 'organize';
 
 const TERMINAL: string[] = ["succeeded", "cancelled"];
 
@@ -36,6 +46,9 @@ export function QueuePanel() {
   const { t } = useTranslation(["common"]);
   const { items, revision } = useQueueItems();
   const [operationId, setOperationId] = useState<QueueOperationId>("merge");
+  // Preset picker only for the page-numbers op (options reach the adapter
+  // verbatim; the adapter clamps). Default 0 = the tool's default (RT 8).
+  const [pnPreset, setPnPreset] = useState<PageNumbersPreset>(PAGE_NUMBERS_DEFAULT_PRESET);
   const fileRef = useRef<HTMLInputElement>(null);
   const [tick, setTick] = useState(0);
   const [open, setOpen] = useState(false);
@@ -67,7 +80,9 @@ export function QueuePanel() {
   const add = () => {
     const picked = fileRef.current?.files;
     if (!picked || picked.length === 0) return;
-    queueStore.enqueue(operationId, Array.from(picked));
+    const options =
+      operationId === 'page-numbers' ? { preset: pnPreset } : {};
+    queueStore.enqueue(operationId, Array.from(picked), options);
     if (fileRef.current) fileRef.current.value = "";
   };
   const stateLabel = (s: string) => t(STATE_KEYS[s] ?? "queue.state_queued");
@@ -92,7 +107,24 @@ export function QueuePanel() {
           <option value="compress">{t("queue.op_compress")}</option>
           <option value="diagnose">{t("queue.op_diagnose")}</option>
           <option value="repair">{t("queue.op_repair")}</option>
+          <option value="page-numbers">{t("queue.op_page_numbers")}</option>
+          <option value="organize">{t("queue.op_organize")}</option>
         </select>
+        {operationId === "page-numbers" ? (
+          <select
+            aria-label={t("page-numbers.preset_q")}
+            value={String(pnPreset)}
+            data-testid="queue-pn-preset"
+            onChange={(e) => setPnPreset(Number(e.target.value) as PageNumbersPreset)}
+            className="min-h-11 rounded-lg border border-border-strong bg-surface-card px-3 text-[13px]"
+          >
+            {[0, 1, 2, 3].map((idx) => (
+              <option key={idx} value={String(idx)}>
+                {t(`page-numbers.preset${idx + 1}`)}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <input
           ref={fileRef}
           type="file" multiple accept="application/pdf"

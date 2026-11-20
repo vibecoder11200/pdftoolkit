@@ -109,7 +109,10 @@ describe('preset session store lifecycle', () => {
     startPresetSession('no-such-preset');
     expect(getPresetSession()).toBeNull();
     startPresetSession('scan-number');
-    expect(getPresetSession()).toEqual({ presetSlug: 'scan-number', stepIndex: 0 });
+    const session = getPresetSession();
+    expect(session?.stepIndex).toBe(0);
+    expect(session?.chain.id).toBe('scan-number');
+    expect(session?.chain.custom).toBe(false);
   });
 
   it('setPresetStep walks forward and clamps to the step range', () => {
@@ -124,7 +127,7 @@ describe('preset session store lifecycle', () => {
 
   it('clear empties the session; repeated clears are silent', () => {
     const seen: Array<string | null> = [];
-    const off = onPresetSession((s) => seen.push(s?.presetSlug ?? null));
+    const off = onPresetSession((s) => seen.push(s?.chain.id ?? null));
     startPresetSession('stamp-compress');
     clearPresetSession();
     clearPresetSession();

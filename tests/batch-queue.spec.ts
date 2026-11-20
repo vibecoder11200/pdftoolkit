@@ -11,6 +11,16 @@ import {
   type OutputArtifact,
 } from '../src/lib/batch-queue';
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expose } from 'comlink';
+import { __setEngineWorkerSpawnForTests } from '../src/engine/client';
+import { organizeExport } from '../src/engine/pdf-lib';
+import { buildQueueRegistry } from '../src/lib/queue-store';
+import { parseOutlines } from '../src/lib/bookmarks';
+import { pageCountOf } from './helpers/text-assert';
+
 /*
  * Phase-7 batch queue suite: explicit state machine, cardinality validation
  * BEFORE execution, delivery LEDGER (no duplicate delivery across retry),
@@ -383,4 +393,97 @@ describe('awaitInput checkpoint (parked, review fix 2026-11-14)', () => {
     expect(item.state).toBe('cancelled');
     expect(item.deliveredIds.size).toBe(0);
   });
+});
+
+
+/*
+ * v0.13.0 phase-4 adapters over the REAL registry (queue-store): the new
+ * ops' cardinality contract, and the organize run through the REAL engine
+ * (worker = MessageChannel double serving the REAL organizeExport — the
+ * engine-respawn.spec pattern) with real pdf.js outline reads + remap.
+ */
+describe('phase-4 queue adapters (real registry, real engine)', () => {
+  const root = dirname(fileURLToPath(import.meta.url));
+  const readFixture = (name: string) =>
+    new Uint8Array(readFileSync(join(root, 'fixtures', name)));
+
+  it('page-numbers takes ONE input; organize is many→one (validatePlan names the step)', () => {
+    const registry = buildQueueRegistry();
+    expect(registry.get('page-numbers')!.cardinality).toEqual({ in: 'one', out: 'one' });
+    expect(registry.get('organize')!.cardinality).toEqual({ in: 'many', out: 'one' });
+    expect(() =>
+      validatePlan([{ operationId: 'page-numbers', options: {} }], registry, 2),
+    ).toThrow(/step 1.*page-numbers.*ONE/);
+    expect(() =>
+      validatePlan([{ operationId: 'organize', options: {} }], registry, 3),
+    ).not.toThrow();
+  });
+
+  it(
+    'organize: 3 real files → ONE artifact, outlines carried with offsets',
+    { timeout: 30_000 },
+    async () => {
+      __setEngineWorkerSpawnForTests(() => {
+        const api = {
+          organizeExport: (
+            sources: Uint8Array[],
+            pages: Parameters<typeof organizeExport>[1],
+            bookmarks: Parameters<typeof organizeExport>[2],
+          ) => organizeExport(sources, pages, bookmarks),
+        };
+        const { port1, port2 } = new MessageChannel();
+        expose(api, port2);
+        const w = {
+          onerror: null as ((e: Event) => void) | null,
+          onmessageerror: null as (() => void) | null,
+          postMessage: (data: unknown, transfer?: Transferable[]) =>
+            (port1 as { postMessage(d: unknown, t?: Transferable[]): void }).postMessage(data, transfer),
+          addEventListener: (type: string, cb: EventListener) =>
+            port1.addEventListener(type, cb as EventListener),
+          removeEventListener: (type: string, cb: EventListener) =>
+            port1.removeEventListener(type, cb as EventListener),
+          start: () => port1.start(),
+          terminate: () => {
+            port1.close();
+            port2.close();
+          },
+        };
+        return w as unknown as Worker;
+      });
+      try {
+        const mk = (bytes: Uint8Array, name: string) =>
+          new File([new Uint8Array(bytes)], name, { type: 'application/pdf' });
+        const bm = readFixture('bookmarks.pdf'); // 3 pages, 2 roots + nested child
+        const small = readFixture('fixture-small.pdf'); // 2 pages, no outline
+        const registry = buildQueueRegistry();
+        const run = registry.get('organize')!.run;
+        const arts = await run(
+          [mk(bm, 'a.pdf'), mk(small, 'b.pdf'), mk(bm, 'c.pdf')],
+          {},
+          {
+            itemId: 't-organize',
+            shouldStop: () => false,
+            onProgress: () => {},
+            awaitInput: async () => undefined,
+          },
+        );
+        expect(arts).toHaveLength(1);
+        expect(arts[0]!.filename).toBe('3-file-tap-hop-giu-dau-trang.pdf');
+        expect(await pageCountOf(arts[0]!.bytes)).toBe(8); // 3 + 2 + 3, input order
+        const parsed = await parseOutlines(arts[0]!.bytes);
+        expect(parsed.roots.map((r) => r.title)).toEqual([
+          'Chương 1',
+          'Chương 2 - tài liệu',
+          'Chương 1',
+          'Chương 2 - tài liệu',
+        ]);
+        expect(parsed.roots[2]!.dest!.page).toBe(6); // source-2 p1 → offset 5 + 1
+        expect(parsed.roots[3]!.dest!.page).toBe(7); // p2 → 5 + 2
+        expect(parsed.roots[3]!.children[0]!.title).toBe('Mục 1.1');
+        expect(parsed.roots[3]!.children[0]!.dest!.page).toBe(8); // p3 → 5 + 3
+      } finally {
+        __setEngineWorkerSpawnForTests(null);
+      }
+    },
+  );
 });
