@@ -59,6 +59,11 @@ const BASE_STATE: ToolState = {
   startNumber: 1,
 };
 
+/** Session prefill seed — read during the mount initializers (exactly once). */
+function seededPreset(): PageNumbersPreset {
+  return (presetDefaultsFor('page-numbers')?.preset ?? PAGE_NUMBERS_DEFAULT_PRESET) as PageNumbersPreset;
+}
+
 export function PageNumbersTool() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -80,14 +85,11 @@ export function PageNumbersTool() {
   // #2 ("n/total") — the same state applyPreset(1) would build, read ONCE at
   // mount. The [source, preset] scope-seeding effect honors it from the
   // first run; the user can still switch presets before running.
-  const [state, setState] = useState<ToolState>(() => {
-    const seed = (presetDefaultsFor('page-numbers')?.preset ??
-      PAGE_NUMBERS_DEFAULT_PRESET) as PageNumbersPreset;
-    return { ...BASE_STATE, ...presetConfig(seed, t) };
-  });
-  const [preset, setPreset] = useState<PageNumbersPreset>(
-    () => (presetDefaultsFor('page-numbers')?.preset ?? PAGE_NUMBERS_DEFAULT_PRESET) as PageNumbersPreset,
-  );
+  const [state, setState] = useState<ToolState>(() => ({
+    ...BASE_STATE,
+    ...presetConfig(seededPreset(), t),
+  }));
+  const [preset, setPreset] = useState<PageNumbersPreset>(seededPreset);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [progress, setProgress] = useState<{ value: number; label: string } | null>(null);
@@ -393,9 +395,9 @@ export function PageNumbersTool() {
                 disabled={!source || selected.size === 0 || busy}
                 onClick={() => void run('pick')}
               />
-          {lastOutput ? (
-            <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
-          ) : null}
+              {lastOutput ? (
+                <ContinueChip bytes={lastOutput.bytes} filename={lastOutput.filename} />
+              ) : null}
               {progress ? null : (
                 <span className="text-[13px] text-text-muted">{t('page-numbers.progress_idle')}</span>
               )}

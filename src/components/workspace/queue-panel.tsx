@@ -80,8 +80,7 @@ export function QueuePanel() {
   const add = () => {
     const picked = fileRef.current?.files;
     if (!picked || picked.length === 0) return;
-    const options =
-      operationId === 'page-numbers' ? { preset: pnPreset } : {};
+    const options = operationId === "page-numbers" ? { preset: pnPreset } : {};
     queueStore.enqueue(operationId, Array.from(picked), options);
     if (fileRef.current) fileRef.current.value = "";
   };

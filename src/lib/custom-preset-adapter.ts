@@ -116,11 +116,21 @@ export interface ChainFromCustomOutcome {
 export function chainFromCustom(c: CustomPreset): ChainFromCustomOutcome {
   const skippedSlugs: string[] = [];
   const steps: ChainStep[] = [];
+  const seenSlugs = new Set<string>();
   for (const step of c.steps) {
     if (!(BUILDER_SLUGS as readonly string[]).includes(step.operationId)) {
       skippedSlugs.push(step.operationId);
       continue;
     }
+    // Repeats are skipped like unknowns (review P2 2026-11-21): the schema
+    // stays permissive (v0.12 pins independent options per repeated op),
+    // but the RUNTIME prefill is slug-keyed — a [compress, compress] chain
+    // would prefill both steps from one slice. Builder v1 never authors one.
+    if (seenSlugs.has(step.operationId)) {
+      skippedSlugs.push(step.operationId);
+      continue;
+    }
+    seenSlugs.add(step.operationId);
     steps.push({ slug: step.operationId, options: step.options ?? {} });
   }
   if (steps.length === 0) return { chain: null, skippedSlugs };

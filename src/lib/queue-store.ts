@@ -202,10 +202,9 @@ export function buildQueueRegistry(): Map<string, QueueOperation> {
         for (let p = 1; p <= n; p += 1) pages.push({ kind: 'source', source: i, page: p });
       });
       if (pages.length === 0) throw new Error('organize: empty page plan');
-      const { bytes, report } = await engine.organizeExport(sources, pages, bookmarks);
+      const { bytes } = await engine.organizeExport(sources, pages, bookmarks);
       ctx.onProgress(0.9);
       const label = inputs.length > 1 ? `${inputs.length}-file-tap-hop` : 'tap-hop';
-      void report;
       return [
         {
           artifactId: ctx.itemId + ':organize:0',

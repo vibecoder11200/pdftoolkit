@@ -23,6 +23,8 @@ export const QUALITY_LADDER = [80, 50, 22] as const;
 export const LOWER_SCALE_RUNGS = [50, 22] as const;
 /** Scale ladder (DPI knob), floor 1.0 — bytes do NOT interpolate across scale. */
 export const SCALE_STEPS = [2.0, 1.5, 1.0] as const;
+/** Ladder floor (last scale, 1.0) — the run's default/degenerate scale. */
+const SCALE_FLOOR = SCALE_STEPS[SCALE_STEPS.length - 1];
 export const MAX_FULL_PASSES = 2;
 export const MAX_SAMPLE_ENCODINGS = 10;
 /** First estimate inflation (PDF rebuild overhead); replaced by real measures. */
@@ -118,8 +120,7 @@ export function pickPlan(
   targetBytes: number,
   overhead: number = INITIAL_OVERHEAD,
 ): PickOutcome {
-  const scale = samples[0]?.scale ?? SCALE_STEPS[SCALE_STEPS.length - 1];
-  const qMin = TARGET_MIN_Q;
+  const scale = samples[0]?.scale ?? SCALE_FLOOR;
   const points = rungPoints(samples, scale);
   // The census at NON-head scales encodes only the lower rungs ([50,22]) —
   // the plan's quality must stay within the MEASURED range (choosing the
@@ -132,19 +133,19 @@ export function pickPlan(
     // No samples at this scale: the caller never reached an encode — refuse
     // honestly with the floor config (the runner guards against this).
     return {
-      plan: { scale, quality: qMin, estimatedTotalBytes: targetBytes },
+      plan: { scale, quality: TARGET_MIN_Q, estimatedTotalBytes: targetBytes },
       fits: false,
-      needLowerScale: scale > SCALE_STEPS[SCALE_STEPS.length - 1],
+      needLowerScale: scale > SCALE_FLOOR,
     };
   }
   const qMax = Math.min(qTop ?? points[points.length - 1]!.q, QUALITY_LADDER[0]);
-  const bMin = bytesPerPageAt(samples, scale, qMin);
+  const bMin = bytesPerPageAt(samples, scale, TARGET_MIN_Q);
   const bMax = bytesPerPageAt(samples, scale, qMax);
   if (bMin == null || bMax == null) {
     return {
-      plan: { scale, quality: qMin, estimatedTotalBytes: targetBytes },
+      plan: { scale, quality: TARGET_MIN_Q, estimatedTotalBytes: targetBytes },
       fits: false,
-      needLowerScale: scale > SCALE_STEPS[SCALE_STEPS.length - 1],
+      needLowerScale: scale > SCALE_FLOOR,
     };
   }
   const budgetPerPage = targetBytes / (numPages * overhead);
@@ -158,13 +159,13 @@ export function pickPlan(
   }
   if (budgetPerPage < bMin) {
     return {
-      plan: { scale, quality: qMin, estimatedTotalBytes: bMin * numPages * overhead },
+      plan: { scale, quality: TARGET_MIN_Q, estimatedTotalBytes: bMin * numPages * overhead },
       fits: false,
-      needLowerScale: scale > SCALE_STEPS[SCALE_STEPS.length - 1],
+      needLowerScale: scale > SCALE_FLOOR,
     };
   }
   // Solve the linear segment containing the budget for the exact quality.
-  let quality = qMin;
+  let quality = TARGET_MIN_Q;
   for (let i = 1; i < points.length; i += 1) {
     const lo = points[i - 1]!;
     const hi = points[i]!;
@@ -174,7 +175,7 @@ export function pickPlan(
       break;
     }
   }
-  quality = Math.max(qMin, Math.min(qMax, quality));
+  quality = Math.max(TARGET_MIN_Q, Math.min(qMax, quality));
   return {
     plan: { scale, quality, estimatedTotalBytes: budgetPerPage * numPages * overhead },
     fits: true,
@@ -268,7 +269,7 @@ export async function runTargetCompress(
 
   // Census walk down the scale ladder (budget exactly 10: 6 + 2 + 2).
   const pages = samplePagesFor(numPages);
-  let chosenScale = SCALE_STEPS[SCALE_STEPS.length - 1];
+  let chosenScale = SCALE_FLOOR;
   let chosenQuality = TARGET_MIN_Q;
   for (let scaleIdx = 0; scaleIdx < SCALE_STEPS.length; scaleIdx += 1) {
     const scale = SCALE_STEPS[scaleIdx]!;

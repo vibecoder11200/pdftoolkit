@@ -267,6 +267,14 @@ export function CompressTool() {
             });
           },
         });
+        // The verdict metadata rides the result card verbatim (both branches).
+        const targetMeta = {
+          verdict: target.verdict,
+          targetBytes: target.targetBytes,
+          quality: target.quality,
+          scale: target.scale,
+          passesUsed: target.passesUsed,
+        };
         if (target.verdict === 'refuse-bigger') {
           // Honest refusal: every configuration outgrew the input — no
           // meaningless output (no bytes kept, no download buttons).
@@ -277,15 +285,8 @@ export function CompressTool() {
             afterBytes: target.outSize,
             savedPct: ((inputSize - target.outSize) / inputSize) * 100,
             filename: outputName(src.file.name, 'target'),
-            target: {
-              verdict: target.verdict,
-              targetBytes: target.targetBytes,
-              quality: target.quality,
-              scale: target.scale,
-              passesUsed: target.passesUsed,
-            },
+            target: targetMeta,
           });
-          setProgress({ value: 100, label: t('compress.progress_done') });
         } else {
           const out = target.bytes!;
           const after = out.byteLength;
@@ -297,17 +298,11 @@ export function CompressTool() {
             afterBytes: after,
             savedPct: ((inputSize - after) / inputSize) * 100,
             filename: name,
-            target: {
-              verdict: target.verdict,
-              targetBytes: target.targetBytes,
-              quality: target.quality,
-              scale: target.scale,
-              passesUsed: target.passesUsed,
-            },
+            target: targetMeta,
           });
           keep(out, name);
-          setProgress({ value: 100, label: t('compress.progress_done') });
         }
+        setProgress({ value: 100, label: t('compress.progress_done') });
       } else {
         // Mode (b): opt-in canvas downsample. Each page becomes a JPEG;
         // text selection is lost (explicit raster warning in the UI).
