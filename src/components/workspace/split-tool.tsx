@@ -224,6 +224,10 @@ export function SplitTool() {
           setProgress({ value: 60, label: t('zip.packing_progress') });
           const outcome = await packAndDeliverZip(parts, `${stem}-tap-hop.zip`, {
             deliverSingle: delivery.deliverSingle,
+            // The soft-cap/oversize fallback must ride the LEDGERED hook
+            // deliver (typed report → bar + per-entry retry), never the raw
+            // deliverBytesMulti (review P1 2026-11-21).
+            deliverMulti: delivery.deliver,
           });
           setZipNotice(outcome.zipped ? null : t('zip.fallback_notice'));
           if (outcome.report.overall === 'cancelled') {

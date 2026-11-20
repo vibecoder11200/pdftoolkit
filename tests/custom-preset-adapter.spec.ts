@@ -138,3 +138,21 @@ describe('chainFromBuiltin + resolveChain', () => {
   });
 });
 
+
+describe('review regression (2026-11-21) — repeated slugs from imports', () => {
+  it('a [compress, compress] import resolves to ONE compress step, repeat surfaced', () => {
+    // The v0.12 schema stays permissive (independent options per repeated
+    // op are valid STORE data), but the runtime prefill is slug-keyed —
+    // the adapter must skip a repeat like an unknown slug, never resolve
+    // a chain that would prefill both steps from one slice.
+    const { chain, skippedSlugs } = chainFromCustom(customWith([
+      { slug: 'watermark', options: { text: 'A' } },
+      { slug: 'compress', options: { mode: 'vector' } },
+      { slug: 'compress', options: { mode: 'image' } },
+    ]));
+    expect(chain).not.toBeNull();
+    expect(chain!.steps.map((s) => s.slug)).toEqual(['watermark', 'compress']);
+    expect(skippedSlugs).toEqual(['compress']); // the REPEAT, not the op itself
+    expect(chain!.defaults.compress).toEqual({ mode: 'vector' }); // first wins
+  });
+});

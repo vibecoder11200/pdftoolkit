@@ -270,7 +270,23 @@ describe('runTargetCompress — runner over scripted fake deps', () => {
     expect(r.verdict).toBe('met');
     expect(r.quality).toBe(TARGET_MIN_Q);
   });
+  it('review: a LARGER corrective pass never replaces a smaller pass-1 result', async () => {
+    // Census @2.0 → pick q≈78; pass 1 (4×550KB → 2,253,600B) overshoots
+    // 2MB → corrective 1-rung jump; pass 2 scripted LARGER (4×600KB) —
+    // encoder non-monotonicity. The result must stay pass 1's bytes at
+    // pass 1's quality (passesUsed back to 1), never the larger pass 2.
+    const { deps } = scriptedDeps([
+      K(500), K(300), K(100), K(500), K(300), K(100), // census @2.0
+      K(550), K(550), K(550), K(550), // pass 1 → 2,253,600B > 2MB
+      K(600), K(600), K(600), K(600), // pass 2 → LARGER (2,458,960B)
+    ]);
+    const r = await runTargetCompress(8 * MB, 4, 2 * MB, deps);
+    expect(r.verdict).toBe('best-effort'); // pass-1 bytes ≤ input, > target
+    expect(r.passesUsed).toBe(1); // the larger pass 2 was DISCARDED
+    expect(r.outSize).toBe(4 * 550 * 1024 + 800); // exactly pass 1's bytes
+  });
 });
+
 
 describe('constants — ladder invariants', () => {
   it('ladder head is the max quality and floor is TARGET_MIN_Q', () => {
@@ -281,5 +297,22 @@ describe('constants — ladder invariants', () => {
   it('scale floor is 1.0 and overhead starts at 1.05', () => {
     expect(SCALE_STEPS[SCALE_STEPS.length - 1]).toBe(1.0);
     expect(INITIAL_OVERHEAD).toBeCloseTo(1.05, 5);
+  });
+});
+
+
+describe('review regressions (2026-11-21)', () => {
+  it('pickPlan NEVER selects an unmeasured rung — q80 at a [50,22]-only scale is refused', () => {
+    // bytesPerPageAt CLAMPS out-of-range qualities (an 80 query over
+    // [50,22] samples returns the q50 bytes, never null), so the old
+    // bytesPerPageAt(...) == null guard was dead code and a generous
+    // budget picked quality 80 — an encode with zero measured bytes.
+    const s = samplesAt(1.5, [
+      { quality: 22, bytesPerPage: 25 * KB },
+      { quality: 50, bytesPerPage: 50 * KB },
+    ]);
+    const pick = pickPlan(s, 4, 10 * MB); // generous budget
+    expect(pick.fits).toBe(true);
+    expect(pick.plan.quality).toBe(50); // top MEASURED rung, not 80
   });
 });

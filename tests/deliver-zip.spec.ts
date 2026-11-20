@@ -162,3 +162,26 @@ describe('packAndDeliverZip — ZipSizeError fallback (name-based detection)', (
 function MB(): number {
   return 1024 * 1024;
 }
+
+
+describe('review regressions (2026-11-21)', () => {
+  it('soft cap is ENFORCED in packAndDeliverZip — the packer never runs over 150MB', async () => {
+    // zipGateFor existed but nothing called it in production code — between
+    // 150MB and the 200MB worker budget a zip pack would proceed (review P2).
+    // Now the gate sits at the single choke point: no pack call at all.
+    const { deps, packed } = makeDeps();
+    const entries: DeliverEntry[] = [
+      { bytes: b(ZIP_SOFT_CAP_BYTES - MB()), filename: 'big-a.pdf' },
+      { bytes: b(2 * MB()), filename: 'big-b.pdf' },
+    ];
+    // sanity: under the WORKER budget — only the soft gate refuses it
+    const total = entries.reduce((a, e) => a + e.bytes.byteLength, 0);
+    expect(total).toBeGreaterThan(ZIP_SOFT_CAP_BYTES);
+    expect(total).toBeLessThan(ZIP_MAX_TOTAL_BYTES);
+    const outcome = await packAndDeliverZip(entries, 'x.zip', deps);
+    expect(outcome.zipped).toBe(false);
+    expect(packed).toHaveLength(0); // never packed
+    expect(deps.deliverMulti).toHaveBeenCalledTimes(1);
+    expect(outcome.report.overall).toBe('dispatched');
+  });
+});

@@ -120,13 +120,14 @@ export function pickPlan(
 ): PickOutcome {
   const scale = samples[0]?.scale ?? SCALE_STEPS[SCALE_STEPS.length - 1];
   const qMin = TARGET_MIN_Q;
+  const points = rungPoints(samples, scale);
   // The census at NON-head scales encodes only the lower rungs ([50,22]) —
   // the plan's quality must stay within the MEASURED range (choosing the
-  // ladder head at an unmeasured quality would encode blind).
-  const qTop = bytesPerPageAt(samples, scale, QUALITY_LADDER[0]) == null
-    ? undefined
-    : QUALITY_LADDER[0];
-  const points = rungPoints(samples, scale);
+  // ladder head at an unmeasured quality would encode blind). MEASURED means
+  // a rung exists in `points` — bytesPerPageAt CLAMPS out-of-range qualities
+  // (an 80 query over [50,22] samples returns the q50 bytes, never null), so
+  // it cannot answer "was q80 measured at this scale?" (review P0 2026-11-21).
+  const qTop = points.some((p) => p.q === QUALITY_LADDER[0]) ? QUALITY_LADDER[0] : undefined;
   if (points.length === 0) {
     // No samples at this scale: the caller never reached an encode — refuse
     // honestly with the floor config (the runner guards against this).
@@ -329,7 +330,16 @@ export async function runTargetCompress(
     if (correction && correction.quality < chosenQuality) {
       quality = correction.quality;
       passesUsed = 2;
-      result = await fullPass(quality, 2);
+      const second = await fullPass(quality, 2);
+      // Keep the SMALLER measured result: a lower quality can come out
+      // LARGER in rare encoder non-monotonicity — never discard a valid
+      // smaller measured output (review P3 2026-11-21).
+      if (second.bytes.byteLength < first.bytes.byteLength) {
+        result = second;
+      } else {
+        quality = chosenQuality; // the kept result IS pass 1's
+        passesUsed = 1;
+      }
     }
   }
 

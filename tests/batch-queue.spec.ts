@@ -486,4 +486,71 @@ describe('phase-4 queue adapters (real registry, real engine)', () => {
       }
     },
   );
+
+  it(
+    'review regression: ONE unreadable source fails the item — never a truncated succeeded artifact',
+    { timeout: 30_000 },
+    async () => {
+      // Promise.all collapsed wholesale before (review P1): one corrupt
+      // source zeroed EVERY count -> each source planned as 1 page while
+      // carryOverBookmarks remapped with real counts (offsets disagreeing
+      // with the output). allSettled keeps the valid counts; the corrupt
+      // source contributes exactly 1 page (same fallback rule as the
+      // bookmark carry — plan and offsets can never disagree).
+      __setEngineWorkerSpawnForTests(() => {
+        const api = {
+          organizeExport: (
+            sources: Uint8Array[],
+            pages: Parameters<typeof organizeExport>[1],
+            bookmarks: Parameters<typeof organizeExport>[2],
+          ) => organizeExport(sources, pages, bookmarks),
+        };
+        const { port1, port2 } = new MessageChannel();
+        expose(api, port2);
+        const w = {
+          onerror: null as ((e: Event) => void) | null,
+          onmessageerror: null as (() => void) | null,
+          postMessage: (data: unknown, transfer?: Transferable[]) =>
+            (port1 as { postMessage(d: unknown, t?: Transferable[]): void }).postMessage(data, transfer),
+          addEventListener: (type: string, cb: EventListener) =>
+            port1.addEventListener(type, cb as EventListener),
+          removeEventListener: (type: string, cb: EventListener) =>
+            port1.removeEventListener(type, cb as EventListener),
+          start: () => port1.start(),
+          terminate: () => {
+            port1.close();
+            port2.close();
+          },
+        };
+        return w as unknown as Worker;
+      });
+      try {
+        const mk = (bytes: Uint8Array, name: string) =>
+          new File([new Uint8Array(bytes)], name, { type: 'application/pdf' });
+        const bm = readFixture('bookmarks.pdf'); // 3 pages + outline
+        // "%PDF-!" — header present, body unreadable
+        const corrupt = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x21]);
+        const registry = buildQueueRegistry();
+        const run = registry.get('organize')!.run;
+        // The honest contract: an unreadable source FAILS THE ITEM — the
+        // pre-fix behavior produced a truncated "succeeded" artifact (every
+        // source planned as 1 page) with bookmark offsets pointing past the
+        // output. Never a silent partial; the error surfaces in the queue.
+        await expect(
+          run(
+            [mk(bm, 'ok.pdf'), mk(corrupt, 'bad.pdf')],
+            {},
+            {
+              itemId: 't-organize-partial',
+              shouldStop: () => false,
+              onProgress: () => {},
+              awaitInput: async () => undefined,
+            },
+          ),
+        ).rejects.toThrow();
+      } finally {
+        __setEngineWorkerSpawnForTests(null);
+      }
+    },
+  );
 });

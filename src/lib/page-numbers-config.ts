@@ -34,7 +34,7 @@ export function presetConfig(
     skipFirst: false,
   };
   if (preset === 1) return { ...base, template: '{n}/{total}' };
-  if (preset  === 2) return { ...base, template: t('page-numbers.preset3_template') };
+  if (preset === 2) return { ...base, template: t('page-numbers.preset3_template') };
   if (preset === 3) return { ...base, template: '{n}/{total}', skipFirst: true };
   return { ...base, template: '{n}' };
 }

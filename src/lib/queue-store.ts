@@ -187,14 +187,15 @@ export function buildQueueRegistry(): Map<string, QueueOperation> {
       // Outline carry-over: read + remap BEFORE the engine call (pdf.js
       // main thread); a bookmarkless/corrupt source degrades to merge-like.
       const bookmarks = await carryOverBookmarks(sources);
-      // Default plan: keep every source page in input order.
-      let counts: number[] = [];
-      try {
-        const { getPageCount } = await import('../engine/pdfjs');
-        counts = await Promise.all(sources.map((b) => getPageCount(b)));
-      } catch {
-        counts = [];
-      }
+      // Default plan: keep every source page in input order. PER-SOURCE
+      // settle (review P1 2026-11-21): one unreadable source must not
+      // collapse EVERY source to 1 page while carryOverBookmarks remapped
+      // with real counts — bookmarks would point past the truncated
+      // output. carryOverBookmarks' independent per-source fallback
+      // (assume 1) follows the same rule, so plan and offsets agree.
+      const { getPageCount } = await import('../engine/pdfjs');
+      const settled = await Promise.allSettled(sources.map((b) => getPageCount(b)));
+      const counts = settled.map((r) => (r.status === 'fulfilled' ? r.value : 1));
       const pages: OrganizePagePlan[] = [];
       sources.forEach((_b, i) => {
         const n = counts[i] ?? 1;

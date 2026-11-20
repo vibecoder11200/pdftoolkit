@@ -433,6 +433,8 @@ export function CompareTool() {
       if (zipRequested) {
         const outcome = await packAndDeliverZip(parts, `${stemA}-so-sanh-tap-hop.zip`, {
           deliverSingle: delivery.deliverSingle,
+          // Ledgered fallback — see split-tool (review P1 2026-11-21).
+          deliverMulti: delivery.deliver,
         });
         setZipNotice(outcome.zipped ? null : t('zip.fallback_notice'));
         if (outcome.report.overall === 'cancelled') return; // picker cancel is not an error

@@ -37,7 +37,11 @@ export function useDelivery() {
       ...e,
       artifactId: e.artifactId ?? `${runId}:${i}`,
     }));
-    if (mime) mimeRef.current = mime;
+    // ALWAYS re-stamp: a prior ZIP run must not leave 'application/zip'
+    // stranded here — split-tool pairs a no-mime deliver() with the zip
+    // deliverSingle path, and a stale mime would reroute the retry of a
+    // later LOOSE run through the single-zip path (review P1 2026-11-21).
+    mimeRef.current = mime ?? 'application/pdf';
     entriesRef.current = retentionBudgetOk(tagged) ? tagged : null;
     budgetOkRef.current = retentionBudgetOk(tagged);
     const r = await deliverBytesMulti(tagged, mimeRef.current);

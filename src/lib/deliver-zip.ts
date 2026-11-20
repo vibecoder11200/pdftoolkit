@@ -56,6 +56,13 @@ export async function packAndDeliverZip(
   if (entries.length === 0) {
     return { zipped: false, report: { overall: 'cancelled', entries: [] } };
   }
+  // Soft cap FIRST (review P2 2026-11-21): between it and the worker's hard
+  // budget, refusing the zip up front avoids a doomed ~4x-transient pack +
+  // a tab OOM — fall back to loose delivery without ever calling the packer.
+  const deliverMulti = deps.deliverMulti ?? deliverBytesMulti;
+  if (!zipGateFor(entries).allowed) {
+    return { zipped: false, report: await deliverMulti(entries, 'application/pdf') };
+  }
   // No-clobber INSIDE the zip: resolveBatchNames applies the -2..-999
   // discipline before packing; refused names ride raw for the sanitizer.
   const resolved = resolveBatchNames(entries.map((e) => e.filename));
@@ -69,8 +76,6 @@ export async function packAndDeliverZip(
       const { engine } = await import('../engine/client');
       return engine.zipStore(list);
     });
-  const deliverMulti = deps.deliverMulti ?? deliverBytesMulti;
-
   let zip: Uint8Array;
   try {
     zip = await pack(finalEntries);

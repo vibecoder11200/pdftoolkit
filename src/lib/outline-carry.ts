@@ -13,7 +13,7 @@
  * imports from the engine are TYPE-ONLY (no pdf-lib in the entry chunk).
  */
 
-import { getOutlineTree, getPageCount, type OutlineTreeNode } from '../engine/pdfjs';
+import type { OutlineTreeNode } from '../engine/pdfjs';
 import type { OrganizeBookmarkWrite } from '../engine/pdf-lib';
 
 /** Remap a resolved tree onto the output page numbering. */
@@ -39,6 +39,10 @@ function remapTree(
 export async function carryOverBookmarks(sources: Uint8Array[]): Promise<OrganizeBookmarkWrite[]> {
   const out: OrganizeBookmarkWrite[] = [];
   let offset = 0;
+  // Value imports stay DYNAMIC (review P3 2026-11-21): a static one would
+  // thread pdf.js through queue-store/queue-panel into the entry chunk —
+  // same posture as the adapters' dynamic getPageCount.
+  const { getOutlineTree, getPageCount } = await import('../engine/pdfjs');
   for (const bytes of sources) {
     try {
       const tree = await getOutlineTree(bytes);
